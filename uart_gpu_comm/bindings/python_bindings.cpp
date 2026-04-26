@@ -82,6 +82,25 @@ public:
         throw_if_uart_error(err);
     }
 
+    py::bytes recv_raw(size_t n) {
+        if (!dev_) {
+            throw std::runtime_error("UART device is closed");
+        }
+
+        std::string buffer;
+        buffer.resize(n);
+
+        uart_err_t err = uart_recv_raw(
+            dev_,
+            reinterpret_cast<uint8_t *>(buffer.data()),
+            n
+        );
+
+        throw_if_uart_error(err);
+
+        return py::bytes(buffer);
+    }
+
 private:
     uart_dev_t *dev_ = nullptr;
 };
@@ -116,5 +135,6 @@ PYBIND11_MODULE(_uart_gpu_comm, m) {
         .def("is_open", &UartDevice::is_open)
         .def("send_raw", &UartDevice::send_raw,
              py::arg("data"),
-             "Send raw bytes over UART");
+             "Send raw bytes over UART")
+        .def("recv_raw", &UartDevice::recv_raw, py::arg("n"));
 }
