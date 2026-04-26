@@ -1,10 +1,10 @@
 #ifndef UART_CONSTANTS
 #define UART_CONSTANTS
-#define SIMT_SOF            0xAAu
-#define SIMT_MAX_PAYLOAD    65536
-#define SIMT_HEADER_SIZE    6      /* SOF + CMD + ADDR_HI + ADDR_LO + LEN  */
-#define SIMT_OVERHEAD       7      
-#define SIMT_MAX_PACKET     (SIMT_OVERHEAD + SIMT_MAX_PAYLOAD)
+#define UART_SOF            0xAAu
+#define UART_MAX_PAYLOAD    255u
+#define UART_HEADER_SIZE    6      /* SOF + CMD + ADDR_HI + ADDR_LO + LEN  */
+#define UART_OVERHEAD       7      
+#define UART_MAX_PACKET     (UART_OVERHEAD + UART_MAX_PAYLOAD)
 
 
 

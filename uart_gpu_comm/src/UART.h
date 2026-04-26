@@ -26,7 +26,7 @@ typedef enum {
     UART_ERR_TIMEOUT       = -4,  /* read() returned 0 bytes                */
     UART_ERR_SHORT         = -5,  /* response shorter than expected         */
     UART_ERR_IO            = -6,  /* OS-level read/write failure            */
-    UART_ERR_PAYLOAD_SIZE  = -7,  /* payload exceeds SIMT_MAX_PAYLOAD       */
+    UART_ERR_PAYLOAD_SIZE  = -7,  /* payload exceeds UART_MAX_PAYLOAD       */
     UART_ERR_OPEN          = -8,  /* could not open serial port             */
     UART_ERR_FPGA          = -9,  /* FPGA returned an error status          */
 } uart_err_t;
@@ -35,8 +35,8 @@ typedef struct {
     uint8_t cmd;
     uint16_t addr;
     uint16_t len;
-    uint8_t payload[SIMT_MAX_PAYLOAD];
-}simt_packet_t;
+    uint8_t payload[UART_MAX_PAYLOAD];
+} uart_packet_t;
 
 typedef struct uart_dev uart_dev_t;
 
@@ -44,7 +44,7 @@ typedef struct uart_dev uart_dev_t;
  * port    : e.g. "/dev/ttyUSB0" on Linux, "COM3" on Windows
  * baud    : baud rate, e.g. 115200
  * timeout_ms: per-byte read timeout in milliseconds
- * Returns NULL on failure (check simt_last_error()). */
+ * Returns NULL on failure. */
 uart_dev_t *open_uart(const char *port, int baud, int timeout_ms);
 
 /*Close the serial port and free the handle*/
@@ -58,6 +58,23 @@ uart_err_t uart_send_raw(uart_dev_t *dev, const uint8_t *buf, size_t len);
 
 /* Read exactly n bytes into buf. Returns UART_OK or uart_err_t. */
 uart_err_t uart_recv_raw(uart_dev_t *dev, uint8_t *buf, size_t n);
+
+/* Build a packet into buf and returns total packet length on success or uart_err_t*/
+int uart_build_packet(uint8_t *buf, uart_cmd_t cmd, uint16_t addr, const uint8_t *payload, uint16_t payload_len);
+
+/* Parse a packet from buf into pkt
+ * Verifies SOF, CRC, returns UART_OK uart_err_t
+*/
+uart_err_t uart_parse_packet(const uint8_t *buf, size_t buf_len, uart_packet_t *pkt);
+
+/* Write up to UART_MAX_PAYLOAD bytes of data to data BRAM at addr.
+ * Splits automatically into multiple packets if data_len > UART_MAX_PAYLOAD. */
+uart_err_t uart_write_data(uart_dev_t *dev, uint16_t addr,
+                           const uint8_t *data, size_t data_len);
+
+/* Read data_len bytes from data BRAM starting at addr into out_buf. */
+uart_err_t uart_read_data(uart_dev_t *dev, uint16_t addr,
+                          uint8_t *out_buf, size_t data_len);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,8 @@
 from enum import IntEnum
+from typing import TypedDict
+
+MAX_PAYLOAD: int
+
 
 class Error(IntEnum):
     OK: int
@@ -12,7 +16,34 @@ class Error(IntEnum):
     OPEN: int
     FPGA: int
 
+
+class Command(IntEnum):
+    WRITE_DATA: int
+    READ_DATA: int
+    WRITE_PROGRAM: int
+    LAUNCH: int
+    READ_STATUS: int
+    WRITE_HASH: int
+    VALIDATE: int
+
+
+class ParsedPacket(TypedDict):
+    cmd: int
+    addr: int
+    len: int
+    payload: bytes
+
+
 def strerror(err: int | Error) -> str: ...
+
+def build_packet(
+    cmd: int | Command,
+    addr: int,
+    payload: bytes = b"",
+) -> bytes: ...
+
+def parse_packet(data: bytes) -> ParsedPacket: ...
+
 
 class Device:
     def __init__(
@@ -29,3 +60,7 @@ class Device:
     def send_raw(self, data: bytes) -> None: ...
 
     def recv_raw(self, n: int) -> bytes: ...
+
+    def write_data(self, addr: int, data: bytes) -> None: ...
+
+    def read_data(self, addr: int, n: int) -> bytes: ...
