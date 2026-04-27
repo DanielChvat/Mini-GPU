@@ -140,16 +140,26 @@ uart_err_t uart_recv_raw(uart_dev_t *dev, uint8_t *buf, size_t n) {
 #else  /* POSIX */
  
 static speed_t baud_to_speed(int baud) {
-    switch (baud) {
-        case 9600:   return B9600;
-        case 19200:  return B19200;
-        case 38400:  return B38400;
-        case 57600:  return B57600;
+switch (baud) {
+        case 9600: return B9600;
+        case 19200: return B19200;
+        case 38400: return B38400;
+        case 57600: return B57600;
         case 115200: return B115200;
         case 230400: return B230400;
+
+#ifdef B460800
         case 460800: return B460800;
+#endif
+
+#ifdef B921600
         case 921600: return B921600;
-        default:     return B115200;
+#endif
+
+        default:
+            errno = EINVAL;
+            fprintf(stderr, "Unsupported baud rate on this platform: %d\n", baud);
+            return -1;
     }
 }
  
