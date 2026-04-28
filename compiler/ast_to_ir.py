@@ -56,6 +56,7 @@ class KernelState:
     lines: list[str] = field(default_factory=list)
     values: dict[str, str] = field(default_factory=dict)
     args: dict[str, str] = field(default_factory=dict)
+    shared: set[str] = field(default_factory=set)
     temp_index: int = 0
     label_index: int = 0
 
@@ -165,6 +166,12 @@ class MiniGpuIrLowerer:
         name = node.get("name")
         if not name:
             raise LoweringError("encountered unnamed local variable")
+
+        if has_child_kind(node, "CUDASharedAttr"):
+            state.shared.add(name)
+            state.values[name] = f"%{name}"
+            state.emit(f"%{name} = shared {name}")
+            return
 
         init = first_expr_child(node)
         if init is None:
@@ -288,7 +295,8 @@ class MiniGpuIrLowerer:
             index_value = self.lower_expr(index, state)
             addr = state.temp()
             state.emit(f"{addr} = add {base_value}, {index_value}")
-            state.emit(f"store_global {addr}, {value}")
+            store_op = "store_shared" if is_shared_array_base(base, state) else "store_global"
+            state.emit(f"{store_op} {addr}, {value}")
             return
 
         self.unsupported(lhs, "assignment target")
@@ -346,7 +354,8 @@ class MiniGpuIrLowerer:
             addr = state.temp()
             value = state.temp()
             state.emit(f"{addr} = add {base_value}, {index_value}")
-            state.emit(f"{value} = load_global {addr}")
+            load_op = "load_shared" if is_shared_array_base(base, state) else "load_global"
+            state.emit(f"{value} = {load_op} {addr}")
             return value
 
         if kind == "UnaryOperator":
@@ -424,6 +433,11 @@ def children(node: dict[str, Any]) -> list[dict[str, Any]]:
     return [child for child in node.get("inner", []) if isinstance(child, dict)]
 
 
+def has_child_kind(node: dict[str, Any], kind: str) -> bool:
+    """Check direct child nodes for an AST kind."""
+    return any(child.get("kind") == kind for child in children(node))
+
+
 def unwrap(node: dict[str, Any]) -> dict[str, Any]:
     """Skip Clang wrapper nodes that do not affect Mini-GPU semantics."""
     while node.get("kind") in {
@@ -469,6 +483,15 @@ def array_parts(node: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     if len(parts) != 2:
         raise LoweringError("array subscript expression has unexpected arity")
     return parts[0], parts[1]
+
+
+def is_shared_array_base(node: dict[str, Any], state: KernelState) -> bool:
+    """Return true when an array base refers to a shared memory declaration."""
+    node = unwrap(node)
+    if node.get("kind") != "DeclRefExpr":
+        return False
+    name = referenced_name(node)
+    return bool(name and name in state.shared)
 
 
 def cuda_metadata_name(node: dict[str, Any]) -> str | None:

@@ -187,6 +187,12 @@ def lower_assignment(
         asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
         return
 
+    if op == "shared":
+        if len(operands) != 1:
+            raise IsaLoweringError(f"shared expects one operand: {dst} = {op} {operands}")
+        asm.append(f"  LDC {rd}, SHARED_{operands[0].upper()}")
+        return
+
     if op == "const":
         if len(operands) != 1:
             raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")

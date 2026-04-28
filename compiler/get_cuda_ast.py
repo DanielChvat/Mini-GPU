@@ -30,6 +30,10 @@ CUDA_PRELUDE = """\
 #define __host__ __attribute__((host))
 #endif
 
+#ifndef __shared__
+#define __shared__ __attribute__((shared))
+#endif
+
 struct dim3 {
   unsigned int x, y, z;
 };
