@@ -40,10 +40,14 @@ OPCODES = {
     "SGE": 0x1A,
     "SEQ": 0x1B,
     "SNE": 0x1C,
+    "FADD": 0x1D,
+    "FSUB": 0x1E,
+    "FMUL": 0x1F,
     "LDG": 0x20,
     "STG": 0x21,
     "LDS": 0x22,
     "STS": 0x23,
+    "FDIV": 0x24,
     "TID": 0x28,
     "TIDX": 0x29,
     "BID": 0x2A,
@@ -60,6 +64,15 @@ OPCODES = {
     "BNZ": 0x3A,
     "BAR": 0x3B,
     "EXIT": 0x3C,
+}
+
+FORMATS = {
+    "I32": 0x0,
+    "I16": 0x1,
+    "I8": 0x2,
+    "FP32": 0x3,
+    "FP16": 0x4,
+    "FP8": 0x5,
 }
 
 RRR_OPS = {
@@ -81,6 +94,7 @@ RRR_OPS = {
     "SNE",
 }
 
+FRR_OPS = {"FADD", "FSUB", "FMUL", "FDIV"}
 RRI_OPS = {"ADDI", "SUBI", "MULI", "ANDI", "ORI", "XORI", "SHLI", "SHRI"}
 THREAD_OPS = {"TID", "TIDX", "BID", "BDIM", "GDIM", "LID", "WID"}
 ZERO_OPS = {"NOP", "PUSHM", "POPM", "BAR", "EXIT"}
@@ -160,9 +174,11 @@ def isa_to_binary(asm_text: str) -> bytes:
 
 def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
     """Encode one instruction line."""
-    op, operands = split_instruction(line)
+    op, fmt, operands = split_instruction(line)
     if op not in OPCODES:
         raise EncodeError(f"unknown opcode: {op}")
+    if fmt is not None and op not in RRR_OPS and op not in FRR_OPS:
+        raise EncodeError(f"{op} does not accept a data-format suffix")
 
     if op in ZERO_OPS:
         expect_count(op, operands, 0)
@@ -182,7 +198,11 @@ def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
 
     if op in RRR_OPS:
         expect_count(op, operands, 3)
-        return pack(op, rd=reg(operands[0]), rs1=reg(operands[1]), rs2=reg(operands[2]))
+        return pack(op, rd=reg(operands[0]), rs1=reg(operands[1]), rs2=reg(operands[2]), imm=format_id(fmt, "I32"))
+
+    if op in FRR_OPS:
+        expect_count(op, operands, 3)
+        return pack(op, rd=reg(operands[0]), rs1=reg(operands[1]), rs2=reg(operands[2]), imm=format_id(fmt, "FP32"))
 
     if op == "MOV":
         expect_count(op, operands, 2)
@@ -221,12 +241,33 @@ def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
     raise EncodeError(f"unsupported opcode: {op}")
 
 
-def split_instruction(line: str) -> tuple[str, list[str]]:
+def split_instruction(line: str) -> tuple[str, str | None, list[str]]:
     """Split an instruction into opcode and operands."""
     if " " not in line:
-        return line.upper(), []
+        op_text = line.upper()
+        op, fmt = split_typed_opcode(op_text)
+        return op, fmt, []
     op, rest = line.split(None, 1)
-    return op.upper(), [operand.strip() for operand in rest.split(",")]
+    op, fmt = split_typed_opcode(op.upper())
+    return op, fmt, [operand.strip() for operand in rest.split(",")]
+
+
+def split_typed_opcode(op_text: str) -> tuple[str, str | None]:
+    """Split opcodes like ADD.I16 or FADD.FP32."""
+    if "." not in op_text:
+        return op_text, None
+    op, fmt = op_text.split(".", 1)
+    if not op or not fmt:
+        raise EncodeError(f"malformed typed opcode: {op_text}")
+    return op, fmt
+
+
+def format_id(fmt: str | None, default: str) -> int:
+    """Encode a data format tag in the low bits of imm14."""
+    fmt_name = default if fmt is None else fmt.upper()
+    if fmt_name not in FORMATS:
+        raise EncodeError(f"unknown data format: {fmt_name}")
+    return FORMATS[fmt_name]
 
 
 def pack(op: str, rd: int = 0, rs1: int = 0, rs2: int = 0, imm: int = 0) -> int:

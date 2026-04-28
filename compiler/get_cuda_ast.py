@@ -38,6 +38,18 @@ struct dim3 {
   unsigned int x, y, z;
 };
 
+typedef signed char int8_t;
+typedef short int16_t;
+typedef int int32_t;
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned short half;
+typedef unsigned short __half;
+typedef unsigned char fp8;
+typedef unsigned char fp8_e4m3;
+typedef unsigned char __nv_fp8_e4m3;
+
 extern __device__ const dim3 threadIdx;
 extern __device__ const dim3 blockIdx;
 extern __device__ const dim3 blockDim;

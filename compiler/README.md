@@ -14,6 +14,21 @@ Mini-GPU uses a fixed-width 32-bit instruction format. The encoding is intention
 
 Registers are `r0` through `r15`. Immediates are signed 14-bit values. Raw `.bin` output is big-endian per instruction word, so hex word `0C000000` is emitted as bytes `0C 00 00 00`.
 
+For register-to-register typed ALU instructions, `imm14[2:0]` carries a data-format tag. Existing un-suffixed integer assembly keeps encoding as `I32`.
+
+| Format | ID | Meaning |
+|---|---:|---|
+| `I32` | `0` | signed 32-bit integer |
+| `I16` | `1` | signed 16-bit integer in low register bits |
+| `I8` | `2` | signed 8-bit integer in low register bits |
+| `FP32` | `3` | 32-bit floating point |
+| `FP16` | `4` | 16-bit floating point in low register bits |
+| `FP8` | `5` | 8-bit floating point in low register bits |
+
+The CUDA subset compiler tracks scalar and pointer element types for `int`, `int16_t`, `int8_t`, `float`, `half`, and `fp8_e4m3`. It emits typed IR such as `add.fp32` or `add.i8`, which lowers to ISA suffixes such as `FADD.FP32` or `ADD.I8`.
+
+Typed memory operations are represented in IR, for example `load_global.fp16`, but the current ISA still encodes loads/stores as `LDG/STG` without a width field. Packed byte/halfword/fp8 memory behavior must be added in the memory unit before these types are fully correct end to end.
+
 ## Instruction Forms
 
 All forms use the same 32-bit layout. Unused fields are encoded as zero.
@@ -24,7 +39,9 @@ Used for register-to-register ALU operations.
 
 ```text
 ADD rd, rs1, rs2
+ADD.I16 rd, rs1, rs2
 MUL rd, rs1, rs2
+FADD.FP32 rd, rs1, rs2
 SLT rd, rs1, rs2
 ```
 
@@ -34,7 +51,7 @@ SLT rd, rs1, rs2
 | `rd` | destination register |
 | `rs1` | first input register |
 | `rs2` | second input register |
-| `imm14` | `0` |
+| `imm14` | `0` for un-suffixed `I32`, otherwise low bits hold the format ID |
 
 Example:
 
@@ -201,9 +218,11 @@ Only the opcode field is used.
 | `0x16` | `SHRI` | `0x17` | `SLT` |
 | `0x18` | `SLE` | `0x19` | `SGT` |
 | `0x1A` | `SGE` | `0x1B` | `SEQ` |
-| `0x1C` | `SNE` | `0x20` | `LDG` |
-| `0x21` | `STG` | `0x22` | `LDS` |
-| `0x23` | `STS` | `0x28` | `TID` |
+| `0x1C` | `SNE` | `0x1D` | `FADD` |
+| `0x1E` | `FSUB` | `0x1F` | `FMUL` |
+| `0x20` | `LDG` | `0x21` | `STG` |
+| `0x22` | `LDS` | `0x23` | `STS` |
+| `0x24` | `FDIV` | `0x28` | `TID` |
 | `0x29` | `TIDX` | `0x2A` | `BID` |
 | `0x2B` | `BDIM` | `0x2C` | `GDIM` |
 | `0x2D` | `LID` | `0x2E` | `WID` |
@@ -246,6 +265,10 @@ Only the opcode field is used.
 | `SGE` | Set Greater Than or Equal | Writes `1` if `rs1 >= rs2`, else `0`. |
 | `SEQ` | Set Equal | Writes `1` if `rs1 == rs2`, else `0`. |
 | `SNE` | Set Not Equal | Writes `1` if `rs1 != rs2`, else `0`. |
+| `FADD` | Floating Add | Computes typed floating-point `rd = rs1 + rs2`. |
+| `FSUB` | Floating Subtract | Computes typed floating-point `rd = rs1 - rs2`. |
+| `FMUL` | Floating Multiply | Computes typed floating-point `rd = rs1 * rs2`. |
+| `FDIV` | Floating Divide | Computes typed floating-point `rd = rs1 / rs2`. |
 | `LDG` | Load Global | Loads global memory `[rs1 + imm14]` into `rd`. |
 | `STG` | Store Global | Stores `rs2` to global memory `[rs1 + imm14]`. |
 | `LDS` | Load Shared | Loads shared memory `[rs1 + imm14]` into `rd`. |

@@ -55,6 +55,8 @@ class KernelState:
     name: str
     lines: list[str] = field(default_factory=list)
     values: dict[str, str] = field(default_factory=dict)
+    value_types: dict[str, str] = field(default_factory=dict)
+    var_types: dict[str, str] = field(default_factory=dict)
     args: dict[str, str] = field(default_factory=dict)
     shared: set[str] = field(default_factory=set)
     temp_index: int = 0
@@ -99,6 +101,9 @@ class MiniGpuIrLowerer:
                 value = f"%{name}"
                 state.args[name] = value
                 state.values[name] = value
+                arg_type = format_from_qual_type(type_text(child))
+                state.var_types[name] = "ptr" if arg_type is None else arg_type
+                state.value_types[value] = state.var_types[name]
                 state.emit(f"{value} = arg {name}")
             elif child.get("kind") == "CompoundStmt":
                 body = child
@@ -170,18 +175,23 @@ class MiniGpuIrLowerer:
         if has_child_kind(node, "CUDASharedAttr"):
             state.shared.add(name)
             state.values[name] = f"%{name}"
+            state.var_types[name] = format_from_qual_type(type_text(node)) or "i32"
+            state.value_types[f"%{name}"] = state.var_types[name]
             state.emit(f"%{name} = shared {name}")
             return
 
         init = first_expr_child(node)
         if init is None:
             value = state.temp()
+            state.value_types[value] = "i32"
             state.emit(f"{value} = const 0")
         else:
             value = self.lower_expr(init, state)
+        state.var_types[name] = format_from_qual_type(type_text(node)) or state.value_types.get(value, "i32")
         state.values[name] = value
         state.emit(f"%{name} = mov {value}")
         state.values[name] = f"%{name}"
+        state.value_types[f"%{name}"] = state.var_types[name]
 
     def lower_binary_stmt(self, node: dict[str, Any], state: KernelState) -> None:
         """Lower assignment and compound-assignment statements."""
@@ -253,11 +263,13 @@ class MiniGpuIrLowerer:
         target = operands[0]
         current = self.lower_expr(target, state)
         one = state.temp()
+        state.value_types[one] = "i32"
         state.emit(f"{one} = const 1")
+        target_type = state.value_types.get(current, "i32")
         if opcode in {"++", "post++"}:
-            updated = self.lower_binary_value("add", current, one, state)
+            updated = self.lower_binary_value(typed_ir_op("add", target_type), current, one, state, target_type)
         elif opcode in {"--", "post--"}:
-            updated = self.lower_binary_value("sub", current, one, state)
+            updated = self.lower_binary_value(typed_ir_op("sub", target_type), current, one, state, target_type)
         else:
             self.unsupported(node, f"unary statement opcode {opcode!r}")
         self.assign_value(target, updated, state)
@@ -284,9 +296,11 @@ class MiniGpuIrLowerer:
             name = referenced_name(lhs)
             if not name:
                 self.unsupported(lhs, "assignment target")
+            target_type = state.var_types.get(name, state.value_types.get(value, "i32"))
             state.values[name] = value
             state.emit(f"%{name} = mov {value}")
             state.values[name] = f"%{name}"
+            state.value_types[f"%{name}"] = target_type
             return
 
         if kind == "ArraySubscriptExpr":
@@ -294,8 +308,11 @@ class MiniGpuIrLowerer:
             base_value = self.lower_expr(base, state)
             index_value = self.lower_expr(index, state)
             addr = state.temp()
-            state.emit(f"{addr} = add {base_value}, {index_value}")
+            state.value_types[addr] = "i32"
+            state.emit(f"{addr} = add.i32 {base_value}, {index_value}")
+            fmt = format_from_qual_type(type_text(lhs)) or state.value_types.get(value, "i32")
             store_op = "store_shared" if is_shared_array_base(base, state) else "store_global"
+            store_op = typed_ir_op(store_op, fmt)
             state.emit(f"{store_op} {addr}, {value}")
             return
 
@@ -317,13 +334,18 @@ class MiniGpuIrLowerer:
         if kind == "IntegerLiteral":
             value = literal_value(node)
             temp = state.temp()
+            state.value_types[temp] = "i32"
             state.emit(f"{temp} = const {value}")
             return temp
+
+        if kind == "FloatingLiteral":
+            self.unsupported(node, "floating-point literal")
 
         if kind == "MemberExpr":
             special = cuda_metadata_name(node)
             if special:
                 temp = state.temp()
+                state.value_types[temp] = "i32"
                 state.emit(f"{temp} = {special}")
                 return temp
             self.unsupported(node, "member expression")
@@ -331,6 +353,7 @@ class MiniGpuIrLowerer:
         if kind in {"BinaryOperator", "CompoundAssignOperator"}:
             if is_global_tid_expr(node):
                 temp = state.temp()
+                state.value_types[temp] = "i32"
                 state.emit(f"{temp} = global_tid")
                 return temp
 
@@ -353,8 +376,12 @@ class MiniGpuIrLowerer:
             index_value = self.lower_expr(index, state)
             addr = state.temp()
             value = state.temp()
-            state.emit(f"{addr} = add {base_value}, {index_value}")
+            state.value_types[addr] = "i32"
+            fmt = format_from_qual_type(type_text(node)) or "i32"
+            state.value_types[value] = fmt
+            state.emit(f"{addr} = add.i32 {base_value}, {index_value}")
             load_op = "load_shared" if is_shared_array_base(base, state) else "load_global"
+            load_op = typed_ir_op(load_op, fmt)
             state.emit(f"{value} = {load_op} {addr}")
             return value
 
@@ -365,16 +392,19 @@ class MiniGpuIrLowerer:
                 self.unsupported(node, "unary expression with unexpected arity")
             if opcode == "-":
                 zero = state.temp()
+                state.value_types[zero] = "i32"
                 state.emit(f"{zero} = const 0")
                 return self.lower_binary_expr("-", zero, operands[0], state)
             if opcode == "~":
                 value = self.lower_expr(operands[0], state)
                 temp = state.temp()
+                state.value_types[temp] = "i32"
                 state.emit(f"{temp} = not {value}")
                 return temp
             if opcode == "!":
                 value = self.lower_expr(operands[0], state)
                 temp = state.temp()
+                state.value_types[temp] = "i32"
                 state.emit(f"{temp} = eq {value}, 0")
                 return temp
             if opcode in {"++", "post++", "--", "post--"}:
@@ -411,11 +441,38 @@ class MiniGpuIrLowerer:
         ir_opcode = ARITHMETIC_OPS.get(opcode) or COMPARISON_OPS.get(opcode)
         if ir_opcode is None:
             raise LoweringError(f"unsupported binary opcode: {opcode}")
-        return self.lower_binary_value(ir_opcode, lhs_value, rhs_value, state)
+        result_node = lhs if not isinstance(lhs, str) else rhs if not isinstance(rhs, str) else None
+        result_fmt = format_from_qual_type(type_text(unwrap(result_node))) if result_node is not None else None
+        if result_fmt is None:
+            result_fmt = merge_value_formats(
+                state.value_types.get(lhs_value, "i32"),
+                state.value_types.get(rhs_value, "i32"),
+            )
+        if ir_opcode in COMPARISON_OPS.values():
+            emit_fmt = merge_value_formats(
+                state.value_types.get(lhs_value, result_fmt),
+                state.value_types.get(rhs_value, result_fmt),
+            )
+            result_type = "i32"
+        else:
+            emit_fmt = result_fmt
+            result_type = result_fmt
+        return self.lower_binary_value(typed_ir_op(ir_opcode, emit_fmt), lhs_value, rhs_value, state, result_type)
 
-    def lower_binary_value(self, ir_opcode: str, lhs: str, rhs: str, state: KernelState) -> str:
+    def lower_binary_value(
+        self,
+        ir_opcode: str,
+        lhs: str,
+        rhs: str,
+        state: KernelState,
+        result_type: str | None = None,
+    ) -> str:
         """Emit a binary IR operation on existing IR values."""
         temp = state.temp()
+        state.value_types[temp] = result_type or merge_value_formats(
+            state.value_types.get(lhs, "i32"),
+            state.value_types.get(rhs, "i32"),
+        )
         state.emit(f"{temp} = {ir_opcode} {lhs}, {rhs}")
         return temp
 
@@ -475,6 +532,76 @@ def literal_value(node: dict[str, Any]) -> int:
     if "inner" in node:
         raise LoweringError("integer literal has unexpected child nodes")
     raise LoweringError("integer literal is missing a value")
+
+
+def type_text(node: dict[str, Any] | None) -> str:
+    """Return Clang's qualified type text for a node."""
+    if not isinstance(node, dict):
+        return ""
+    type_info = node.get("type")
+    if isinstance(type_info, dict):
+        return str(type_info.get("qualType", ""))
+    return ""
+
+
+def normalize_type_name(text: str) -> str:
+    """Normalize a Clang type spelling for simple matching."""
+    normalized = text.replace("const ", "").replace("volatile ", "").strip()
+    while normalized.endswith("*"):
+        normalized = normalized[:-1].strip()
+    return " ".join(normalized.split())
+
+
+def format_from_qual_type(text: str) -> str | None:
+    """Map CUDA/C scalar type spellings to Mini-GPU data formats."""
+    normalized = normalize_type_name(text)
+    if not normalized:
+        return None
+
+    aliases = {
+        "int": "i32",
+        "signed int": "i32",
+        "int32_t": "i32",
+        "short": "i16",
+        "short int": "i16",
+        "signed short": "i16",
+        "signed short int": "i16",
+        "int16_t": "i16",
+        "char": "i8",
+        "signed char": "i8",
+        "int8_t": "i8",
+        "float": "fp32",
+        "half": "fp16",
+        "__half": "fp16",
+        "__fp16": "fp16",
+        "_Float16": "fp16",
+        "fp8": "fp8",
+        "fp8_e4m3": "fp8",
+        "__nv_fp8_e4m3": "fp8",
+    }
+    return aliases.get(normalized)
+
+
+def typed_ir_op(op: str, fmt: str | None) -> str:
+    """Attach a data format suffix to typed IR operations."""
+    return f"{op}.{fmt or 'i32'}"
+
+
+def merge_value_formats(lhs: str, rhs: str) -> str:
+    """Pick the data format to use for a binary expression."""
+    if lhs == rhs:
+        return lhs
+    if lhs.startswith("fp") or rhs.startswith("fp"):
+        if "fp32" in {lhs, rhs}:
+            return "fp32"
+        if "fp16" in {lhs, rhs}:
+            return "fp16"
+        return "fp8"
+    if "i32" in {lhs, rhs}:
+        return "i32"
+    if "i16" in {lhs, rhs}:
+        return "i16"
+    return "i8"
 
 
 def array_parts(node: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

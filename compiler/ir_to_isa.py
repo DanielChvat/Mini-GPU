@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-IR_ASSIGN_RE = re.compile(r"^(%[\w.]+)\s*=\s*(\w+)(?:\s+(.*))?$")
+IR_ASSIGN_RE = re.compile(r"^(%[\w.]+)\s*=\s*([\w.]+)(?:\s+(.*))?$")
 
 THREAD_OPS = {
     "global_tid": "TID",
@@ -40,6 +40,13 @@ VALUE_OPS = {
 EXTENSION_VALUE_OPS = {
     "div": "DIV",
     "mod": "MOD",
+}
+
+FLOAT_PREFIX_OPS = {
+    "add": "FADD",
+    "sub": "FSUB",
+    "mul": "FMUL",
+    "div": "FDIV",
 }
 
 
@@ -137,6 +144,34 @@ def clean_line(line: str) -> str:
     return line.split("#", 1)[0].strip()
 
 
+def split_typed_op(op: str) -> tuple[str, str | None]:
+    """Split IR ops like add.i16 or load_global.fp32."""
+    if "." not in op:
+        return op, None
+    base, fmt = op.split(".", 1)
+    return base, fmt
+
+
+def isa_format(fmt: str | None, default: str = "i32") -> str:
+    """Map IR format names to ISA suffix names."""
+    return (fmt or default).upper()
+
+
+def isa_value_opcode(base_op: str, fmt: str | None) -> str | None:
+    """Return an ISA opcode for a typed or untyped value op."""
+    effective_fmt = fmt or "i32"
+    if effective_fmt.startswith("fp"):
+        opcode = FLOAT_PREFIX_OPS.get(base_op)
+        return f"{opcode}.{isa_format(effective_fmt)}" if opcode else None
+
+    opcode = VALUE_OPS.get(base_op) or EXTENSION_VALUE_OPS.get(base_op)
+    if opcode is None:
+        return None
+    if fmt is not None:
+        return f"{opcode}.{isa_format(fmt)}"
+    return opcode
+
+
 def ir_to_isa(ir_text: str) -> str:
     """Lower a complete Mini-GPU IR module to ISA assembly."""
     lines = [clean_line(line) for line in ir_text.splitlines()]
@@ -205,7 +240,33 @@ def lower_assignment(
         asm.append(f"  {THREAD_OPS[op]} {rd}")
         return
 
-    if op == "load_global":
+    base_op, fmt = split_typed_op(op)
+
+    if base_op == "arg":
+        if len(operands) != 1:
+            raise IsaLoweringError(f"arg expects one operand: {dst} = {op} {operands}")
+        asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
+        return
+
+    if base_op == "shared":
+        if len(operands) != 1:
+            raise IsaLoweringError(f"shared expects one operand: {dst} = {op} {operands}")
+        asm.append(f"  LDC {rd}, SHARED_{operands[0].upper()}")
+        return
+
+    if base_op == "const":
+        if len(operands) != 1:
+            raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")
+        asm.append(f"  MOVI {rd}, {operands[0]}")
+        return
+
+    if base_op in THREAD_OPS:
+        if operands:
+            raise IsaLoweringError(f"{base_op} expects no operands")
+        asm.append(f"  {THREAD_OPS[base_op]} {rd}")
+        return
+
+    if base_op == "load_global":
         if len(operands) != 1:
             raise IsaLoweringError("load_global expects one address operand")
         rs = allocator.use(operands[0])
@@ -213,7 +274,7 @@ def lower_assignment(
         allocator.release_after_use(operands[0])
         return
 
-    if op == "load_shared":
+    if base_op == "load_shared":
         if len(operands) != 1:
             raise IsaLoweringError("load_shared expects one address operand")
         rs = allocator.use(operands[0])
@@ -221,7 +282,7 @@ def lower_assignment(
         allocator.release_after_use(operands[0])
         return
 
-    if op == "not":
+    if base_op == "not":
         if len(operands) != 1:
             raise IsaLoweringError("not expects one operand")
         rs = allocator.use(operands[0])
@@ -229,7 +290,7 @@ def lower_assignment(
         allocator.release_after_use(operands[0])
         return
 
-    if op == "mov":
+    if base_op == "mov":
         if len(operands) != 1:
             raise IsaLoweringError("mov expects one operand")
         rs = allocator.use(operands[0])
@@ -237,7 +298,7 @@ def lower_assignment(
         allocator.release_after_use(operands[0])
         return
 
-    opcode = VALUE_OPS.get(op) or EXTENSION_VALUE_OPS.get(op)
+    opcode = isa_value_opcode(base_op, fmt)
     if opcode:
         if len(operands) != 2:
             raise IsaLoweringError(f"{op} expects two operands")
@@ -281,9 +342,10 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
     """Lower one non-assigning IR instruction."""
     parts = line.split(None, 1)
     op = parts[0]
+    base_op, _ = split_typed_op(op)
     operands = split_operands(parts[1] if len(parts) > 1 else None)
 
-    if op == "store_global":
+    if base_op == "store_global":
         if len(operands) != 2:
             raise IsaLoweringError("store_global expects address and value operands")
         addr = allocator.use(operands[0])
@@ -293,7 +355,7 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
         allocator.release_after_use(operands[1])
         return
 
-    if op == "store_shared":
+    if base_op == "store_shared":
         if len(operands) != 2:
             raise IsaLoweringError("store_shared expects address and value operands")
         addr = allocator.use(operands[0])
