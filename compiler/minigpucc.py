@@ -10,6 +10,7 @@ from typing import Any
 
 from ast_to_ir import ast_to_ir
 from get_cuda_ast import get_cuda_ast
+from isa_to_bin import isa_to_binary, isa_to_hex
 from ir_to_isa import ir_to_isa
 
 
@@ -19,9 +20,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-o", "--output", type=Path, help="Primary output file")
     parser.add_argument(
         "--emit",
-        choices=("ast", "ir", "isa"),
-        default="isa",
-        help="Primary output stage (default: isa)",
+        choices=("ast", "ir", "isa", "hex", "bin"),
+        default="bin",
+        help="Primary output stage (default: bin)",
     )
     parser.add_argument(
         "--save-ast",
@@ -47,6 +48,22 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="Also write ISA assembly; default path is <source>.isa",
     )
+    parser.add_argument(
+        "--save-bin",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="PATH",
+        help="Also write raw binary words; default path is <source>.bin",
+    )
+    parser.add_argument(
+        "--save-hex",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="PATH",
+        help="Also write encoded hex text; default path is <source>.hex",
+    )
     parser.add_argument("--clang", default="auto", help="Clang++ executable (default: auto)")
     parser.add_argument("--cuda-path", default="auto", help="CUDA toolkit path (default: auto)")
     parser.add_argument("--gpu-arch", default="auto", help="CUDA parse arch (default: sm_50)")
@@ -69,9 +86,12 @@ def optional_path(value: bool | str, source: Path, suffix: str) -> Path | None:
     return Path(value)
 
 
-def write_text(path: Path, text: str) -> None:
-    """Write compiler output with a trailing newline."""
-    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+def write_output(path: Path, output: str | bytes) -> None:
+    """Write text or binary compiler output."""
+    if isinstance(output, bytes):
+        path.write_bytes(output)
+    else:
+        path.write_text(output.rstrip() + "\n", encoding="utf-8")
 
 
 def encode_ast(ast: Any) -> str:
@@ -79,7 +99,7 @@ def encode_ast(ast: Any) -> str:
     return json.dumps(ast, indent=2)
 
 
-def compile_source(args: argparse.Namespace) -> tuple[str, dict[str, str]]:
+def compile_source(args: argparse.Namespace) -> tuple[str | bytes, dict[str, str | bytes]]:
     """Run the requested compiler pipeline and return primary plus side outputs."""
     compact_ast = get_cuda_ast(
         args.source,
@@ -103,17 +123,23 @@ def compile_source(args: argparse.Namespace) -> tuple[str, dict[str, str]]:
 
     ir = ast_to_ir(compact_ast)
     isa = ir_to_isa(ir)
+    binary = isa_to_binary(isa)
+    hex_text = isa_to_hex(isa)
 
     side_outputs = {
         "ast": encode_ast(compact_ast),
         "ir": ir,
         "isa": isa,
+        "hex": hex_text,
+        "bin": binary,
     }
 
     primary = {
         "ast": encode_ast(ast_for_output),
         "ir": ir,
         "isa": isa,
+        "hex": hex_text,
+        "bin": binary,
     }[args.emit]
     return primary, side_outputs
 
@@ -126,13 +152,17 @@ def main() -> int:
         "ast": optional_path(args.save_ast, args.source, ".ast.json"),
         "ir": optional_path(args.save_ir, args.source, ".ir"),
         "isa": optional_path(args.save_isa, args.source, ".isa"),
+        "hex": optional_path(args.save_hex, args.source, ".hex"),
+        "bin": optional_path(args.save_bin, args.source, ".bin"),
     }
     for stage, path in save_paths.items():
         if path is not None:
-            write_text(path, side_outputs[stage])
+            write_output(path, side_outputs[stage])
 
     if args.output:
-        write_text(args.output, primary)
+        write_output(args.output, primary)
+    elif isinstance(primary, bytes):
+        raise SystemExit("error: binary output requires -o; use --emit hex to print encoded text")
     else:
         print(primary)
 
