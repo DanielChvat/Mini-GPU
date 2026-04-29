@@ -14,6 +14,65 @@ Testing/
 *.ninja
 Makefile
 
+# Visual Studio / MSBuild
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio build outputs
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM/
+ARM64/
+.vsconfig
+
+# MSBuild intermediate/output files
+*.idb
+*.iobj
+*.ipdb
+*.lastbuildstate
+*.log
+*.metagen
+*.tlog
+*.unsuccessfulbuild
+*.ilk
+*.pdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tmp
+*.tmp_proj
+*.vcxproj.user
+*.vc.db
+*.VC.db
+*.opendb
+*.aps
+*.ncb
+*.opensdf
+*.sdf
+*.vcxproj
+*.filters
+*.slnx
+
+# Visual Studio CMake integration
+CMakeSettings.json
+CMakePresets.json
+CMakeUserPresets.json
+out/
+
+# NuGet / packages
+packages/
+*.nupkg
+
 # Compiled objects / libraries / binaries
 *.o
 *.obj

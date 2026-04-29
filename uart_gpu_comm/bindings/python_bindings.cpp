@@ -7,6 +7,11 @@
 
 #include "UART.h"
 
+#ifdef _WIN32
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 namespace py = pybind11;
 
 static void throw_if_uart_error(uart_err_t err) {
