@@ -1,4 +1,4 @@
-from ._uart_gpu_comm import (
+from ._gpu_comm import (
     Command,
     Device,
     Error,

@@ -1,5 +1,5 @@
 import sys
-import uart_gpu_comm
+import gpu_comm
 
 
 def make_payload(n):
@@ -7,8 +7,8 @@ def make_payload(n):
 
 
 def send_one_packet(port):
-    packet = uart_gpu_comm.build_packet(
-        uart_gpu_comm.Command.WRITE_DATA,
+    packet = gpu_comm.build_packet(
+        gpu_comm.Command.WRITE_DATA,
         0x0020,
         bytes([0x0F, 0x1E, 0x2D, 0x1F]),
     )
@@ -16,7 +16,7 @@ def send_one_packet(port):
     print("packet:", packet.hex(" "))
     print("packet length:", len(packet))
 
-    dev = uart_gpu_comm.Device(port, 115200, 5000)
+    dev = gpu_comm.Device(port, 115200, 5000)
     print("opened:", dev.is_open())
 
     dev.send_raw(packet)
@@ -27,7 +27,7 @@ def send_one_packet(port):
 
 
 def send_split_write(port):
-    max_payload = uart_gpu_comm.MAX_PAYLOAD
+    max_payload = gpu_comm.MAX_PAYLOAD
     payload = make_payload(max_payload + 10)
 
     print("max payload:", max_payload)
@@ -36,7 +36,7 @@ def send_split_write(port):
     print("expected first packet bytes:", 7 + max_payload)
     print("expected second packet bytes:", 7 + 3)
 
-    dev = uart_gpu_comm.Device(port, 115200, 5000)
+    dev = gpu_comm.Device(port, 115200, 5000)
     print("opened:", dev.is_open())
 
     dev.write_data(0x0000, payload)

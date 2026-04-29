@@ -8,28 +8,28 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(pybind11 REQUIRED)
 
 add_library(uart
-    uart_gpu_comm/src/UART.c
+    gpu_comm/src/com.c
 )
 
 target_include_directories(uart
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/uart_gpu_comm/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/gpu_comm/src
 )
 
-pybind11_add_module(_uart_gpu_comm
-    uart_gpu_comm/bindings/python_bindings.cpp
+pybind11_add_module(_gpu_comm
+    gpu_comm/bindings/python_bindings.cpp
 )
 
-target_include_directories(_uart_gpu_comm
+target_include_directories(_gpu_comm
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/uart_gpu_comm/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/gpu_comm/src
 )
 
-target_link_libraries(_uart_gpu_comm
+target_link_libraries(_gpu_comm
     PRIVATE
         uart
 )
 
-set_target_properties(_uart_gpu_comm PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/uart_gpu_comm
+set_target_properties(_gpu_comm PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/gpu_comm
 )
