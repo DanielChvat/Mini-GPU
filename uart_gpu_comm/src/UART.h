@@ -16,6 +16,8 @@ typedef enum {
     UART_CMD_READ_STATUS   = 0x05,  /* read status register (no payload)     */
     UART_CMD_WRITE_HASH    = 0x06,  /* load expected SHA256 hash (32 bytes)  */
     UART_CMD_VALIDATE      = 0x07,  /* trigger hash validation               */
+    UART_CMD_ACK           = 0x08,  /* data was recieved properly            */
+    UART_CMD_NAK           = 0x09,  /* data was not recieved properly.       */
 } uart_cmd_t;
 
 typedef enum {
@@ -75,6 +77,12 @@ uart_err_t uart_write_data(uart_dev_t *dev, uint16_t addr,
 /* Read data_len bytes from data BRAM starting at addr into out_buf. */
 uart_err_t uart_read_data(uart_dev_t *dev, uint16_t addr,
                           uint8_t *out_buf, size_t data_len);
+
+/* Send an ACK Packet */
+void uart_send_ack(uart_dev_t *dev);
+
+/* Send an NAK Packet */
+void uart_send_ack(uart_dev_t *dev);
 
 #ifdef __cplusplus
 }

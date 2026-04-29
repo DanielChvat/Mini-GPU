@@ -1,7 +1,12 @@
 /*
- * Packet format
+ * Packet Send format
  * [SOF 0xAA] [CMD 1B] [ADDR_HI 1B] [ADDR_LO 1B] [LEN 2B] [PAYLOAD LEN bytes] [CRC 1B]
  * CRC = XOR of every byte from CMD through last PAYLOAD byte (inclusive).
+ */
+
+ /*
+ * ACK Format
+ * [SOF 0xAA] [CMD 0x08|0x09] [X] [X] [00] [] [X]
  */
 
 #include "UART.h"
@@ -22,6 +27,8 @@ typedef HANDLE fd_t;
 typedef int fd_t;
 #define FD_INVALID (-1)
 #endif
+
+#define RETRIES 3
 
 struct uart_dev {
     fd_t fd;
@@ -237,6 +244,30 @@ int uart_build_packet(uint8_t *buf,
     return uart_build_packet_fields(buf, cmd, addr, payload_len, payload, payload_len);
 }
 
+static void uart_send_ack(uart_dev_t *dev){
+    uint8_t tries = 0;
+
+    while (tries < RETRIES){
+        uint8_t packet[UART_OVERHEAD];
+        int packet_len = uart_build_packet(packet, UART_CMD_ACK, 0, NULL, 0);
+        uart_err_t err = uart_send_raw(dev, packet, (size_t)packet_len);
+        if (err == UART_OK) return;
+        tries++;
+    }
+}
+
+static void uart_send_nak(uart_dev_t *dev){
+    uint8_t tries = 0;
+
+    while (tries < RETRIES){
+        uint8_t packet[UART_OVERHEAD];
+        int packet_len = uart_build_packet(packet, UART_CMD_NAK, 0, NULL, 0);
+        uart_err_t err = uart_send_raw(dev, packet, (size_t)packet_len);
+        if (err == UART_OK) return;
+        tries++;
+    }
+}
+
 uart_err_t uart_parse_packet(const uint8_t *buf, size_t buf_len, uart_packet_t *pkt) {
     if (!buf || !pkt) return UART_ERR_BAD_ARG;
     if (buf_len < UART_OVERHEAD) return UART_ERR_SHORT;
@@ -281,8 +312,41 @@ uart_err_t uart_write_data(uart_dev_t *dev, uint16_t addr,
                                            chunk_len);
         if (packet_len < 0) return (uart_err_t)packet_len;
 
-        uart_err_t err = uart_send_raw(dev, packet, (size_t)packet_len);
-        if (err != UART_OK) return err;
+        uart_err_t last_err = UART_ERR_FPGA;
+        int success = 0;
+
+        for (int attempt = 0; attempt < RETRIES; attempt++) {
+            uart_err_t err = uart_send_raw(dev, packet, (size_t)packet_len);
+            if (err != UART_OK) {
+                last_err = err;
+                continue;
+            }
+
+            uint8_t ack_buf[UART_OVERHEAD];
+            uart_packet_t ack_packet;
+
+            err = uart_recv_raw(dev, ack_buf, UART_OVERHEAD);
+            if (err != UART_OK) {
+                last_err = err;
+                continue;
+            }
+
+            err = uart_parse_packet(ack_buf, UART_OVERHEAD, &ack_packet);
+            if (err != UART_OK) {
+                last_err = err;
+                continue;
+            }
+
+            if (ack_packet.cmd != UART_CMD_ACK || ack_packet.addr != chunk_addr || ack_packet.len != 0) {
+                last_err = UART_ERR_FPGA;
+                continue;
+            }
+
+            success = 1;
+            break;
+        }
+
+        if (!success) return last_err;
 
         offset += chunk_len;
     }
