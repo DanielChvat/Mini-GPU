@@ -6,7 +6,7 @@
 - [x] Python package entry point exists in `torch_mini_gpu/`.
 - [x] `PrivateUse1` backend is renamed to `minigpu`.
 - [x] C++ PyTorch extension target exists behind `MINIGPU_BUILD_TORCH`.
-- [x] PyTorch extension builds as `torch_mini_gpu/_C*.so`.
+- [x] PyTorch extension builds as `torch_mini_gpu/minigpu_torch*.so`.
 - [x] Stub backend/device helpers exist.
 - [x] Stub ATen registrations exist for first operators.
 - [ ] Real Mini-GPU device/context initialization works.

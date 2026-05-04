@@ -68,28 +68,34 @@ if(MINIGPU_BUILD_PYTHON)
 endif()
 
 if(MINIGPU_BUILD_TORCH)
-    pybind11_add_module(_C
-        torch_ext/src/minigpu_torch.cpp
+    pybind11_add_module(minigpu_torch
+        torch_ext/src/backend/state.cpp
+        torch_ext/src/backend/transport.cpp
+        torch_ext/src/bindings/module.cpp
+        torch_ext/src/ops/math.cpp
+        torch_ext/src/ops/tensor.cpp
+        torch_ext/src/registrations/aten.cpp
+        torch_ext/src/registrations/custom.cpp
     )
 
-    target_include_directories(_C
+    target_include_directories(minigpu_torch
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
             ${CMAKE_CURRENT_SOURCE_DIR}/torch_ext/include
     )
 
-    target_link_libraries(_C
+    target_link_libraries(minigpu_torch
         PRIVATE
             minigpu_runtime
             ${TORCH_LIBRARIES}
     )
 
-    target_compile_options(_C
+    target_compile_options(minigpu_torch
         PRIVATE
             ${TORCH_CXX_FLAGS_LIST}
     )
 
-    set_target_properties(_C PROPERTIES
+    set_target_properties(minigpu_torch PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/torch_mini_gpu
     )
 endif()

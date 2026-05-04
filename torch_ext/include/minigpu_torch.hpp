@@ -3,6 +3,7 @@
 
 #include <ATen/ATen.h>
 #include <c10/core/Device.h>
+#include "minigpu_runtime.hpp"
 
 namespace minigpu::torch_backend {
 
@@ -23,6 +24,15 @@ int get_device();
 
 /* Set the active Mini-GPU device index for later runtime calls. */
 void set_device(int index);
+
+/* Return the active Mini-GPU runtime context. */
+minigpu::Context &runtime_context();
+
+/* Convert communication errors into runtime status values. */
+minigpu::Status map_com_status(int err);
+
+/* Build a runtime transport for a communication device. */
+minigpu::Transport make_gpu_comm_transport(void *dev);
 
 /* Allocate a PrivateUse1 tensor. */
 at::Tensor empty(
