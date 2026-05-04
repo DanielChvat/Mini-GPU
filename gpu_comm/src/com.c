@@ -244,28 +244,38 @@ int com_build_packet(uint8_t *buf,
     return com_build_packet_fields(buf, cmd, addr, payload_len, payload, payload_len);
 }
 
-static void com_send_ack(com_dev_t *dev){
+static com_err_t com_send_ack(com_dev_t *dev, uint16_t addr){
     uint8_t tries = 0;
+    com_err_t last_err = COM_ERR_IO;
 
     while (tries < RETRIES){
         uint8_t packet[COM_OVERHEAD];
-        int packet_len = com_build_packet(packet, COM_CMD_ACK, 0, NULL, 0);
+        int packet_len = com_build_packet(packet, COM_CMD_ACK, addr, NULL, 0);
+        if (packet_len < 0) return (com_err_t)packet_len;
         com_err_t err = com_send_raw(dev, packet, (size_t)packet_len);
-        if (err == COM_OK) return;
+        if (err == COM_OK) return COM_OK;
+        last_err = err;
         tries++;
     }
+
+    return last_err;
 }
 
-static void com_send_nak(com_dev_t *dev){
+static com_err_t com_send_nak(com_dev_t *dev, uint16_t addr){
     uint8_t tries = 0;
+    com_err_t last_err = COM_ERR_IO;
 
     while (tries < RETRIES){
         uint8_t packet[COM_OVERHEAD];
-        int packet_len = com_build_packet(packet, COM_CMD_NAK, 0, NULL, 0);
+        int packet_len = com_build_packet(packet, COM_CMD_NAK, addr, NULL, 0);
+        if (packet_len < 0) return (com_err_t)packet_len;
         com_err_t err = com_send_raw(dev, packet, (size_t)packet_len);
-        if (err == COM_OK) return;
+        if (err == COM_OK) return COM_OK;
+        last_err = err;
         tries++;
     }
+
+    return last_err;
 }
 
 com_err_t com_parse_packet(const uint8_t *buf, size_t buf_len, com_packet_t *pkt) {
@@ -378,32 +388,80 @@ com_err_t com_read_data(com_dev_t *dev, uint16_t addr,
                                                   0);
         if (packet_len < 0) return (com_err_t)packet_len;
 
-        com_err_t err = com_send_raw(dev, tx_packet, (size_t)packet_len);
-        if (err != COM_OK) return err;
+        com_err_t last_err = COM_ERR_FPGA;
+        int success = 0;
 
-        err = com_recv_raw(dev, rx_packet, COM_HEADER_SIZE);
-        if (err != COM_OK) return err;
-        if (rx_packet[0] != COM_SOF) return COM_ERR_NO_SOF;
+        for (int attempt = 0; attempt < RETRIES; attempt++) {
+            com_err_t err = com_send_raw(dev, tx_packet, (size_t)packet_len);
+            if (err != COM_OK) {
+                last_err = err;
+                continue;
+            }
 
-        uint16_t response_len = ((uint16_t)rx_packet[4] << 8) | (uint16_t)rx_packet[5];
-        if (response_len != chunk_len) return COM_ERR_SHORT;
+            err = com_recv_raw(dev, rx_packet, COM_HEADER_SIZE);
+            if (err != COM_OK) {
+                last_err = err;
+                continue;
+            }
 
-        err = com_recv_raw(dev,
-                            rx_packet + COM_HEADER_SIZE,
-                            (size_t)response_len + 1u);
-        if (err != COM_OK) return err;
+            if (rx_packet[0] != COM_SOF) {
+                last_err = COM_ERR_NO_SOF;
+                (void)com_send_nak(dev, chunk_addr);
+                continue;
+            }
 
-        com_packet_t response;
-        err = com_parse_packet(rx_packet,
-                                COM_OVERHEAD + (size_t)response_len,
-                                &response);
-        if (err != COM_OK) return err;
-        if (response.cmd != COM_CMD_READ_DATA || response.addr != chunk_addr) {
-            return COM_ERR_FPGA;
+            uint16_t response_len = ((uint16_t)rx_packet[4] << 8) | (uint16_t)rx_packet[5];
+            if (response_len > COM_MAX_PAYLOAD) {
+                last_err = COM_ERR_PAYLOAD_SIZE;
+                (void)com_send_nak(dev, chunk_addr);
+                continue;
+            }
+
+            err = com_recv_raw(dev,
+                                rx_packet + COM_HEADER_SIZE,
+                                (size_t)response_len + 1u);
+            if (err != COM_OK) {
+                last_err = err;
+                (void)com_send_nak(dev, chunk_addr);
+                continue;
+            }
+
+            com_packet_t response;
+            err = com_parse_packet(rx_packet,
+                                    COM_OVERHEAD + (size_t)response_len,
+                                    &response);
+            if (err != COM_OK) {
+                last_err = err;
+                (void)com_send_nak(dev, chunk_addr);
+                continue;
+            }
+
+            if (response.len != chunk_len) {
+                last_err = COM_ERR_SHORT;
+                (void)com_send_nak(dev, chunk_addr);
+                continue;
+            }
+
+            if (response.cmd != COM_CMD_READ_DATA || response.addr != chunk_addr) {
+                last_err = COM_ERR_FPGA;
+                (void)com_send_nak(dev, chunk_addr);
+                continue;
+            }
+
+            err = com_send_ack(dev, chunk_addr);
+            if (err != COM_OK) {
+                last_err = err;
+                continue;
+            }
+
+            memcpy(out_buf + offset, response.payload, response_len);
+            success = 1;
+            break;
         }
 
-        memcpy(out_buf + offset, response.payload, response_len);
-        offset += response_len;
+        if (!success) return last_err;
+
+        offset += chunk_len;
     }
 
     return COM_OK;

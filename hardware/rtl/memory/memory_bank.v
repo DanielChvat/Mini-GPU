@@ -3,7 +3,7 @@
 module memory_bank #(
     parameter DATA_WIDTH = 32,
     parameter ADDR_WIDTH = 14,
-    parameter DEPTH = 12288
+    parameter DEPTH = 8192
 ) (
     input  wire                  clk,
     input  wire                  en_a,
@@ -26,7 +26,9 @@ module memory_bank #(
             end
             dout_a <= mem[addr_a];
         end
+    end
 
+    always @(posedge clk) begin
         if (en_b) begin
             if (we_b) begin
                 mem[addr_b] <= din_b;

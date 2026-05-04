@@ -91,6 +91,41 @@ uart_gpu_comm/_uart_gpu_comm*.pyd
 uart_gpu_comm/_uart_gpu_comm*.dll
 uart_gpu_comm/_uart_gpu_comm*.dylib
 
+# Vivado generated projects and run artifacts
+.Xil/
+*.jou
+*.str
+*.xpr
+*.xpr.zip
+*.hwdef
+*.hwh
+*.ltx
+*.bit
+*.bin
+*.mcs
+*.prm
+*.dcp
+*.rpt
+*.hex
+*.asm
+*.wdb
+*.vcd
+*.vpd
+*.pb
+*.backup.jou
+*.backup.log
+*.cache/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+*.gen/
+*.srcs/
+*.sdk/
+*.ioplanning/
+*.os/
+*.data/
+
 # Python cache / packaging
 __pycache__/
 *.py[cod]

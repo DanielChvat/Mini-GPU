@@ -4,9 +4,13 @@
 
 module execute #(
     parameter WIDTH = 32,
-    parameter MUL_LATENCY = 2,
+    parameter MUL_LATENCY = 4,
     parameter DIV_LATENCY = 16,
-    parameter FLOAT_LATENCY = 4
+    parameter FLOAT_LATENCY = 32,
+    parameter ENABLE_FLOAT_ADD = 1,
+    parameter ENABLE_FLOAT_MUL = 1,
+    parameter ENABLE_FLOAT_DIV = 1,
+    parameter FLOAT_FP32_ONLY = 0
 ) (
     input  wire             clk,
     input  wire             rst,
@@ -15,6 +19,13 @@ module execute #(
     input  wire [WIDTH-1:0] lhs,
     input  wire [WIDTH-1:0] rhs,
     input  wire [13:0]      imm14,
+    input  wire [WIDTH-1:0] thread_id,
+    input  wire [WIDTH-1:0] lane_id,
+    input  wire [WIDTH-1:0] warp_id,
+    input  wire [WIDTH-1:0] block_id,
+    input  wire [WIDTH-1:0] block_dim,
+    input  wire [WIDTH-1:0] grid_dim,
+    input  wire [WIDTH-1:0] const_data,
     output reg  [WIDTH-1:0] result,
     output reg              supported,
     output reg              divide_by_zero,
@@ -29,6 +40,13 @@ module execute #(
     reg [5:0] opcode_r;
     reg [WIDTH-1:0] lhs_r;
     reg [WIDTH-1:0] rhs_r;
+    reg [WIDTH-1:0] thread_id_r;
+    reg [WIDTH-1:0] lane_id_r;
+    reg [WIDTH-1:0] warp_id_r;
+    reg [WIDTH-1:0] block_id_r;
+    reg [WIDTH-1:0] block_dim_r;
+    reg [WIDTH-1:0] grid_dim_r;
+    reg [WIDTH-1:0] const_data_r;
     reg [13:0] imm14_r;
     reg [1:0] op_class;
     reg [7:0] cycles_left;
@@ -44,20 +62,20 @@ module execute #(
     wire div_iter_zero;
     wire div_iter_busy;
     wire div_iter_done;
-    wire [31:0] float_add_result;
-    wire [31:0] float_sub_result;
+    wire [31:0] float_add_sub_result;
     wire [31:0] float_mul_result;
     wire [31:0] float_div_result;
-    wire float_add_supported;
-    wire float_sub_supported;
+    wire float_add_sub_supported;
     wire float_mul_supported;
     wire float_div_supported;
     wire float_div_zero;
 
     int_mul #(.WIDTH(WIDTH)) mul_unit (
-        .fmt(fmt),
-        .lhs(lhs_r),
-        .rhs(rhs_r),
+        .clk(clk),
+        .rst(rst),
+        .fmt((start && !busy) ? imm14[2:0] : fmt),
+        .lhs((start && !busy) ? lhs : lhs_r),
+        .rhs((start && !busy) ? rhs : rhs_r),
         .result(mul_result)
     );
 
@@ -75,40 +93,59 @@ module execute #(
         .done(div_iter_done)
     );
 
-    float_add_sub float_add_unit (
-        .fmt(fmt),
-        .subtract(1'b0),
-        .lhs(lhs_r),
-        .rhs(rhs_r),
-        .result(float_add_result),
-        .supported(float_add_supported)
-    );
+    generate
+        if (ENABLE_FLOAT_ADD) begin : gen_float_add
+            float_add_sub #(
+                .FP32_ONLY(FLOAT_FP32_ONLY)
+            ) float_add_sub_unit (
+                .clk(clk),
+                .rst(rst),
+                .fmt(fmt),
+                .subtract(opcode_r == `MGPU_OP_FSUB),
+                .lhs(lhs_r),
+                .rhs(rhs_r),
+                .result(float_add_sub_result),
+                .supported(float_add_sub_supported)
+            );
+        end else begin : gen_no_float_add
+            assign float_add_sub_result = 32'b0;
+            assign float_add_sub_supported = 1'b0;
+        end
 
-    float_add_sub float_sub_unit (
-        .fmt(fmt),
-        .subtract(1'b1),
-        .lhs(lhs_r),
-        .rhs(rhs_r),
-        .result(float_sub_result),
-        .supported(float_sub_supported)
-    );
+        if (ENABLE_FLOAT_MUL) begin : gen_float_mul
+            float_mul #(
+                .FP32_ONLY(FLOAT_FP32_ONLY)
+            ) float_mul_unit (
+                .clk(clk),
+                .rst(rst),
+                .fmt((start && !busy) ? imm14[2:0] : fmt),
+                .lhs((start && !busy) ? lhs : lhs_r),
+                .rhs((start && !busy) ? rhs : rhs_r),
+                .result(float_mul_result),
+                .supported(float_mul_supported)
+            );
+        end else begin : gen_no_float_mul
+            assign float_mul_result = 32'b0;
+            assign float_mul_supported = 1'b0;
+        end
 
-    float_mul float_mul_unit (
-        .fmt(fmt),
-        .lhs(lhs_r),
-        .rhs(rhs_r),
-        .result(float_mul_result),
-        .supported(float_mul_supported)
-    );
-
-    float_div float_div_unit (
-        .fmt(fmt),
-        .lhs(lhs_r),
-        .rhs(rhs_r),
-        .result(float_div_result),
-        .supported(float_div_supported),
-        .divide_by_zero(float_div_zero)
-    );
+        if (ENABLE_FLOAT_DIV) begin : gen_float_div
+            float_div #(
+                .FP32_ONLY(FLOAT_FP32_ONLY)
+            ) float_div_unit (
+                .fmt(fmt),
+                .lhs(lhs_r),
+                .rhs(rhs_r),
+                .result(float_div_result),
+                .supported(float_div_supported),
+                .divide_by_zero(float_div_zero)
+            );
+        end else begin : gen_no_float_div
+            assign float_div_result = 32'b0;
+            assign float_div_supported = 1'b0;
+            assign float_div_zero = 1'b0;
+        end
+    endgenerate
 
     always @(posedge clk) begin
         if (rst) begin
@@ -121,6 +158,13 @@ module execute #(
             opcode_r <= 6'b0;
             lhs_r <= {WIDTH{1'b0}};
             rhs_r <= {WIDTH{1'b0}};
+            thread_id_r <= {WIDTH{1'b0}};
+            lane_id_r <= {WIDTH{1'b0}};
+            warp_id_r <= {WIDTH{1'b0}};
+            block_id_r <= {WIDTH{1'b0}};
+            block_dim_r <= {WIDTH{1'b0}};
+            grid_dim_r <= {WIDTH{1'b0}};
+            const_data_r <= {WIDTH{1'b0}};
             imm14_r <= 14'b0;
             op_class <= CLASS_FAST;
             cycles_left <= 8'b0;
@@ -132,6 +176,13 @@ module execute #(
                 opcode_r <= opcode;
                 lhs_r <= lhs;
                 rhs_r <= rhs;
+                thread_id_r <= thread_id;
+                lane_id_r <= lane_id;
+                warp_id_r <= warp_id;
+                block_id_r <= block_id;
+                block_dim_r <= block_dim;
+                grid_dim_r <= grid_dim;
+                const_data_r <= const_data;
                 imm14_r <= imm14;
                 op_class <= opcode_class(opcode);
                 cycles_left <= latency_for(opcode);
@@ -176,12 +227,12 @@ module execute #(
                     CLASS_FLOAT: begin
                         case (opcode_r)
                             `MGPU_OP_FADD: begin
-                                result <= float_add_result;
-                                supported <= float_add_supported;
+                                result <= float_add_sub_result;
+                                supported <= float_add_sub_supported;
                             end
                             `MGPU_OP_FSUB: begin
-                                result <= float_sub_result;
-                                supported <= float_sub_supported;
+                                result <= float_add_sub_result;
+                                supported <= float_add_sub_supported;
                             end
                             `MGPU_OP_FMUL: begin
                                 result <= float_mul_result;
@@ -210,6 +261,7 @@ module execute #(
                 `MGPU_OP_NOP:  result <= {WIDTH{1'b0}};
                 `MGPU_OP_MOV:  result <= lhs_r;
                 `MGPU_OP_MOVI: result <= imm_signed;
+                `MGPU_OP_LDC:  result <= const_data_r;
                 `MGPU_OP_ADD:  result <= narrow_int_result(sign_extend_int(lhs_r, fmt) + sign_extend_int(rhs_r, fmt), fmt);
                 `MGPU_OP_ADDI: result <= lhs_r + imm_signed;
                 `MGPU_OP_SUB:  result <= narrow_int_result(sign_extend_int(lhs_r, fmt) - sign_extend_int(rhs_r, fmt), fmt);
@@ -231,6 +283,17 @@ module execute #(
                 `MGPU_OP_SGE:  result <= signed_compare_result(3'd3, lhs_r, rhs_r, fmt);
                 `MGPU_OP_SEQ:  result <= (sign_extend_int(lhs_r, fmt) == sign_extend_int(rhs_r, fmt)) ? {{(WIDTH-1){1'b0}}, 1'b1} : {WIDTH{1'b0}};
                 `MGPU_OP_SNE:  result <= (sign_extend_int(lhs_r, fmt) != sign_extend_int(rhs_r, fmt)) ? {{(WIDTH-1){1'b0}}, 1'b1} : {WIDTH{1'b0}};
+                `MGPU_OP_PRED: result <= (lhs_r != {WIDTH{1'b0}}) ? {{(WIDTH-1){1'b0}}, 1'b1} : {WIDTH{1'b0}};
+                `MGPU_OP_PREDN: result <= (lhs_r == {WIDTH{1'b0}}) ? {{(WIDTH-1){1'b0}}, 1'b1} : {WIDTH{1'b0}};
+                `MGPU_OP_BZ:   result <= (lhs_r == {WIDTH{1'b0}}) ? {{(WIDTH-1){1'b0}}, 1'b1} : {WIDTH{1'b0}};
+                `MGPU_OP_BNZ:  result <= (lhs_r != {WIDTH{1'b0}}) ? {{(WIDTH-1){1'b0}}, 1'b1} : {WIDTH{1'b0}};
+                `MGPU_OP_TID:  result <= thread_id_r;
+                `MGPU_OP_TIDX: result <= thread_id_r;
+                `MGPU_OP_LID:  result <= lane_id_r;
+                `MGPU_OP_WID:  result <= warp_id_r;
+                `MGPU_OP_BID:  result <= block_id_r;
+                `MGPU_OP_BDIM: result <= block_dim_r;
+                `MGPU_OP_GDIM: result <= grid_dim_r;
                 default: begin
                     supported <= 1'b0;
                     result <= {WIDTH{1'b0}};

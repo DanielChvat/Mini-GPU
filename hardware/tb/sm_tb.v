@@ -24,6 +24,10 @@ module sm_tb;
     wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE)-1:0] writeback_enable_mask;
     wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*4)-1:0] writeback_addr;
     wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*WIDTH)-1:0] writeback_data;
+    wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE)-1:0] mem_req_valid;
+    wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE)-1:0] mem_req_write;
+    wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*16)-1:0] mem_req_addr;
+    wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*WIDTH)-1:0] mem_req_wdata;
     wire [NUM_BLOCKS-1:0] block_busy;
     wire [NUM_BLOCKS-1:0] block_done;
     wire sm_busy;
@@ -44,6 +48,17 @@ module sm_tb;
         .issue_warp_id(issue_warp_id),
         .instr(instr),
         .active_masks(active_masks),
+        .base_block_id(32'd0),
+        .block_dim(32'd16),
+        .grid_dim(32'd1),
+        .const_data(32'h0000cafe),
+        .mem_req_valid(mem_req_valid),
+        .mem_req_write(mem_req_write),
+        .mem_req_addr(mem_req_addr),
+        .mem_req_wdata(mem_req_wdata),
+        .mem_req_ready({(NUM_BLOCKS*NUM_WARPS*WARP_SIZE){1'b0}}),
+        .mem_resp_valid({(NUM_BLOCKS*NUM_WARPS*WARP_SIZE){1'b0}}),
+        .mem_resp_rdata({(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*WIDTH){1'b0}}),
         .supported_mask(supported_mask),
         .divide_by_zero_mask(divide_by_zero_mask),
         .busy_mask(busy_mask),

@@ -2,7 +2,9 @@
 
 `include "minigpu_isa.vh"
 
-module float_div (
+module float_div #(
+    parameter FP32_ONLY = 0
+) (
     input  wire [2:0]  fmt,
     input  wire [31:0] lhs,
     input  wire [31:0] rhs,
@@ -10,9 +12,14 @@ module float_div (
     output wire        supported,
     output wire        divide_by_zero
 );
-    assign supported = (fmt == `MGPU_FMT_FP32) || (fmt == `MGPU_FMT_FP16) || (fmt == `MGPU_FMT_FP8);
+    assign supported = FP32_ONLY
+        ? (fmt == `MGPU_FMT_FP32)
+        : ((fmt == `MGPU_FMT_FP32) || (fmt == `MGPU_FMT_FP16) || (fmt == `MGPU_FMT_FP8));
     assign divide_by_zero = supported && is_zero(rhs, fmt);
-    assign result = supported ? float_div_any(lhs, rhs, fmt) : 32'b0;
+    assign result = supported
+        ? (FP32_ONLY ? fp_div_core(lhs, rhs, 8, 23, 127)
+                     : float_div_any(lhs, rhs, fmt))
+        : 32'b0;
 
     function is_zero;
         input [31:0] value;
@@ -50,6 +57,7 @@ module float_div (
         integer exp_a;
         integer exp_b;
         integer exp_r;
+        integer normalize_step;
         reg sign_r;
         reg [31:0] frac_mask;
         reg [31:0] mant_a;
@@ -78,9 +86,11 @@ module float_div (
                 dividend = dividend << mant_bits;
                 quotient = dividend / mant_b;
 
-                while ((quotient != 0) && ((quotient >> mant_bits) == 0) && (exp_r > 0)) begin
-                    quotient = quotient << 1;
-                    exp_r = exp_r - 1;
+                for (normalize_step = 0; normalize_step < 32; normalize_step = normalize_step + 1) begin
+                    if ((quotient != 0) && ((quotient >> mant_bits) == 0) && (exp_r > 0)) begin
+                        quotient = quotient << 1;
+                        exp_r = exp_r - 1;
+                    end
                 end
 
                 fp_div_core = pack_float(sign_r, exp_r, quotient & frac_mask, exp_bits, mant_bits);

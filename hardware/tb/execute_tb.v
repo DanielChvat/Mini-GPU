@@ -17,9 +17,9 @@ module execute_tb;
     wire done;
 
     execute #(
-        .MUL_LATENCY(2),
+        .MUL_LATENCY(4),
         .DIV_LATENCY(4),
-        .FLOAT_LATENCY(3)
+        .FLOAT_LATENCY(32)
     ) dut (
         .clk(clk),
         .rst(rst),
@@ -28,6 +28,13 @@ module execute_tb;
         .lhs(lhs),
         .rhs(rhs),
         .imm14(imm14),
+        .thread_id(32'd0),
+        .lane_id(32'd0),
+        .warp_id(32'd0),
+        .block_id(32'd0),
+        .block_dim(32'd4),
+        .grid_dim(32'd1),
+        .const_data(32'h0000cafe),
         .result(result),
         .supported(supported),
         .divide_by_zero(divide_by_zero),
@@ -94,6 +101,7 @@ module execute_tb;
         rst = 1'b0;
 
         check_result(`MGPU_OP_ADD, 32'd40, 32'd2, `MGPU_FMT_I32, 32'd42);
+        check_result(`MGPU_OP_LDC, 32'd0, 32'd0, 14'd7, 32'h0000cafe);
         check_result(`MGPU_OP_ADD, 32'd127, 32'd1, `MGPU_FMT_I8, 32'hffffff80);
         check_result(`MGPU_OP_MUL, 32'd7, 32'd6, `MGPU_FMT_I32, 32'd42);
         check_result(`MGPU_OP_DIV, 32'd84, 32'd2, `MGPU_FMT_I32, 32'd42);

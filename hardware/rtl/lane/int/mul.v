@@ -5,16 +5,36 @@
 module int_mul #(
     parameter WIDTH = 32
 ) (
+    input  wire                   clk,
+    input  wire                   rst,
     input  wire [2:0]       fmt,
     input  wire [WIDTH-1:0] lhs,
     input  wire [WIDTH-1:0] rhs,
-    output wire [WIDTH-1:0] result
+    output reg  [WIDTH-1:0] result
 );
-    wire signed [WIDTH-1:0] lhs_ext = sign_extend_int(lhs, fmt);
-    wire signed [WIDTH-1:0] rhs_ext = sign_extend_int(rhs, fmt);
-    wire signed [(2*WIDTH)-1:0] product = lhs_ext * rhs_ext;
+    reg [2:0] stage0_fmt;
+    reg signed [WIDTH-1:0] stage0_lhs;
+    reg signed [WIDTH-1:0] stage0_rhs;
+    reg [2:0] stage1_fmt;
+    (* use_dsp = "yes" *) reg signed [(2*WIDTH)-1:0] stage1_product;
 
-    assign result = narrow_int_result(product, fmt);
+    always @(posedge clk) begin
+        if (rst) begin
+            stage0_fmt <= 3'b0;
+            stage0_lhs <= {WIDTH{1'b0}};
+            stage0_rhs <= {WIDTH{1'b0}};
+            stage1_fmt <= 3'b0;
+            stage1_product <= {(2*WIDTH){1'b0}};
+            result <= {WIDTH{1'b0}};
+        end else begin
+            stage0_fmt <= fmt;
+            stage0_lhs <= sign_extend_int(lhs, fmt);
+            stage0_rhs <= sign_extend_int(rhs, fmt);
+            stage1_fmt <= stage0_fmt;
+            stage1_product <= stage0_lhs * stage0_rhs;
+            result <= narrow_int_result(stage1_product, stage1_fmt);
+        end
+    end
 
     function [WIDTH-1:0] sign_extend_int;
         input [WIDTH-1:0] value;

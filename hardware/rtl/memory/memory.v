@@ -3,9 +3,10 @@
 module memory #(
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,
-    // Basys3 / xc7a35t has 50 36Kb BRAMs. At 32 bits wide, 12288 words per
-    // bank uses about 12 BRAM36 blocks per bank, or 48 total.
-    parameter BANK_DEPTH = 12288
+    // Basys3 / xc7a35t has 50 36Kb BRAM tiles. Vivado rounds this true
+    // dual-port RAM up to a power-of-two depth, so 8192 words per bank uses
+    // 8 RAMB36 blocks per bank, or 32 total across the four banks.
+    parameter BANK_DEPTH = 8192
 ) (
     input  wire                      clk,
     input  wire                      rst,

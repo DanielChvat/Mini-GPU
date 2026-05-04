@@ -2,75 +2,236 @@
 
 `include "minigpu_isa.vh"
 
-module float_mul (
+module float_mul #(
+    parameter FP32_ONLY = 0
+) (
+    input  wire        clk,
+    input  wire        rst,
     input  wire [2:0]  fmt,
     input  wire [31:0] lhs,
     input  wire [31:0] rhs,
-    output wire [31:0] result,
-    output wire        supported
+    output reg  [31:0] result,
+    output reg         supported
 );
-    assign supported = (fmt == `MGPU_FMT_FP32) || (fmt == `MGPU_FMT_FP16) || (fmt == `MGPU_FMT_FP8);
-    assign result = supported ? float_mul_any(lhs, rhs, fmt) : 32'b0;
+    reg [31:0] stage0_lhs;
+    reg [31:0] stage0_rhs;
+    reg [2:0] stage0_fmt;
+    reg stage0_supported;
 
-    function [31:0] float_mul_any;
-        input [31:0] a;
-        input [31:0] b;
+    reg stage1_sign;
+    reg [2:0] stage1_fmt;
+    reg stage1_supported;
+    reg [9:0] stage1_exp_r;
+    reg [31:0] stage1_lhs_mant;
+    reg [31:0] stage1_rhs_mant;
+
+    reg stage2_sign;
+    reg [2:0] stage2_fmt;
+    reg stage2_supported;
+    reg [9:0] stage2_exp_r;
+    (* use_dsp = "yes" *) reg [63:0] stage2_product;
+
+    reg stage3_sign;
+    reg [2:0] stage3_fmt;
+    reg stage3_supported;
+    reg [9:0] stage3_exp_r;
+    reg [31:0] stage3_fraction;
+
+    reg [31:0] stage4_result;
+    reg stage4_supported;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            stage0_lhs <= 32'b0;
+            stage0_rhs <= 32'b0;
+            stage0_fmt <= 3'b0;
+            stage0_supported <= 1'b0;
+            stage1_sign <= 1'b0;
+            stage1_fmt <= 3'b0;
+            stage1_supported <= 1'b0;
+            stage1_exp_r <= 10'b0;
+            stage1_lhs_mant <= 32'b0;
+            stage1_rhs_mant <= 32'b0;
+            stage2_sign <= 1'b0;
+            stage2_fmt <= 3'b0;
+            stage2_supported <= 1'b0;
+            stage2_exp_r <= 10'b0;
+            stage2_product <= 64'b0;
+            stage3_sign <= 1'b0;
+            stage3_fmt <= 3'b0;
+            stage3_supported <= 1'b0;
+            stage3_exp_r <= 10'b0;
+            stage3_fraction <= 32'b0;
+            stage4_result <= 32'b0;
+            stage4_supported <= 1'b0;
+            result <= 32'b0;
+            supported <= 1'b0;
+        end else begin
+            stage0_lhs <= lhs;
+            stage0_rhs <= rhs;
+            stage0_fmt <= fmt;
+            stage0_supported <= fmt_supported(fmt);
+
+            stage1_sign <= sign_for(stage0_lhs, stage0_rhs, stage0_fmt);
+            stage1_fmt <= stage0_fmt;
+            stage1_supported <= stage0_supported && !zero_operand(stage0_lhs, stage0_fmt) &&
+                                !zero_operand(stage0_rhs, stage0_fmt);
+            stage1_exp_r <= exp_for(stage0_lhs, stage0_fmt) +
+                            exp_for(stage0_rhs, stage0_fmt) -
+                            bias_for(stage0_fmt);
+            stage1_lhs_mant <= mant_for(stage0_lhs, stage0_fmt);
+            stage1_rhs_mant <= mant_for(stage0_rhs, stage0_fmt);
+
+            stage2_sign <= stage1_sign;
+            stage2_fmt <= stage1_fmt;
+            stage2_supported <= stage1_supported;
+            stage2_exp_r <= stage1_exp_r;
+            stage2_product <= stage1_lhs_mant * stage1_rhs_mant;
+
+            stage3_sign <= stage2_sign;
+            stage3_fmt <= stage2_fmt;
+            stage3_supported <= stage2_supported;
+            stage3_exp_r <= normalized_exp(stage2_exp_r, stage2_product, stage2_fmt);
+            stage3_fraction <= normalized_fraction(stage2_product, stage2_fmt);
+
+            stage4_supported <= stage3_supported;
+            stage4_result <= stage3_supported
+                ? pack_float(stage3_sign, stage3_exp_r, stage3_fraction,
+                             exp_bits_for(stage3_fmt), mant_bits_for(stage3_fmt))
+                : 32'b0;
+
+            supported <= stage4_supported;
+            result <= stage4_result;
+        end
+    end
+
+    function fmt_supported;
+        input [2:0] value_fmt;
+        begin
+            fmt_supported = FP32_ONLY
+                ? (value_fmt == `MGPU_FMT_FP32)
+                : ((value_fmt == `MGPU_FMT_FP32) ||
+                   (value_fmt == `MGPU_FMT_FP16) ||
+                   (value_fmt == `MGPU_FMT_FP8));
+        end
+    endfunction
+
+    function [5:0] exp_bits_for;
         input [2:0] value_fmt;
         begin
             case (value_fmt)
-                `MGPU_FMT_FP16: float_mul_any = fp_mul_core(a, b, 5, 10, 15);
-                `MGPU_FMT_FP8:  float_mul_any = fp_mul_core(a, b, 4, 3, 7);
-                default:       float_mul_any = fp_mul_core(a, b, 8, 23, 127);
+                `MGPU_FMT_FP16: exp_bits_for = 6'd5;
+                `MGPU_FMT_FP8:  exp_bits_for = 6'd4;
+                default:       exp_bits_for = 6'd8;
             endcase
         end
     endfunction
 
-    function [31:0] fp_mul_core;
+    function [5:0] mant_bits_for;
+        input [2:0] value_fmt;
+        begin
+            case (value_fmt)
+                `MGPU_FMT_FP16: mant_bits_for = 6'd10;
+                `MGPU_FMT_FP8:  mant_bits_for = 6'd3;
+                default:       mant_bits_for = 6'd23;
+            endcase
+        end
+    endfunction
+
+    function [9:0] bias_for;
+        input [2:0] value_fmt;
+        begin
+            case (value_fmt)
+                `MGPU_FMT_FP16: bias_for = 10'd15;
+                `MGPU_FMT_FP8:  bias_for = 10'd7;
+                default:       bias_for = 10'd127;
+            endcase
+        end
+    endfunction
+
+    function sign_for;
         input [31:0] a;
         input [31:0] b;
-        input integer exp_bits;
-        input integer mant_bits;
-        input integer bias;
+        input [2:0] value_fmt;
         integer total_bits;
-        integer max_exp;
-        integer exp_a;
-        integer exp_b;
-        integer exp_r;
-        integer shift;
-        reg sign_r;
-        reg [31:0] frac_mask;
-        reg [31:0] mant_a;
-        reg [31:0] mant_b;
-        reg [63:0] product;
-        reg [31:0] mant_r;
         begin
-            total_bits = 1 + exp_bits + mant_bits;
+            total_bits = 1 + exp_bits_for(value_fmt) + mant_bits_for(value_fmt);
+            sign_for = ((a >> (total_bits - 1)) ^ (b >> (total_bits - 1))) & 1'b1;
+        end
+    endfunction
+
+    function [9:0] exp_for;
+        input [31:0] value;
+        input [2:0] value_fmt;
+        integer exp_bits;
+        integer mant_bits;
+        integer max_exp;
+        begin
+            exp_bits = exp_bits_for(value_fmt);
+            mant_bits = mant_bits_for(value_fmt);
             max_exp = (1 << exp_bits) - 1;
+            exp_for = (value >> mant_bits) & max_exp;
+        end
+    endfunction
+
+    function [31:0] mant_for;
+        input [31:0] value;
+        input [2:0] value_fmt;
+        integer mant_bits;
+        reg [31:0] frac_mask;
+        begin
+            mant_bits = mant_bits_for(value_fmt);
             frac_mask = (32'h1 << mant_bits) - 1;
-            sign_r = ((a >> (total_bits - 1)) ^ (b >> (total_bits - 1))) & 1'b1;
-            exp_a = (a >> mant_bits) & max_exp;
-            exp_b = (b >> mant_bits) & max_exp;
-            mant_a = a & frac_mask;
-            mant_b = b & frac_mask;
+            mant_for = (value & frac_mask) | (32'h1 << mant_bits);
+        end
+    endfunction
 
-            if ((exp_a == 0 && mant_a == 0) || (exp_b == 0 && mant_b == 0)) begin
-                fp_mul_core = 32'b0;
-            end else begin
-                mant_a = mant_a | (32'h1 << mant_bits);
-                mant_b = mant_b | (32'h1 << mant_bits);
-                exp_r = exp_a + exp_b - bias;
-                product = mant_a * mant_b;
+    function zero_operand;
+        input [31:0] value;
+        input [2:0] value_fmt;
+        begin
+            zero_operand = (exp_for(value, value_fmt) == 0) &&
+                           ((value & ((32'h1 << mant_bits_for(value_fmt)) - 1)) == 0);
+        end
+    endfunction
 
-                if ((product >> ((2 * mant_bits) + 1)) != 0) begin
-                    shift = mant_bits + 1;
-                    exp_r = exp_r + 1;
-                end else begin
-                    shift = mant_bits;
-                end
+    function product_needs_shift;
+        input [63:0] product;
+        input [2:0] value_fmt;
+        integer mant_bits;
+        begin
+            mant_bits = mant_bits_for(value_fmt);
+            product_needs_shift = (product >> ((2 * mant_bits) + 1)) != 0;
+        end
+    endfunction
 
-                mant_r = (product >> shift) & ((32'h1 << (mant_bits + 1)) - 1);
-                fp_mul_core = pack_float(sign_r, exp_r, mant_r & frac_mask, exp_bits, mant_bits);
-            end
+    function [9:0] normalized_exp;
+        input [9:0] exponent;
+        input [63:0] product;
+        input [2:0] value_fmt;
+        begin
+            normalized_exp = product_needs_shift(product, value_fmt)
+                ? (exponent + 10'd1)
+                : exponent;
+        end
+    endfunction
+
+    function [31:0] normalized_fraction;
+        input [63:0] product;
+        input [2:0] value_fmt;
+        integer mant_bits;
+        integer shift;
+        reg [31:0] mant_r;
+        reg [31:0] frac_mask;
+        begin
+            mant_bits = mant_bits_for(value_fmt);
+            frac_mask = (32'h1 << mant_bits) - 1;
+            shift = product_needs_shift(product, value_fmt)
+                ? (mant_bits + 1)
+                : mant_bits;
+
+            mant_r = (product >> shift) & ((32'h1 << (mant_bits + 1)) - 1);
+            normalized_fraction = mant_r & frac_mask;
         end
     endfunction
 

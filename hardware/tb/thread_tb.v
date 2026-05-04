@@ -14,12 +14,30 @@ module thread_tb;
     wire writeback_enable;
     wire [3:0] writeback_addr;
     wire [31:0] writeback_data;
+    wire mem_req_valid;
+    wire mem_req_write;
+    wire [15:0] mem_req_addr;
+    wire [31:0] mem_req_wdata;
 
     thread dut (
         .clk(clk),
         .rst(rst),
         .instr_valid(instr_valid),
         .instr(instr),
+        .thread_id(32'd2),
+        .lane_id(32'd2),
+        .warp_id(32'd0),
+        .block_id(32'd0),
+        .block_dim(32'd4),
+        .grid_dim(32'd1),
+        .const_data(32'h0000cafe),
+        .mem_req_valid(mem_req_valid),
+        .mem_req_write(mem_req_write),
+        .mem_req_addr(mem_req_addr),
+        .mem_req_wdata(mem_req_wdata),
+        .mem_req_ready(1'b0),
+        .mem_resp_valid(1'b0),
+        .mem_resp_rdata(32'b0),
         .supported(supported),
         .divide_by_zero(divide_by_zero),
         .execute_busy(execute_busy),
@@ -110,6 +128,7 @@ module thread_tb;
         @(negedge clk);
 
         issue_expect_writeback(pack_instr(`MGPU_OP_MOVI, 4'd1, 4'd0, 4'd0, 14'd40), 4'd1, 32'd40);
+        issue_expect_writeback(pack_instr(`MGPU_OP_LDC, 4'd12, 4'd0, 4'd0, 14'd7), 4'd12, 32'h0000cafe);
 
         issue_expect_writeback(pack_instr(`MGPU_OP_MOVI, 4'd2, 4'd0, 4'd0, 14'd2), 4'd2, 32'd2);
 
@@ -129,7 +148,9 @@ module thread_tb;
 
         issue_expect_writeback(pack_instr(`MGPU_OP_FADD, 4'd10, 4'd8, 4'd9, {11'b0, `MGPU_FMT_FP8}), 4'd10, 32'h00000044);
 
-        issue_unsupported(pack_instr(`MGPU_OP_LDG, 4'd11, 4'd0, 4'd0, 14'd0));
+        issue_expect_writeback(pack_instr(`MGPU_OP_LID, 4'd11, 4'd0, 4'd0, 14'd0), 4'd11, 32'd2);
+
+        issue_unsupported(pack_instr(`MGPU_OP_BAR, 4'd0, 4'd0, 4'd0, 14'd0));
 
         $display("thread_tb PASS");
         $finish;
