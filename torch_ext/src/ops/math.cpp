@@ -49,4 +49,48 @@ at::Tensor relu(const at::Tensor &a) {
     unimplemented_op("aten::relu");
 }
 
+at::Tensor exp(const at::Tensor &a) {
+    (void)a;
+
+    unimplemented_op("aten::exp");
+}
+
+at::Tensor log(const at::Tensor &a) {
+    (void)a;
+
+    unimplemented_op("aten::log");
+}
+
+at::Tensor log2(const at::Tensor &a) {
+    (void)a;
+
+    unimplemented_op("aten::log2");
+}
+
+at::Tensor sqrt(const at::Tensor &a) {
+    (void)a;
+
+    unimplemented_op("aten::sqrt");
+}
+
+at::Tensor reciprocal(const at::Tensor &a) {
+    (void)a;
+
+    unimplemented_op("aten::reciprocal");
+}
+
+at::Tensor pow_tensor_tensor(const at::Tensor &a, const at::Tensor &b) {
+    (void)a;
+    (void)b;
+
+    unimplemented_op("aten::pow.Tensor_Tensor");
+}
+
+at::Tensor pow_tensor_scalar(const at::Tensor &a, const at::Scalar &b) {
+    (void)a;
+    (void)b;
+
+    unimplemented_op("aten::pow.Tensor_Scalar");
+}
+
 } // namespace minigpu::torch_backend

@@ -43,15 +43,34 @@
 - [x] `aten::mul.Tensor` stub
 - [x] `aten::relu` stub
 - [x] `aten::mm` stub
+- [x] `aten::exp` stub
+- [x] `aten::log` stub
+- [x] `aten::log2` stub
+- [x] `aten::sqrt` stub
+- [x] `aten::reciprocal` stub
+- [x] `aten::pow.Tensor_Tensor` stub
+- [x] `aten::pow.Tensor_Scalar` stub
 - [x] `minigpu::vector_add` stub
 - [x] `minigpu::matmul` stub
 - [x] `minigpu::relu` stub
+- [x] `minigpu::exp` stub
+- [x] `minigpu::log` stub
+- [x] `minigpu::log2` stub
+- [x] `minigpu::sqrt` stub
+- [x] `minigpu::reciprocal` stub
+- [x] `minigpu::pow` stub
 - [ ] `aten::empty.memory_format` real implementation
 - [ ] `aten::copy_` real implementation
 - [ ] `aten::add.Tensor` real implementation
 - [ ] `aten::mul.Tensor` real implementation
 - [ ] `aten::relu` real implementation
 - [ ] `aten::mm` real implementation
+- [ ] `aten::exp` real implementation
+- [ ] `aten::log` real implementation
+- [ ] `aten::log2` real implementation
+- [ ] `aten::sqrt` real implementation
+- [ ] `aten::reciprocal` real implementation
+- [ ] `aten::pow` real implementation
 - [ ] Custom Mini-GPU ops real implementations
 
 ## First Operator Milestones

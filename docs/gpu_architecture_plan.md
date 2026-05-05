@@ -29,6 +29,7 @@
 - [ ] UART command front end exists.
 - [ ] Full host-controlled Basys3 top exists.
 - [ ] SHA256 validation path exists.
+- [ ] ISA conversion support exists for numeric int/float conversion.
 - [ ] PyTorch runtime path is connected to hardware.
 
 ## Hardware Interfaces
@@ -84,4 +85,5 @@
 - [ ] Add more board-visible debug/status modes.
 - [ ] Add small neural-network kernels: vector add, ReLU, dot product, tiny MLP.
 - [ ] Connect PyTorch `PrivateUse1` backend to the runtime.
+- [ ] Add selected conversion instructions if software lowering needs them.
 - [ ] Add larger FPGA parameter variants for more warps/cores/FPUs.

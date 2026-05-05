@@ -61,6 +61,27 @@ at::Tensor mm(const at::Tensor &a, const at::Tensor &b);
 /* ReLU operation for Mini-GPU tensors. */
 at::Tensor relu(const at::Tensor &a);
 
+/* Natural exponential operation for Mini-GPU tensors. */
+at::Tensor exp(const at::Tensor &a);
+
+/* Natural logarithm operation for Mini-GPU tensors. */
+at::Tensor log(const at::Tensor &a);
+
+/* Base-2 logarithm operation for Mini-GPU tensors. */
+at::Tensor log2(const at::Tensor &a);
+
+/* Square-root operation for Mini-GPU tensors. */
+at::Tensor sqrt(const at::Tensor &a);
+
+/* Reciprocal operation for Mini-GPU tensors. */
+at::Tensor reciprocal(const at::Tensor &a);
+
+/* Tensor exponentiation operation for Mini-GPU tensors. */
+at::Tensor pow_tensor_tensor(const at::Tensor &a, const at::Tensor &b);
+
+/* Scalar exponentiation operation for Mini-GPU tensors. */
+at::Tensor pow_tensor_scalar(const at::Tensor &a, const at::Scalar &b);
+
 } // namespace minigpu::torch_backend
 
 #endif
