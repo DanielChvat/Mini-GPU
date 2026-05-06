@@ -1,0 +1,61 @@
+- protocol configurations for sending from CPU and recieving on accelerator
+/*
+ * Packet format
+ * [SOF 0xAA] [CMD 1B] [ADDR_HI 1B] [ADDR_LO 1B] [LEN 2B] [PAYLOAD LEN bytes] [CRC 1B]
+ * CRC = XOR of every byte from CMD through last PAYLOAD byte (inclusive).
+ */
+
+ - memory is packed into chunks of 32 bits (4 bytes per address)
+ - ACK and NACK
+    - CMD and LEN (0x0000) will be set, but the other values will be don't cares 
+    - for the sake of unifying the TX logic, I will still caluclate the CRC value, but the reciver (PC) will not care about it
+    - CMD = 0x08: ACK
+    - CMD = 0x09: NACK
+
+- when the FPGA sends information to the computer, then it will be fixed at 4 bytes (32 bits)
+
+ - will scrap the entire uart_rx module because the state machine on this does not fit the new communication protocol
+    - will also require rewritting the rx_decode module as well because the logic here is going to need some major rewrites 
+- some changes that will need to be addressed in the updated decoder
+    - no UART communication as the bottom layer, instead everything will be combined into 1 layer
+    - instead of a start bit (UART) we will be looking for the SOF, the check will be done by constantly bit shifting until the sequence is found, when this is found we will start recieving the remainder of the packet (header, payload, CRC)
+    - we will also need to have some sort of system to send an ACK and NACK 
+        - NACK will be sent immidiately when the CRC is invalid 
+        - ACK will be sent when the CRC is validated and the payload is written to memory
+            - we will likely need an input flag that tells the module that writting to memory is complete, although it will likely be done quickly considering the delays from the communnication (clock domain crossing could be an issue) 
+    - I think that a design choice where we send back 32 bits at once to the top module will be good because it will match the memory chunk size and allow us to use an additional flag to notify the top module that a chunk was recieved (which means that we can lower the flag when recieving the next chunk, so that the flag is only high for one clock cycle, preventing the top module from reading the same stuff 2 times, when the clock is out of sync)
+    - we'll have a separate outside memory management module that deals with writing the 32 bit sequence to memory, if after we write we find out that the CRC failed, we will send a NACK and we will assume that the next transmissions will be an overwrite of the corrputed files
+        - note: we will calculating the CRC sequentially as we recieve the bytes 
+    - CRC is calculated using the XOR of the CMD byte to the last payload byte 
+- we will still use the baud rate concept from uart for timing matching 
+
+- 5/3
+    - currently the get_payload is slightly broken
+        - when the payload is not incremented in terms of 4 bytes, the last word will be flushed incorrectly
+        - I was thinking of padding with 0s, but that has not been implemented well yet
+        - this will need to be fixed at a future stage 
+
+- 5/4
+    - started working on TX
+    - current issue with how the FSM is processing 
+        - state transitions occur only when bytes are finished sending 
+    -   this will create a 1 cycle delay between the transitions 
+    - solution: create a second buffer that stores the next set of bytes for transmission, wtih a second buffer valid flag 
+
+- 5/6
+    - communication handler module
+        - different CMD that the module needs to be able to decode and encode.
+            COM_CMD_WRITE_DATA    = 0x01,  /* write LEN bytes to data BRAM at ADDR  */
+            COM_CMD_READ_DATA     = 0x02,  /* request LEN bytes from ADDR           */
+            COM_CMD_WRITE_PROGRAM = 0x03,  /* write LEN bytes to instr BRAM at ADDR */
+            COM_CMD_LAUNCH        = 0x04,  /* start execution (ADDR = base PC)      */
+            COM_CMD_READ_STATUS   = 0x05,  /* read status register (no payload)     */
+            COM_CMD_WRITE_HASH    = 0x06,  /* load expected SHA256 hash (32 bytes)  */
+            COM_CMD_VALIDATE      = 0x07,  /* trigger hash validation               */
+            COM_CMD_ACK           = 0x08,  /* data was recieved properly            */
+            COM_CMD_NAK           = 0x09,  /* data was not recieved properly.       */
+            COM_CMD_RSP           = 0x0A,  /* response to PC request                */
+        - should manaage the SEND_ACK SEND_NACK flags from the reciever
+            - ie when the respective flag is recieved, the TX should send the ACK and/or NACK command 
+        - the only CMDs that will be transmited from the FPGA will be ACK, NACK, RSP
+        

@@ -1,0 +1,29 @@
+- when storying memory I want a region that can be locked/protected 
+- we will first send all the weights from the host computer to the chip
+- the computer will then request to lock/protect the values in the address region specified by the instruction (this will be the region of the weights)
+    - during this command the chip will run the security layer by hashing the address region and comparing it to a hardcoded value
+    - the address region will only be locked when the hash matches 
+    - when lock is enabled any write to the weight region is blocked
+- security FSM: IDLE, LOAD, HASH, VERIFY, LOCK, EXECUTE
+    - during LOAD, the hash will continuously hash the input, this will save time during the verify state 
+
+- "secure GPU like accelerator with hardware-enforced memory protection, where model weights reside in a region that is cryptographically verified and locked prior to execution"
+
+- current threat model:
+    - attacker can: 
+        - control instruction stream
+        - non-protected memory region
+        - input to accelerator
+        - can observe output
+    - attacker can't:
+        - modify weight region after lock
+        - modify golden hash /ROT
+        - bypass hardware memory protection logic 
+- current security goal: “Ensure that only an authenticated set of weights is used during execution, and that those weights cannot be modified after verification.”
+
+- other potential threats that we will not address yet:
+    - an attacker reusing valid weights in an unintended way to compute something else
+        - a feature we can add is hashing weights and hashing instruction stream and locking both to gurantee that only a specific program can execute 
+        - this could be difficult to conduct because if the weight address locations are different it may change the instructions 
+    - an attacker could load a second set of weights after verifying a valid set of weights, and perform computations using the second set of weights
+        - potential solution: create explicit memory regions for weights and data, and when performing inference commands (MAC) make sure that one of the operands is from the weight memory region
