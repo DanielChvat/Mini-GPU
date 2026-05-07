@@ -4,7 +4,7 @@
     - during this command the chip will run the security layer by hashing the address region and comparing it to a hardcoded value
     - the address region will only be locked when the hash matches 
     - when lock is enabled any write to the weight region is blocked
-- security FSM: IDLE, LOAD, HASH, VERIFY, LOCK, EXECUTE
+- security FSM: IDLE, LOAD, FINALIZE_HASH, VERIFY, LOCK, EXECUTE
     - during LOAD, the hash will continuously hash the input, this will save time during the verify state 
 
 - "secure GPU like accelerator with hardware-enforced memory protection, where model weights reside in a region that is cryptographically verified and locked prior to execution"
@@ -27,3 +27,33 @@
         - this could be difficult to conduct because if the weight address locations are different it may change the instructions 
     - an attacker could load a second set of weights after verifying a valid set of weights, and perform computations using the second set of weights
         - potential solution: create explicit memory regions for weights and data, and when performing inference commands (MAC) make sure that one of the operands is from the weight memory region
+
+- SHA256 will be implemented using secworks SHA-256 corrputed
+    - iterative architecture allows for LUT conservation and also will help performance with our streaming design 
+
+- potential feature we could add is a fault/error state
+    - this will disable execution until reset 
+
+- we will need to add a layer on top of the current memory architecture that allows enforcement of write/read OR create a separate memory bank
+    - i think that creating a top layer will be effective because we can minimize the interface changes
+    - one concern is how we will differenciate between weights, instructions, and input data, but we can just make it standard that weights will always be sent first
+    - so the stream of writes to memory will be hashed as it comes in until we are in the FINALIZE_HASH state
+    - afterwards we will be in the EXECUTE state, and in this state we will be writing the instructions and/or input data 
+    - honestly we could prob ignore the instruction writes because it will most likely be in a separate memory area 
+    - in this upper layer we will need to have the ability to lock writes among a set of adddresses
+    - the writes into addresses where it is locked will be blocked, this will probably require changes with the communication_controller module to be able to handle write blocks 
+
+- when the hash verification fails, should we go into an error state, or just go back to loading? 
+    - we will go directly into an error state, that needs to be restart to activate the accelerator.
+    - another design choice, is do we restart the entire chip or just clear the memory. 
+    - we will only restart the security module
+        - clear the security FSM, restart hash engine
+        - note: this leaves a risk of residual data exposure, so it would be beneficial to add secure zeroization, however I don't think we have enough resources to apply this
+            - another cheaper solution is to add a read disable feature after failure, but honestly not too useful 
+
+- another concern, overwrites. 
+    - With our current design decision during transmission we will be recieving a CRC value and comapre it with our CRC value, if it doesn't match the chip sends a NACK to the host 
+    - when the NACK is recieved by the host it retransmits the entire data block to overwrite, if this retransmition occurs during the loading of weights, it will disrupt the hash calculation
+    - the design trade off would be creating logic that allows us to handle this issue, or to use an architecture where weights must be streamed continuously, and if an error is discovered restart the security gate and retransmit all the weights
+    - honestly I think that this case is rare enough that we wouldn't have to worry about it being a real issue. 
+    - will be neccesary to adjust software so that weights are fully retransmit when a NACK is recieved 
