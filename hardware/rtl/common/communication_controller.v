@@ -1,6 +1,9 @@
 module communication_controller #(
     parameter CLK_FREQ  = 100_000_000,
-    parameter BAUD_RATE = 115200
+    parameter BAUD_RATE = 115200,
+    parameter ADDR_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
+    parameter MEMORY_BANK_DEPTH = 8192
 )(
     input  wire clk,
     input  wire rst,
@@ -14,6 +17,15 @@ module communication_controller #(
     input  wire [31:0] rsp_data,
     output reg         rsp_ready,
 
+    // ================= External data memory interface =================
+    output reg  [3:0] data_mem_req_valid,
+    output reg  [3:0] data_mem_req_write,
+    output reg  [(4*ADDR_WIDTH)-1:0] data_mem_req_addr,
+    output reg  [(4*DATA_WIDTH)-1:0] data_mem_req_wdata,
+    input  wire [3:0] data_mem_req_ready,
+    input  wire [3:0] data_mem_resp_valid,
+    input  wire [(4*DATA_WIDTH)-1:0] data_mem_resp_rdata,
+
     // ================= Debug / observability =================
     output wire [7:0]  dbg_rx_cmd,
     output wire [15:0] dbg_rx_addr,
@@ -23,9 +35,22 @@ module communication_controller #(
     // ============================================================
     // CMD definitions
     // ============================================================
-    localparam COM_CMD_ACK = 8'h08;
-    localparam COM_CMD_NAK = 8'h09;
-    localparam COM_CMD_RSP = 8'h0A;
+    
+    localparam COM_CMD_WRITE_DATA    = 8'h01; // write data to data BRAM
+    localparam COM_CMD_READ_DATA     = 8'h02; // read data from data BRAM
+
+    //==!! not implemented !!==//
+    /*
+    localparam COM_CMD_WRITE_PROGRAM = 8'h03; // write program to instr BRAM
+    localparam COM_CMD_LAUNCH        = 8'h04; // start execution
+    localparam COM_CMD_READ_STATUS   = 8'h05; // read status register
+    localparam COM_CMD_WRITE_HASH    = 8'h06; // load expected SHA256 hash
+    localparam COM_CMD_VALIDATE      = 8'h07; // trigger hash validation
+    */
+
+    localparam COM_CMD_ACK           = 8'h08; // successful operation
+    localparam COM_CMD_NAK           = 8'h09; // failed operation / bad packet
+    localparam COM_CMD_RSP           = 8'h0A; // response packet
 
     // ============================================================
     // RX wires
@@ -39,6 +64,7 @@ module communication_controller #(
 
     wire send_ack;
     wire send_nack;
+    wire packet_done;
 
     reg  write_done;
 
@@ -80,6 +106,7 @@ module communication_controller #(
 
         .write_done(write_done),
 
+        .packet_done(packet_done),
         .send_ack(send_ack),
         .send_nack(send_nack)
     );
@@ -123,21 +150,47 @@ module communication_controller #(
     // ============================================================
     // FSM
     // ============================================================
-    localparam IDLE            = 4'd0;
-    localparam ISSUE_CMD       = 4'd1;
-    localparam WAIT_TX         = 4'd2;
+    localparam IDLE            = 4'd0; // wait for RSP data or pending ACK/NAK
+    localparam ISSUE_CMD       = 4'd1; // start an ACK/NAK packet
+    localparam WAIT_TX         = 4'd2; // wait for ACK/NAK transmit to finish
 
-    localparam LOAD_RSP        = 4'd3;
-    localparam SEND_RSP        = 4'd4;
-    localparam SEND_RSP_PAYLOAD= 4'd5;
+    localparam LOAD_RSP        = 4'd3; // prepare an external RSP packet
+    localparam SEND_RSP        = 4'd4; // wait for TX to request RSP payload
+    localparam SEND_RSP_PAYLOAD= 4'd5; // hold until RSP transmit completes
+    localparam READ_START      = 4'd6; // start a memory read response packet
+    localparam READ_WAIT       = 4'd7; // wait for memory read data
+    localparam READ_SEND       = 4'd8; // present one read word to TX
+    localparam READ_PAYLOAD    = 4'd9; // request next read word or finish packet
 
     reg [3:0] state;
 
     reg [7:0] pending_cmd;
+    reg [15:0] pending_addr;
+    reg [15:0] pending_len;
     reg       req_valid;
 
     // RSP storage
     reg [31:0] rsp_buffer;
+
+    // ============================================================
+    // Data memory
+    // ============================================================
+    // The memory module is instantiated outside this controller. In the top
+    // module, connect these ports directly to the external memory instance:
+    //   communication_controller.data_mem_req_*  -> memory.req_*
+    //   memory.req_ready                         -> communication_controller.data_mem_req_ready
+    //   memory.resp_*                            -> communication_controller.data_mem_resp_*
+
+    reg [15:0] write_words_seen;
+    reg [15:0] read_bytes_left;
+    reg [15:0] read_addr;
+    reg [15:0] read_resp_addr;
+    reg [15:0] read_resp_len;
+    reg        write_done_hold;
+    reg        read_payload_requested;
+
+    wire [ADDR_WIDTH-1:0] rx_word_addr =
+        (rx_addr >> 2) + write_words_seen[ADDR_WIDTH-1:0];
 
     // ============================================================
     // Main FSM
@@ -156,27 +209,92 @@ module communication_controller #(
 
             req_valid <= 0;
             pending_cmd <= 0;
+            pending_addr <= 0;
+            pending_len <= 0;
 
             rsp_ready <= 0;
             write_done <= 0;
+            write_done_hold <= 0;
+
+            data_mem_req_valid <= 4'b0000;
+            data_mem_req_write <= 4'b0000;
+            data_mem_req_addr <= {(4*ADDR_WIDTH){1'b0}};
+            data_mem_req_wdata <= {(4*DATA_WIDTH){1'b0}};
+            write_words_seen <= 0;
+            read_bytes_left <= 0;
+            read_addr <= 0;
+            read_resp_addr <= 0;
+            read_resp_len <= 0;
+            read_payload_requested <= 0;
         end else begin
 
             // defaults
             tx_start <= 0;
             tx_payload_valid <= 0;
             rsp_ready <= 0;
-            write_done <= 0;
+            write_done <= write_done_hold;
+            data_mem_req_valid <= 4'b0000;
+            data_mem_req_write <= 4'b0000;
+            data_mem_req_addr <= {(4*ADDR_WIDTH){1'b0}};
+            data_mem_req_wdata <= {(4*DATA_WIDTH){1'b0}};
+
+            // Remember when TX asks for read payload before memory data is ready.
+            if ((state == READ_START) || (state == READ_WAIT) ||
+                (state == READ_SEND) || (state == READ_PAYLOAD)) begin
+                if (tx_payload_advance) begin
+                    read_payload_requested <= 1'b1;
+                end
+            end else begin
+                read_payload_requested <= 1'b0;
+            end
+
+            // Clear the held write/read-done flag after RX emits ACK/NAK status.
+            if (nack_edge || ack_edge) begin
+                write_done_hold <= 0;
+            end
+
+            // Restart write-word addressing whenever the current command is not a data write.
+            if (rx_cmd != COM_CMD_WRITE_DATA) begin
+                write_words_seen <= 0;
+            end
+
+            // Stream each received WRITE_DATA word into data memory bank 0.
+            if (word_valid && (rx_cmd == COM_CMD_WRITE_DATA)) begin
+                data_mem_req_valid[0] <= 1'b1;
+                data_mem_req_write[0] <= 1'b1;
+                data_mem_req_addr[0 +: ADDR_WIDTH] <= rx_word_addr;
+                data_mem_req_wdata[0 +: DATA_WIDTH] <= word_data;
+                write_words_seen <= write_words_seen + 16'd1;
+            end
+
+            // Mark write completion, or initialize a READ_DATA response sequence.
+            if (packet_done && (rx_cmd == COM_CMD_WRITE_DATA)) begin
+                write_done_hold <= 1'b1;
+                write_words_seen <= 16'd0;
+            end else if (packet_done && (rx_cmd == COM_CMD_READ_DATA)) begin
+                write_done_hold <= 1'b1;
+                read_resp_addr <= rx_addr;
+                read_resp_len <= rx_len;
+                read_addr <= rx_addr >> 2;
+                read_bytes_left <= rx_len;
+                read_payload_requested <= 1'b0;
+                state <= READ_START;
+            end
 
             // ====================================================
-            // Capture ACK/NACK events (priority: NACK)
+            // Capture ACK/NACK events 
             // ====================================================
             if (!req_valid) begin
                 if (nack_edge) begin
                     pending_cmd <= COM_CMD_NAK;
+                    pending_addr <= rx_addr;
+                    pending_len <= 0;
                     req_valid   <= 1;
                 end
-                else if (ack_edge) begin
+                else if (ack_edge && (rx_cmd != COM_CMD_READ_DATA)) begin
                     pending_cmd <= COM_CMD_ACK;
+                    pending_addr <= rx_addr;
+                    pending_len <= 0;
                     req_valid   <= 1;
                 end
             end
@@ -202,30 +320,13 @@ module communication_controller #(
                     state <= ISSUE_CMD;
                 end
 
-                // ====================================================
-                // TODO: Command handling (USER IMPLEMENTATION)
-                // ====================================================
-                // case (rx_cmd)
-                //
-                //   COM_CMD_WRITE_DATA:
-                //       // write to BRAM
-                //       // assert write_done when finished
-                //
-                //   COM_CMD_READ_DATA:
-                //       // trigger rsp_valid + rsp_data
-                //
-                //   COM_CMD_LAUNCH:
-                //       // trigger execution
-                //
-                // endcase
-
             end
 
             // ----------------------------------------------------
             ISSUE_CMD: begin
                 tx_cmd  <= pending_cmd;
-                tx_addr <= 0;
-                tx_len  <= 0;
+                tx_addr <= pending_addr;
+                tx_len  <= pending_len;
 
                 tx_start <= 1;
 
@@ -259,6 +360,68 @@ module communication_controller #(
                 if (!tx_busy) begin
                     state <= IDLE;
                 end
+                tx_payload_valid <= 1;
+            end
+
+            // ----------------------------------------------------
+            READ_START: begin
+                tx_cmd <= COM_CMD_READ_DATA;
+                tx_addr <= read_resp_addr;
+                tx_len <= read_resp_len;
+                tx_start <= 1'b1;
+
+                if (read_bytes_left == 16'd0) begin
+                    state <= READ_PAYLOAD;
+                end else begin
+                    data_mem_req_valid[0] <= 1'b1;
+                    data_mem_req_write[0] <= 1'b0;
+                    data_mem_req_addr[0 +: ADDR_WIDTH] <= read_addr[ADDR_WIDTH-1:0];
+                    if (data_mem_req_ready[0]) begin
+                        read_addr <= read_addr + 16'd1;
+                        state <= READ_WAIT;
+                    end
+                end
+            end
+
+            // ----------------------------------------------------
+            READ_WAIT: begin
+                if (data_mem_resp_valid[0]) begin
+                    rsp_buffer <= data_mem_resp_rdata[0 +: DATA_WIDTH];
+                    state <= READ_SEND;
+                end
+            end
+
+            // ----------------------------------------------------
+            READ_SEND: begin
+                if (tx_payload_advance || read_payload_requested) begin
+                    tx_payload_data <= rsp_buffer;
+                    tx_payload_valid <= 1'b1;
+                    read_payload_requested <= 1'b0;
+
+                    if (read_bytes_left > 16'd4) begin
+                        read_bytes_left <= read_bytes_left - 16'd4;
+                    end else begin
+                        read_bytes_left <= 16'd0;
+                    end
+
+                    state <= READ_PAYLOAD;
+                end
+            end
+
+            // ----------------------------------------------------
+            READ_PAYLOAD: begin
+                if (read_bytes_left != 16'd0) begin
+                    data_mem_req_valid[0] <= 1'b1;
+                    data_mem_req_write[0] <= 1'b0;
+                    data_mem_req_addr[0 +: ADDR_WIDTH] <= read_addr[ADDR_WIDTH-1:0];
+                    if (data_mem_req_ready[0]) begin
+                        read_addr <= read_addr + 16'd1;
+                        state <= READ_WAIT;
+                    end
+                end else if (!tx_busy) begin
+                    state <= IDLE;
+                end
+                tx_payload_valid <= 1;
             end
 
             // ----------------------------------------------------

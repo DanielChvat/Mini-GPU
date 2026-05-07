@@ -20,6 +20,7 @@ module serial_packet_rx #(
     input  wire        write_done,
 
     // response signals
+    output reg         packet_done,
     output reg         send_ack,
     output reg         send_nack
 );
@@ -134,11 +135,13 @@ module serial_packet_rx #(
             word_valid    <= 0;
             byte_index    <= 0;
 
+            packet_done   <= 0;
             send_ack      <= 0;
             send_nack     <= 0;
         end else begin
             // default strobes
             word_valid <= 0;
+            packet_done <= 0;
             send_ack   <= 0;
             send_nack  <= 0;
 
@@ -201,6 +204,7 @@ module serial_packet_rx #(
                             crc        <= crc ^ byte_data;
                             payload_count <= 0;
                             byte_index <= 0;
+                            word_data <= 0;
 
                             if ({len[15:8], byte_data} == 0)
                                 state <= GET_CRC;
@@ -232,9 +236,10 @@ module serial_packet_rx #(
 
                         // ------------------------------------------------
                         GET_CRC: begin
-                            if (crc == byte_data)
+                            if (crc == byte_data) begin
                                 state <= WAIT_WRITE;
-                            else
+                                packet_done <= 1;
+                            end else
                                 state <= SEND_NACK;
                         end
 

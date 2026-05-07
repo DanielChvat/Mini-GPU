@@ -28,12 +28,14 @@
         - note: we will calculating the CRC sequentially as we recieve the bytes 
     - CRC is calculated using the XOR of the CMD byte to the last payload byte 
 - we will still use the baud rate concept from uart for timing matching 
+- when a NACK is recieved at the PC, the PC will resend the data with the same data, this will overwrite the previously sent data, so we don't have to worry about undo write when a bad CRC is recieved 
 
 - 5/3
     - currently the get_payload is slightly broken
         - when the payload is not incremented in terms of 4 bytes, the last word will be flushed incorrectly
         - I was thinking of padding with 0s, but that has not been implemented well yet
         - this will need to be fixed at a future stage 
+        - 5/6 update: issue was addressed, we will do padding in SW
 
 - 5/4
     - started working on TX
@@ -58,4 +60,7 @@
         - should manaage the SEND_ACK SEND_NACK flags from the reciever
             - ie when the respective flag is recieved, the TX should send the ACK and/or NACK command 
         - the only CMDs that will be transmited from the FPGA will be ACK, NACK, RSP
-        
+        - read data request will always be 4 bytes
+        - using FIFO between the controller and memory would be an optimal design choice, but i don't think we have enough resources for this
+    - we will do the padding on the software side. ie all transmission from the pc will be in increments of 4 bytes, so that we don't have to create padding in hardware. This will hopefully save some resources, and will also make things easier on my end 
+    - list of none-implemented functions at line 42 of the communication_controller.v module 
