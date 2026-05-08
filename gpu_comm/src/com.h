@@ -18,6 +18,7 @@ typedef enum {
     COM_CMD_VALIDATE      = 0x07,  /* trigger hash validation               */
     COM_CMD_ACK           = 0x08,  /* data was recieved properly            */
     COM_CMD_NAK           = 0x09,  /* data was not recieved properly.       */
+    COM_CMD_WRITE_CONSTANTS = 0x0B, /* write LEN bytes to constant BRAM      */
 } com_cmd_t;
 
 typedef enum {

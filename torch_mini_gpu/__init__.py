@@ -2,7 +2,9 @@
 
 from .backend import (
     BACKEND_NAME,
+    connect,
     device_count,
+    disconnect,
     get_device,
     init,
     is_available,
@@ -12,7 +14,9 @@ from .backend import (
 
 __all__ = [
     "BACKEND_NAME",
+    "connect",
     "device_count",
+    "disconnect",
     "get_device",
     "init",
     "is_available",

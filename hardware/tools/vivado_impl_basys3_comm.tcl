@@ -35,5 +35,8 @@ set_property top basys3_comm_top [current_fileset]
 update_compile_order -fileset sources_1
 
 synth_design -top basys3_comm_top -part xc7a35tcpg236-1
+opt_design
+place_design
+route_design
 report_utilization
 report_timing_summary

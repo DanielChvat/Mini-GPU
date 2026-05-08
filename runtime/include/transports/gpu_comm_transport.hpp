@@ -13,11 +13,10 @@ namespace minigpu::transports {
 
 /* Options for the gpu_comm UART transport adapter. */
 struct GpuCommTransportConfig {
-    bool constants_use_data_memory = true;
+    bool constants_use_data_memory = false;
     std::uint32_t status_done_mask = 0x1u;
-    /* Number of bytes represented by one protocol address step.
-     * Payload words are sent as big-endian 32-bit values. */
-    std::uint32_t address_unit_bytes = 4u;
+    /* Number of bytes represented by one protocol address step. */
+    std::uint32_t address_unit_bytes = 1u;
 };
 
 /* Convert a gpu_comm error code into a runtime status code. */

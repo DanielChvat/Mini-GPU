@@ -43,6 +43,11 @@ static uint8_t com_crc_xor(const uint8_t *buf, size_t start, size_t end_exclusiv
     return crc;
 }
 
+static int com_debug_enabled(void) {
+    const char *value = getenv("MINIGPU_COMM_DEBUG");
+    return value && value[0] != '\0' && value[0] != '0';
+}
+
 static int com_build_packet_fields(uint8_t *buf,
                                     com_cmd_t cmd,
                                     uint16_t addr,
@@ -315,6 +320,12 @@ com_err_t com_write_data(com_dev_t *dev, uint16_t addr,
     uint8_t packet[COM_MAX_PACKET];
     uint8_t payload[COM_MAX_ALIGNED_PAYLOAD];
     size_t offset = 0;
+    int debug = com_debug_enabled();
+
+    if (debug) {
+        fprintf(stderr, "com_write_data: addr=0x%04x len=%zu max_chunk=%u\n",
+                addr, data_len, (unsigned)COM_MAX_ALIGNED_PAYLOAD);
+    }
 
     while (offset < data_len) {
         size_t remaining = data_len - offset;
@@ -340,12 +351,27 @@ com_err_t com_write_data(com_dev_t *dev, uint16_t addr,
                                            packet_payload_len);
         if (packet_len < 0) return (com_err_t)packet_len;
 
+        if (debug) {
+            fprintf(stderr,
+                    "com_write_data: chunk offset=%zu addr=0x%04x real_len=%u packet_len=%u total_packet=%d\n",
+                    offset, chunk_addr, (unsigned)chunk_len,
+                    (unsigned)packet_payload_len, packet_len);
+        }
+
         com_err_t last_err = COM_ERR_FPGA;
         int success = 0;
 
         for (int attempt = 0; attempt < RETRIES; attempt++) {
+            if (debug) {
+                fprintf(stderr, "com_write_data: send attempt=%d addr=0x%04x\n",
+                        attempt + 1, chunk_addr);
+            }
+
             com_err_t err = com_send_raw(dev, packet, (size_t)packet_len);
             if (err != COM_OK) {
+                if (debug) {
+                    fprintf(stderr, "com_write_data: send failed: %s\n", com_strerror(err));
+                }
                 last_err = err;
                 continue;
             }
@@ -353,16 +379,32 @@ com_err_t com_write_data(com_dev_t *dev, uint16_t addr,
             uint8_t ack_buf[COM_OVERHEAD];
             com_packet_t ack_packet;
 
+            if (debug) {
+                fprintf(stderr, "com_write_data: waiting for ACK addr=0x%04x\n", chunk_addr);
+            }
+
             err = com_recv_raw(dev, ack_buf, COM_OVERHEAD);
             if (err != COM_OK) {
+                if (debug) {
+                    fprintf(stderr, "com_write_data: recv ACK failed: %s\n", com_strerror(err));
+                }
                 last_err = err;
                 continue;
             }
 
             err = com_parse_packet(ack_buf, COM_OVERHEAD, &ack_packet);
             if (err != COM_OK) {
+                if (debug) {
+                    fprintf(stderr, "com_write_data: parse ACK failed: %s\n", com_strerror(err));
+                }
                 last_err = err;
                 continue;
+            }
+
+            if (debug) {
+                fprintf(stderr,
+                        "com_write_data: got packet cmd=0x%02x addr=0x%04x len=%u\n",
+                        ack_packet.cmd, ack_packet.addr, ack_packet.len);
             }
 
             if (ack_packet.cmd != COM_CMD_ACK || ack_packet.addr != chunk_addr || ack_packet.len != 0) {

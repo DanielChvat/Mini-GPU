@@ -34,6 +34,14 @@ module mini_gpu #(
     input  wire [WIDTH-1:0]             block_dim,
     input  wire [WIDTH-1:0]             grid_dim,
 
+    input  wire [3:0]                   host_mem_req_valid,
+    input  wire [3:0]                   host_mem_req_write,
+    input  wire [(4*ADDR_WIDTH)-1:0]    host_mem_req_addr,
+    input  wire [(4*WIDTH)-1:0]         host_mem_req_wdata,
+    output wire [3:0]                   host_mem_req_ready,
+    output wire [3:0]                   host_mem_resp_valid,
+    output wire [(4*WIDTH)-1:0]         host_mem_resp_rdata,
+
     output wire [NUM_CORES-1:0]                         core_busy,
     output wire [NUM_CORES-1:0]                         core_done,
     output wire [NUM_CORES-1:0]                         core_error,
@@ -71,9 +79,31 @@ module mini_gpu #(
     reg [WARP_SIZE-1:0] memory_req_write;
     reg [(WARP_SIZE*ADDR_WIDTH)-1:0] memory_req_addr;
     reg [(WARP_SIZE*WIDTH)-1:0] memory_req_wdata;
-    wire [WARP_SIZE-1:0] memory_req_ready;
-    wire [WARP_SIZE-1:0] memory_resp_valid;
-    wire [(WARP_SIZE*WIDTH)-1:0] memory_resp_rdata;
+    wire [3:0] memory_req_valid_bus;
+    wire [3:0] memory_req_write_bus;
+    wire [(4*ADDR_WIDTH)-1:0] memory_req_addr_bus;
+    wire [(4*WIDTH)-1:0] memory_req_wdata_bus;
+    wire [3:0] memory_req_ready_bus;
+    wire [3:0] memory_resp_valid_bus;
+    wire [(4*WIDTH)-1:0] memory_resp_rdata_bus;
+    wire [WARP_SIZE-1:0] core_selected_mem_req_ready;
+    wire [WARP_SIZE-1:0] core_selected_mem_resp_valid;
+    wire [(WARP_SIZE*WIDTH)-1:0] core_selected_mem_resp_rdata;
+    wire host_mem_active = |host_mem_req_valid && !busy;
+
+    assign memory_req_valid_bus = host_mem_active ? host_mem_req_valid : memory_req_valid;
+    assign memory_req_write_bus = host_mem_active ? host_mem_req_write : memory_req_write;
+    assign memory_req_addr_bus = host_mem_active ? host_mem_req_addr : memory_req_addr;
+    assign memory_req_wdata_bus = host_mem_active ? host_mem_req_wdata : memory_req_wdata;
+    assign core_selected_mem_req_ready = host_mem_active ? {WARP_SIZE{1'b0}} :
+                                         memory_req_ready_bus[WARP_SIZE-1:0];
+    assign core_selected_mem_resp_valid = host_mem_active ? {WARP_SIZE{1'b0}} :
+                                          memory_resp_valid_bus[WARP_SIZE-1:0];
+    assign core_selected_mem_resp_rdata = host_mem_active ? {(WARP_SIZE*WIDTH){1'b0}} :
+                                          memory_resp_rdata_bus[(WARP_SIZE*WIDTH)-1:0];
+    assign host_mem_req_ready = host_mem_active ? memory_req_ready_bus : 4'b0000;
+    assign host_mem_resp_valid = host_mem_active ? memory_resp_valid_bus : 4'b0000;
+    assign host_mem_resp_rdata = host_mem_active ? memory_resp_rdata_bus : {(4*WIDTH){1'b0}};
 
     integer arb_scan;
     integer arb_candidate;
@@ -103,15 +133,15 @@ module mini_gpu #(
             memory_req_write = core_mem_req_write[(arb_core*WARP_SIZE) +: WARP_SIZE];
             memory_req_addr = core_mem_req_addr[(arb_core*WARP_SIZE*ADDR_WIDTH) +: (WARP_SIZE*ADDR_WIDTH)];
             memory_req_wdata = core_mem_req_wdata[(arb_core*WARP_SIZE*WIDTH) +: (WARP_SIZE*WIDTH)];
-            core_mem_req_ready[(arb_core*WARP_SIZE) +: WARP_SIZE] = memory_req_ready;
+            core_mem_req_ready[(arb_core*WARP_SIZE) +: WARP_SIZE] = core_selected_mem_req_ready;
         end
     end
 
     always @* begin
         core_mem_resp_valid = {(NUM_CORES*WARP_SIZE){1'b0}};
         core_mem_resp_rdata = {(NUM_CORES*WARP_SIZE*WIDTH){1'b0}};
-        core_mem_resp_valid[(resp_core_q*WARP_SIZE) +: WARP_SIZE] = memory_resp_valid;
-        core_mem_resp_rdata[(resp_core_q*WARP_SIZE*WIDTH) +: (WARP_SIZE*WIDTH)] = memory_resp_rdata;
+        core_mem_resp_valid[(resp_core_q*WARP_SIZE) +: WARP_SIZE] = core_selected_mem_resp_valid;
+        core_mem_resp_rdata[(resp_core_q*WARP_SIZE*WIDTH) +: (WARP_SIZE*WIDTH)] = core_selected_mem_resp_rdata;
     end
 
     always @(posedge clk) begin
@@ -119,11 +149,11 @@ module mini_gpu #(
             rr_core <= {CORE_INDEX_WIDTH{1'b0}};
             resp_core_q <= {CORE_INDEX_WIDTH{1'b0}};
         end else begin
-            if (arb_valid && |(memory_req_valid & memory_req_ready)) begin
+            if (arb_valid && |(memory_req_valid & core_selected_mem_req_ready)) begin
                 rr_core <= next_core_index(arb_core);
             end
 
-            if (arb_valid && |(memory_req_valid & memory_req_ready & ~memory_req_write)) begin
+            if (arb_valid && |(memory_req_valid & core_selected_mem_req_ready & ~memory_req_write)) begin
                 resp_core_q <= arb_core;
             end
         end
@@ -136,13 +166,13 @@ module mini_gpu #(
     ) global_memory (
         .clk(clk),
         .rst(rst),
-        .req_valid(memory_req_valid),
-        .req_write(memory_req_write),
-        .req_addr(memory_req_addr),
-        .req_wdata(memory_req_wdata),
-        .req_ready(memory_req_ready),
-        .resp_valid(memory_resp_valid),
-        .resp_rdata(memory_resp_rdata)
+        .req_valid(memory_req_valid_bus),
+        .req_write(memory_req_write_bus),
+        .req_addr(memory_req_addr_bus),
+        .req_wdata(memory_req_wdata_bus),
+        .req_ready(memory_req_ready_bus),
+        .resp_valid(memory_resp_valid_bus),
+        .resp_rdata(memory_resp_rdata_bus)
     );
 
     genvar core_id;

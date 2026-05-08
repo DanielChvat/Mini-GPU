@@ -1,4 +1,5 @@
 #include "minigpu_runtime.hpp"
+#include "minigpu_kernels.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -111,6 +112,30 @@ int main() {
     assert(dev.active_mask == 0xf);
     assert(dev.program.size() == sizeof(program));
     assert(dev.constants.size() == sizeof(constants));
+
+    dev.launched = false;
+    dev.program.clear();
+    dev.constants.clear();
+    minigpu::kernels::register_builtin_kernels(context);
+    context.launch_kernel(
+        "vector_add_i32",
+        {
+            minigpu::KernelArg::device_ptr(a.addr()),
+            minigpu::KernelArg::device_ptr(b.addr()),
+            minigpu::KernelArg::u32(0x20),
+        });
+    assert(dev.launched);
+    assert(dev.base_pc == 0);
+    assert(dev.grid_dim == 1);
+    assert(dev.block_dim == 4);
+    assert(dev.active_mask == 0xf);
+    assert(dev.program.size() == 12 * sizeof(std::uint32_t));
+    assert(dev.constants.size() == 3 * sizeof(std::uint32_t));
+    const std::uint32_t *kernel_args =
+        reinterpret_cast<const std::uint32_t *>(dev.constants.data());
+    assert(kernel_args[0] == a.addr() / 4);
+    assert(kernel_args[1] == b.addr() / 4);
+    assert(kernel_args[2] == 0x20);
 
     a.reset();
     b.reset();

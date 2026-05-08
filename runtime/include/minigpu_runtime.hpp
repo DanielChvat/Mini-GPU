@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -77,6 +78,8 @@ struct Config {
     std::size_t memory_size = 0;
     std::size_t default_alignment = 4;
     Transport transport;
+    bool enable_logging = false;
+    std::string log_path;
 };
 
 /* Kernel launch descriptor used by Context::launch_kernel. */
@@ -92,6 +95,39 @@ struct Kernel {
     std::uint32_t block_dim = 1;
     std::uint32_t active_mask = 0xffffffffu;
     std::uint32_t timeout_ms = 0;
+};
+
+/* A precompiled instruction stream that can be launched by registry name. */
+struct PrecompiledKernel {
+    std::string name;
+    const void *program = nullptr;
+    std::size_t program_size = 0;
+    std::vector<std::uint8_t> program_bytes;
+    DeviceAddress program_addr = 0;
+    DeviceAddress base_pc = 0;
+    std::uint32_t default_grid_dim = 1;
+    std::uint32_t default_block_dim = 4;
+    std::uint32_t default_active_mask = 0xffffffffu;
+    std::uint32_t default_timeout_ms = 0;
+};
+
+/* Launch dimensions used when overriding a registered kernel's defaults. */
+struct LaunchConfig {
+    std::uint32_t grid_dim = 1;
+    std::uint32_t block_dim = 4;
+    std::uint32_t active_mask = 0xffffffffu;
+    std::uint32_t timeout_ms = 0;
+};
+
+/* One 32-bit value written into constant memory before a kernel launch. */
+struct KernelArg {
+    std::uint32_t value = 0;
+
+    /* Build a raw 32-bit constant argument. */
+    static KernelArg u32(std::uint32_t value) noexcept;
+
+    /* Build a word-address pointer argument from a byte-addressed allocation. */
+    static KernelArg device_ptr(DeviceAddress byte_addr, std::uint32_t bytes_per_word = 4);
 };
 
 class Context;
@@ -183,6 +219,26 @@ public:
     /* Optionally write program/constants, launch the kernel, and wait if supported. */
     void launch_kernel(const Kernel &kernel);
 
+    /* Register or replace a precompiled kernel by name. */
+    void register_kernel(PrecompiledKernel kernel);
+
+    /* Load a precompiled kernel file and register it by name. */
+    void register_kernel_from_file(
+        std::string name,
+        std::string_view path,
+        DeviceAddress program_addr = 0,
+        DeviceAddress base_pc = 0,
+        LaunchConfig defaults = LaunchConfig{});
+
+    /* Return a registered kernel by name, or nullptr if it is not registered. */
+    const PrecompiledKernel *find_kernel(std::string_view name) const noexcept;
+
+    /* Launch a registered kernel with a constant-memory argument list. */
+    void launch_kernel(
+        std::string_view name,
+        const std::vector<KernelArg> &args,
+        const LaunchConfig *launch_config = nullptr);
+
     /* Return the total managed device memory size in bytes. */
     std::size_t memory_size() const noexcept;
 
@@ -204,9 +260,15 @@ private:
     std::size_t default_alignment_ = 4;
     Transport transport_;
     std::vector<Block> blocks_;
+    std::vector<PrecompiledKernel> kernels_;
+    bool logging_enabled_ = false;
+    std::string log_path_;
 
     /* Return true when the entire address range belongs to one live allocation. */
     bool range_is_allocated(DeviceAddress addr, std::size_t size) const noexcept;
+
+    /* Append one runtime event to the configured log file when logging is enabled. */
+    void log_event(std::string_view event) const noexcept;
 
     /* Merge adjacent free allocator blocks after a free operation. */
     void coalesce_free_blocks();

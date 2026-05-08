@@ -1,8 +1,13 @@
 #include "minigpu_runtime.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <utility>
 
 namespace minigpu {
@@ -34,6 +39,81 @@ DeviceAddress align_up_addr(DeviceAddress value, std::size_t alignment) {
 bool add_overflows_addr(DeviceAddress addr, std::size_t size) {
     return size > static_cast<std::size_t>(
         std::numeric_limits<DeviceAddress>::max() - addr);
+}
+
+/* Return the runtime log target requested by the environment. */
+std::string env_log_path() {
+    const char *value = std::getenv("MINIGPU_RUNTIME_LOG");
+    if (!value || value[0] == '\0' || std::string_view(value) == "0") {
+        return {};
+    }
+    if (std::string_view(value) == "1" || std::string_view(value) == "true") {
+        return "/tmp/minigpu_runtime.log";
+    }
+    return value;
+}
+
+/* Load a whole file as bytes. */
+std::vector<std::uint8_t> read_binary_file(std::string_view path) {
+    std::ifstream file(std::string(path), std::ios::binary);
+    if (!file) {
+        throw Error(Status::NotFound);
+    }
+
+    file.seekg(0, std::ios::end);
+    const std::streamoff size = file.tellg();
+    if (size <= 0) {
+        throw Error(Status::BadArgument);
+    }
+    file.seekg(0, std::ios::beg);
+
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+    file.read(reinterpret_cast<char *>(bytes.data()), size);
+    if (!file) {
+        throw Error(Status::Transport);
+    }
+    return bytes;
+}
+
+/* Load newline-separated 32-bit hex words as host-order program words. */
+std::vector<std::uint8_t> read_hex_words_file(std::string_view path) {
+    std::ifstream file{std::string(path)};
+    if (!file) {
+        throw Error(Status::NotFound);
+    }
+
+    std::vector<std::uint8_t> bytes;
+    std::string token;
+    while (file >> token) {
+        if (!token.empty() && token[0] == '#') {
+            std::string ignored;
+            std::getline(file, ignored);
+            continue;
+        }
+
+        std::uint32_t word = 0;
+        std::stringstream stream(token);
+        stream >> std::hex >> word;
+        if (!stream || !stream.eof()) {
+            throw Error(Status::BadArgument);
+        }
+
+        const auto *word_bytes = reinterpret_cast<const std::uint8_t *>(&word);
+        bytes.insert(bytes.end(), word_bytes, word_bytes + sizeof(word));
+    }
+
+    if (bytes.empty()) {
+        throw Error(Status::BadArgument);
+    }
+    return bytes;
+}
+
+/* Load either raw .bin bytes or a text .hex file of 32-bit words. */
+std::vector<std::uint8_t> read_kernel_file(std::string_view path) {
+    if (path.size() >= 4 && path.substr(path.size() - 4) == ".hex") {
+        return read_hex_words_file(path);
+    }
+    return read_binary_file(path);
 }
 
 } // namespace
@@ -77,6 +157,20 @@ void check(Status status) {
     if (status != Status::Ok) {
         throw Error(status);
     }
+}
+
+/* Build a raw constant-memory argument. */
+KernelArg KernelArg::u32(std::uint32_t value) noexcept {
+    return KernelArg{value};
+}
+
+/* Convert a byte-addressed device pointer into the word address used by LDG/STG. */
+KernelArg KernelArg::device_ptr(DeviceAddress byte_addr, std::uint32_t bytes_per_word) {
+    if (bytes_per_word == 0 || (byte_addr % bytes_per_word) != 0) {
+        throw Error(Status::BadArgument);
+    }
+
+    return KernelArg{byte_addr / bytes_per_word};
 }
 
 /* Attach an existing allocation to an RAII DeviceBuffer owner. */
@@ -151,7 +245,9 @@ Context::Context(Config config)
     : memory_base_(config.memory_base),
       memory_size_(config.memory_size),
       default_alignment_(config.default_alignment ? config.default_alignment : 4),
-      transport_(std::move(config.transport)) {
+      transport_(std::move(config.transport)),
+      logging_enabled_(config.enable_logging),
+      log_path_(std::move(config.log_path)) {
     if (memory_size_ == 0) {
         throw Error(Status::BadArgument);
     }
@@ -160,7 +256,16 @@ Context::Context(Config config)
         throw Error(Status::OutOfRange);
     }
 
+    if (log_path_.empty()) {
+        log_path_ = env_log_path();
+    }
+    logging_enabled_ = logging_enabled_ || !log_path_.empty();
+    if (logging_enabled_ && log_path_.empty()) {
+        log_path_ = "/tmp/minigpu_runtime.log";
+    }
+
     blocks_.push_back(Block{memory_base_, memory_size_, true});
+    log_event("context created");
 }
 
 /* Move allocator state and transport callbacks into a new Context object. */
@@ -169,7 +274,10 @@ Context::Context(Context &&other) noexcept
       memory_size_(std::exchange(other.memory_size_, 0)),
       default_alignment_(std::exchange(other.default_alignment_, 4)),
       transport_(std::move(other.transport_)),
-      blocks_(std::move(other.blocks_)) {}
+      blocks_(std::move(other.blocks_)),
+      kernels_(std::move(other.kernels_)),
+      logging_enabled_(std::exchange(other.logging_enabled_, false)),
+      log_path_(std::move(other.log_path_)) {}
 
 /* Replace this Context with another Context's allocator and transport state. */
 Context &Context::operator=(Context &&other) noexcept {
@@ -179,6 +287,9 @@ Context &Context::operator=(Context &&other) noexcept {
         default_alignment_ = std::exchange(other.default_alignment_, 4);
         transport_ = std::move(other.transport_);
         blocks_ = std::move(other.blocks_);
+        kernels_ = std::move(other.kernels_);
+        logging_enabled_ = std::exchange(other.logging_enabled_, false);
+        log_path_ = std::move(other.log_path_);
     }
     return *this;
 }
@@ -236,6 +347,10 @@ DeviceBuffer Context::device_malloc_aligned(
             blocks_[index].free = false;
         }
 
+        std::ostringstream log;
+        log << "device_malloc addr=0x" << std::hex << alloc_addr
+            << " bytes=" << std::dec << size;
+        log_event(log.str());
         return DeviceBuffer(this, alloc_addr, size);
     }
 
@@ -248,6 +363,9 @@ Status Context::device_free(DeviceAddress addr) noexcept {
         if (!block.free && block.offset == addr) {
             block.free = true;
             coalesce_free_blocks();
+            std::ostringstream log;
+            log << "device_free addr=0x" << std::hex << addr;
+            log_event(log.str());
             return Status::Ok;
         }
     }
@@ -271,6 +389,10 @@ void Context::copy_to_device(
         throw Error(Status::Unsupported);
     }
 
+    std::ostringstream log;
+    log << "copy_to_device addr=0x" << std::hex << dst_addr
+        << " bytes=" << std::dec << size;
+    log_event(log.str());
     check(transport_.write_data(dst_addr, src, size));
 }
 
@@ -290,6 +412,10 @@ void Context::copy_from_device(
         throw Error(Status::Unsupported);
     }
 
+    std::ostringstream log;
+    log << "copy_from_device addr=0x" << std::hex << src_addr
+        << " bytes=" << std::dec << size;
+    log_event(log.str());
     check(transport_.read_data(src_addr, dst, size));
 }
 
@@ -306,6 +432,10 @@ void Context::write_program(
         throw Error(Status::Unsupported);
     }
 
+    std::ostringstream log;
+    log << "write_program addr=0x" << std::hex << dst_addr
+        << " bytes=" << std::dec << size;
+    log_event(log.str());
     check(transport_.write_program(dst_addr, program, size));
 }
 
@@ -322,11 +452,22 @@ void Context::write_constants(
         throw Error(Status::Unsupported);
     }
 
+    std::ostringstream log;
+    log << "write_constants addr=0x" << std::hex << dst_addr
+        << " bytes=" << std::dec << size;
+    log_event(log.str());
     check(transport_.write_constants(dst_addr, constants, size));
 }
 
 /* Upload optional program/constants, launch the kernel, and wait if supported. */
 void Context::launch_kernel(const Kernel &kernel) {
+    if (kernel.program_size && !kernel.program) {
+        throw Error(Status::BadArgument);
+    }
+    if (kernel.constants_size && !kernel.constants) {
+        throw Error(Status::BadArgument);
+    }
+
     if (kernel.program && kernel.program_size) {
         write_program(kernel.program_addr, kernel.program, kernel.program_size);
     }
@@ -339,12 +480,126 @@ void Context::launch_kernel(const Kernel &kernel) {
         throw Error(Status::Unsupported);
     }
 
+    std::ostringstream log;
+    log << "launch base_pc=0x" << std::hex << kernel.base_pc
+        << " grid=" << std::dec << kernel.grid_dim
+        << " block=" << kernel.block_dim
+        << " mask=0x" << std::hex << kernel.active_mask;
+    log_event(log.str());
     check(transport_.launch(
         kernel.base_pc, kernel.grid_dim, kernel.block_dim, kernel.active_mask));
 
     if (transport_.wait) {
+        log_event("wait begin");
         check(transport_.wait(kernel.timeout_ms));
+        log_event("wait done");
     }
+}
+
+/* Store a named precompiled kernel, replacing an older entry with the same name. */
+void Context::register_kernel(PrecompiledKernel kernel) {
+    if (!kernel.program_bytes.empty()) {
+        kernel.program = nullptr;
+        kernel.program_size = kernel.program_bytes.size();
+    }
+    if (kernel.name.empty() ||
+        ((!kernel.program || kernel.program_size == 0) && kernel.program_bytes.empty())) {
+        throw Error(Status::BadArgument);
+    }
+
+    for (auto &registered : kernels_) {
+        if (registered.name == kernel.name) {
+            registered = std::move(kernel);
+            std::ostringstream log;
+            log << "register_kernel name=" << registered.name
+                << " bytes=" << registered.program_size;
+            log_event(log.str());
+            return;
+        }
+    }
+
+    kernels_.push_back(std::move(kernel));
+    std::ostringstream log;
+    log << "register_kernel name=" << kernels_.back().name
+        << " bytes=" << kernels_.back().program_size;
+    log_event(log.str());
+}
+
+/* Load a precompiled kernel artifact and register it under a stable name. */
+void Context::register_kernel_from_file(
+    std::string name,
+    std::string_view path,
+    DeviceAddress program_addr,
+    DeviceAddress base_pc,
+    LaunchConfig defaults) {
+    PrecompiledKernel kernel;
+    kernel.name = std::move(name);
+    kernel.program_bytes = read_kernel_file(path);
+    kernel.program_addr = program_addr;
+    kernel.base_pc = base_pc;
+    kernel.default_grid_dim = defaults.grid_dim;
+    kernel.default_block_dim = defaults.block_dim;
+    kernel.default_active_mask = defaults.active_mask;
+    kernel.default_timeout_ms = defaults.timeout_ms;
+    register_kernel(std::move(kernel));
+}
+
+/* Look up a precompiled kernel without throwing. */
+const PrecompiledKernel *Context::find_kernel(std::string_view name) const noexcept {
+    for (const auto &kernel : kernels_) {
+        if (kernel.name == name) {
+            return &kernel;
+        }
+    }
+
+    return nullptr;
+}
+
+/* Build a constants table from args, upload the registered program, and launch it. */
+void Context::launch_kernel(
+    std::string_view name,
+    const std::vector<KernelArg> &args,
+    const LaunchConfig *launch_config) {
+    const PrecompiledKernel *registered = find_kernel(name);
+    if (!registered) {
+        throw Error(Status::NotFound);
+    }
+
+    const LaunchConfig defaults{
+        registered->default_grid_dim,
+        registered->default_block_dim,
+        registered->default_active_mask,
+        registered->default_timeout_ms,
+    };
+    const LaunchConfig &launch = launch_config ? *launch_config : defaults;
+
+    std::vector<std::uint32_t> constants;
+    constants.reserve(args.size());
+    for (const KernelArg &arg : args) {
+        constants.push_back(arg.value);
+    }
+
+    Kernel kernel;
+    if (!registered->program_bytes.empty()) {
+        kernel.program = registered->program_bytes.data();
+        kernel.program_size = registered->program_bytes.size();
+    } else {
+        kernel.program = registered->program;
+        kernel.program_size = registered->program_size;
+    }
+    kernel.program_addr = registered->program_addr;
+    kernel.constants = constants.empty() ? nullptr : constants.data();
+    kernel.constants_size = constants.size() * sizeof(std::uint32_t);
+    kernel.constants_addr = 0;
+    kernel.base_pc = registered->base_pc;
+    kernel.grid_dim = launch.grid_dim;
+    kernel.block_dim = launch.block_dim;
+    kernel.active_mask = launch.active_mask;
+    kernel.timeout_ms = launch.timeout_ms;
+    std::ostringstream log;
+    log << "launch_kernel name=" << name << " args=" << args.size();
+    log_event(log.str());
+    launch_kernel(kernel);
 }
 
 /* Return the configured size of the managed device-memory window. */
@@ -392,6 +647,26 @@ void Context::coalesce_free_blocks() {
         } else {
             ++i;
         }
+    }
+}
+
+/* Append a compact runtime trace line to the configured log file. */
+void Context::log_event(std::string_view event) const noexcept {
+    if (!logging_enabled_) {
+        return;
+    }
+
+    try {
+        std::ofstream log(log_path_, std::ios::app);
+        if (!log) {
+            return;
+        }
+
+        const auto now = std::chrono::system_clock::now();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()).count();
+        log << ms << " " << event << "\n";
+    } catch (...) {
     }
 }
 
