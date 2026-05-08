@@ -114,10 +114,16 @@ end
 task send_byte(input [7:0] b);
     integer i;
     begin
+        rx_line = 1'b0;
+        #(BAUD_PERIOD);
+
         for (i = 0; i < 8; i = i + 1) begin
             rx_line = b[i];
             #(BAUD_PERIOD);
         end
+
+        rx_line = 1'b1;
+        #(BAUD_PERIOD);
     end
 endtask
 
@@ -278,6 +284,68 @@ task expect_tx_packet_with_word(
 end
 endtask
 
+task expect_tx_packet_with_words4(
+    input [7:0] exp_cmd,
+    input [15:0] exp_addr,
+    input [15:0] exp_len,
+    input [31:0] exp_word0,
+    input [31:0] exp_word1,
+    input [31:0] exp_word2,
+    input [31:0] exp_word3
+);
+    begin
+        expect_tx_done(exp_cmd, exp_addr, exp_len);
+
+        timeout_count = 0;
+        while ((dut.tx_payload_valid !== 1'b1) && (timeout_count < 20000)) begin
+            @(posedge clk);
+            timeout_count = timeout_count + 1;
+        end
+        if (dut.tx_payload_data !== exp_word0) begin
+            $display("TEST%0d FAIL: payload word0 expected %h got %h", testNum, exp_word0, dut.tx_payload_data);
+            errors = errors + 1;
+        end
+
+        @(posedge clk);
+        while (dut.tx_payload_valid === 1'b1) @(posedge clk);
+        timeout_count = 0;
+        while ((dut.tx_payload_valid !== 1'b1) && (timeout_count < 20000)) begin
+            @(posedge clk);
+            timeout_count = timeout_count + 1;
+        end
+        if (dut.tx_payload_data !== exp_word1) begin
+            $display("TEST%0d FAIL: payload word1 expected %h got %h", testNum, exp_word1, dut.tx_payload_data);
+            errors = errors + 1;
+        end
+
+        @(posedge clk);
+        while (dut.tx_payload_valid === 1'b1) @(posedge clk);
+        timeout_count = 0;
+        while ((dut.tx_payload_valid !== 1'b1) && (timeout_count < 20000)) begin
+            @(posedge clk);
+            timeout_count = timeout_count + 1;
+        end
+        if (dut.tx_payload_data !== exp_word2) begin
+            $display("TEST%0d FAIL: payload word2 expected %h got %h", testNum, exp_word2, dut.tx_payload_data);
+            errors = errors + 1;
+        end
+
+        @(posedge clk);
+        while (dut.tx_payload_valid === 1'b1) @(posedge clk);
+        timeout_count = 0;
+        while ((dut.tx_payload_valid !== 1'b1) && (timeout_count < 20000)) begin
+            @(posedge clk);
+            timeout_count = timeout_count + 1;
+        end
+        if (dut.tx_payload_data !== exp_word3) begin
+            $display("TEST%0d FAIL: payload word3 expected %h got %h", testNum, exp_word3, dut.tx_payload_data);
+            errors = errors + 1;
+        end
+
+        #20;
+    end
+endtask
+
 task wait_tx_idle;
     begin
         @(posedge clk);
@@ -416,6 +484,34 @@ initial begin
     fork
         send_packet(COM_CMD_READ_DATA, 16'h0010, 16'd4);
         expect_tx_packet_with_word(COM_CMD_READ_DATA, 16'h0010, 16'd4, 32'h44332211);
+    join
+    wait_tx_idle();
+
+    // ========================================================
+    // TEST 2B: READ_DATA can stream multiple response words
+    // ========================================================
+    testNum = 20;
+    write_count = 0;
+    fill_payload_counting(16);
+
+    fork
+        send_packet(COM_CMD_WRITE_DATA, 16'h0060, 16'd16);
+        expect_tx_done(COM_CMD_ACK, 16'h0060, 16'd0);
+    join
+    wait_tx_idle();
+
+    fill_payload_counting(16);
+    fork
+        send_packet(COM_CMD_READ_DATA, 16'h0060, 16'd16);
+        expect_tx_packet_with_words4(
+            COM_CMD_READ_DATA,
+            16'h0060,
+            16'd16,
+            32'h03020100,
+            32'h07060504,
+            32'h0B0A0908,
+            32'h0F0E0D0C
+        );
     join
     wait_tx_idle();
 

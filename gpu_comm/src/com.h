@@ -64,13 +64,15 @@ com_err_t com_recv_raw(com_dev_t *dev, uint8_t *buf, size_t n);
 /* Build a packet into buf and returns total packet length on success or com_err_t*/
 int com_build_packet(uint8_t *buf, com_cmd_t cmd, uint16_t addr, const uint8_t *payload, uint16_t payload_len);
 
+/* Build a request packet with a LEN field but no payload. */
+int com_build_request_packet(uint8_t *buf, com_cmd_t cmd, uint16_t addr, uint16_t request_len);
+
 /* Parse a packet from buf into pkt
  * Verifies SOF, CRC, returns COM_OK com_err_t
 */
 com_err_t com_parse_packet(const uint8_t *buf, size_t buf_len, com_packet_t *pkt);
 
-/* Write up to COM_MAX_PAYLOAD bytes of data to data BRAM at addr.
- * Splits automatically into multiple packets if data_len > COM_MAX_PAYLOAD. */
+/* Write bytes to data BRAM at addr, splitting and zero-padding to 32-bit words. */
 com_err_t com_write_data(com_dev_t *dev, uint16_t addr,
                            const uint8_t *data, size_t data_len);
 

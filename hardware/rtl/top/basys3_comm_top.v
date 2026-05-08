@@ -1,0 +1,212 @@
+`timescale 1ns/1ps
+module basys3_comm_top #(
+    parameter CLK_FREQ = 100_000_000,
+    parameter BAUD_RATE = 115200,
+    parameter ADDR_WIDTH = 16,
+    parameter DATA_WIDTH = 32,
+    parameter MEMORY_BANK_DEPTH = 8192
+) (
+    input  wire        CLK100MHZ,
+    input  wire        btnC,
+    input  wire [15:0] sw,
+    input  wire        RsRx,
+    output wire        RsTx,
+    output wire [15:0] led,
+    output wire [6:0]  seg,
+    output wire        dp,
+    output wire [3:0]  an
+);
+    reg [15:0] power_on_reset = 16'hffff;
+    reg btnC_meta = 1'b0;
+    reg btnC_sync = 1'b0;
+
+    wire rst = btnC_sync || (power_on_reset != 16'b0);
+
+    wire        rsp_valid = 1'b0;
+    wire [31:0] rsp_data = 32'b0;
+    wire        rsp_ready;
+
+    wire [3:0] data_mem_req_valid;
+    wire [3:0] data_mem_req_write;
+    wire [(4*ADDR_WIDTH)-1:0] data_mem_req_addr;
+    wire [(4*DATA_WIDTH)-1:0] data_mem_req_wdata;
+    wire [3:0] data_mem_req_ready;
+    wire [3:0] data_mem_resp_valid;
+    wire [(4*DATA_WIDTH)-1:0] data_mem_resp_rdata;
+
+    wire [7:0]  dbg_rx_cmd;
+    wire [15:0] dbg_rx_addr;
+    wire [15:0] dbg_rx_len;
+
+    reg [15:0] last_mem_addr = 16'b0;
+    reg [31:0] last_mem_wdata = 32'b0;
+    reg [31:0] last_mem_rdata = 32'b0;
+    reg [15:0] write_count = 16'b0;
+    reg [15:0] read_count = 16'b0;
+
+    wire mem_write0 = data_mem_req_valid[0] && data_mem_req_write[0] && data_mem_req_ready[0];
+    wire mem_read0 = data_mem_req_valid[0] && !data_mem_req_write[0] && data_mem_req_ready[0];
+
+    communication_controller #(
+        .CLK_FREQ(CLK_FREQ),
+        .BAUD_RATE(BAUD_RATE),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH)
+    ) comm (
+        .clk(CLK100MHZ),
+        .rst(rst),
+        .rx_line(RsRx),
+        .tx_line(RsTx),
+        .rsp_valid(rsp_valid),
+        .rsp_data(rsp_data),
+        .rsp_ready(rsp_ready),
+        .data_mem_req_valid(data_mem_req_valid),
+        .data_mem_req_write(data_mem_req_write),
+        .data_mem_req_addr(data_mem_req_addr),
+        .data_mem_req_wdata(data_mem_req_wdata),
+        .data_mem_req_ready(data_mem_req_ready),
+        .data_mem_resp_valid(data_mem_resp_valid),
+        .data_mem_resp_rdata(data_mem_resp_rdata),
+        .dbg_rx_cmd(dbg_rx_cmd),
+        .dbg_rx_addr(dbg_rx_addr),
+        .dbg_rx_len(dbg_rx_len)
+    );
+
+    memory #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .BANK_DEPTH(MEMORY_BANK_DEPTH)
+    ) data_memory (
+        .clk(CLK100MHZ),
+        .rst(rst),
+        .req_valid(data_mem_req_valid),
+        .req_write(data_mem_req_write),
+        .req_addr(data_mem_req_addr),
+        .req_wdata(data_mem_req_wdata),
+        .req_ready(data_mem_req_ready),
+        .resp_valid(data_mem_resp_valid),
+        .resp_rdata(data_mem_resp_rdata)
+    );
+
+    always @(posedge CLK100MHZ) begin
+        btnC_meta <= btnC;
+        btnC_sync <= btnC_meta;
+
+        if (btnC_sync) begin
+            power_on_reset <= 16'hffff;
+        end else if (power_on_reset != 16'b0) begin
+            power_on_reset <= power_on_reset - 16'd1;
+        end
+    end
+
+    always @(posedge CLK100MHZ) begin
+        if (rst) begin
+            last_mem_addr <= 16'b0;
+            last_mem_wdata <= 32'b0;
+            last_mem_rdata <= 32'b0;
+            write_count <= 16'b0;
+            read_count <= 16'b0;
+        end else begin
+            if (mem_write0) begin
+                last_mem_addr <= data_mem_req_addr[0 +: ADDR_WIDTH];
+                last_mem_wdata <= data_mem_req_wdata[0 +: DATA_WIDTH];
+                write_count <= write_count + 16'd1;
+            end
+
+            if (mem_read0) begin
+                last_mem_addr <= data_mem_req_addr[0 +: ADDR_WIDTH];
+                read_count <= read_count + 16'd1;
+            end
+
+            if (data_mem_resp_valid[0]) begin
+                last_mem_rdata <= data_mem_resp_rdata[0 +: DATA_WIDTH];
+            end
+        end
+    end
+
+    wire [15:0] display_word =
+        (sw[1:0] == 2'd0) ? {8'b0, dbg_rx_cmd} :
+        (sw[1:0] == 2'd1) ? dbg_rx_addr :
+        (sw[1:0] == 2'd2) ? dbg_rx_len :
+                             last_mem_addr;
+
+    assign led[0] = !rst;
+    assign led[1] = RsRx;
+    assign led[2] = RsTx;
+    assign led[3] = rsp_ready;
+    assign led[4] = mem_write0;
+    assign led[5] = mem_read0;
+    assign led[6] = data_mem_resp_valid[0];
+    assign led[7] = data_mem_req_ready[0];
+    assign led[15:8] = dbg_rx_cmd;
+
+    basys3_comm_sevenseg display (
+        .clk(CLK100MHZ),
+        .value(display_word),
+        .seg(seg),
+        .dp(dp),
+        .an(an)
+    );
+endmodule
+
+module basys3_comm_sevenseg (
+    input  wire        clk,
+    input  wire [15:0] value,
+    output wire [6:0]  seg,
+    output wire        dp,
+    output wire [3:0]  an
+);
+    reg [15:0] refresh = 16'b0;
+    reg [3:0] digit = 4'b0;
+    reg [6:0] seg_r = 7'b1111111;
+    reg [3:0] an_r = 4'b1111;
+
+    always @(posedge clk) begin
+        refresh <= refresh + 16'd1;
+    end
+
+    always @* begin
+        case (refresh[15:14])
+            2'd0: begin
+                an_r = 4'b1110;
+                digit = value[3:0];
+            end
+            2'd1: begin
+                an_r = 4'b1101;
+                digit = value[7:4];
+            end
+            2'd2: begin
+                an_r = 4'b1011;
+                digit = value[11:8];
+            end
+            default: begin
+                an_r = 4'b0111;
+                digit = value[15:12];
+            end
+        endcase
+
+        case (digit)
+            4'h0: seg_r = 7'b1000000;
+            4'h1: seg_r = 7'b1111001;
+            4'h2: seg_r = 7'b0100100;
+            4'h3: seg_r = 7'b0110000;
+            4'h4: seg_r = 7'b0011001;
+            4'h5: seg_r = 7'b0010010;
+            4'h6: seg_r = 7'b0000010;
+            4'h7: seg_r = 7'b1111000;
+            4'h8: seg_r = 7'b0000000;
+            4'h9: seg_r = 7'b0010000;
+            4'ha: seg_r = 7'b0001000;
+            4'hb: seg_r = 7'b0000011;
+            4'hc: seg_r = 7'b1000110;
+            4'hd: seg_r = 7'b0100001;
+            4'he: seg_r = 7'b0000110;
+            default: seg_r = 7'b0001110;
+        endcase
+    end
+
+    assign seg = seg_r;
+    assign an = an_r;
+    assign dp = 1'b1;
+endmodule

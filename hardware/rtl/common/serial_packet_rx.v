@@ -33,27 +33,10 @@ module serial_packet_rx #(
     
 
     // ============================================================
-    // Baud Tick Generator
+    // UART RX
     // ============================================================
     localparam integer BAUD_DIV = CLK_FREQ / BAUD_RATE;
-
-    reg [$clog2(BAUD_DIV)-1:0] baud_cnt;
-    reg baud_tick;
-
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            baud_cnt  <= 0;
-            baud_tick <= 0;
-        end else begin
-            if (baud_cnt == BAUD_DIV-1) begin
-                baud_cnt  <= 0;
-                baud_tick <= 1;
-            end else begin
-                baud_cnt  <= baud_cnt + 1;
-                baud_tick <= 0;
-            end
-        end
-    end
+    localparam integer HALF_BAUD_DIV = BAUD_DIV / 2;
 
     // ============================================================
     // Input Synchronizer
@@ -65,9 +48,13 @@ module serial_packet_rx #(
         rx_sync2 <= rx_sync1;
     end
 
-    // ============================================================
-    // Bit → Byte Reconstruction
-    // ============================================================
+    localparam UART_IDLE  = 2'd0;
+    localparam UART_START = 2'd1;
+    localparam UART_DATA  = 2'd2;
+    localparam UART_STOP  = 2'd3;
+
+    reg [1:0] uart_state;
+    reg [$clog2(BAUD_DIV)-1:0] baud_cnt;
     reg [2:0] bit_cnt;
     reg [7:0] shift_reg;
     reg       byte_valid;
@@ -75,41 +62,67 @@ module serial_packet_rx #(
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
+            uart_state <= UART_IDLE;
+            baud_cnt   <= 0;
             bit_cnt    <= 0;
             shift_reg  <= 0;
             byte_valid <= 0;
+            byte_data  <= 0;
         end else begin
             byte_valid <= 0;
 
-            if (state != IDLE && baud_tick) begin
-                shift_reg <= {rx_sync2, shift_reg[7:1]};
-                bit_cnt   <= bit_cnt + 1;
-
-                if (bit_cnt == 3'd7) begin
-                    byte_data  <= {rx_sync2, shift_reg[7:1]};
-                    byte_valid <= 1;
-                    bit_cnt    <= 0;
+            case (uart_state)
+                UART_IDLE: begin
+                    bit_cnt <= 0;
+                    baud_cnt <= 0;
+                    if (!rx_sync2) begin
+                        uart_state <= UART_START;
+                    end
                 end
-            end else begin
-                byte_valid <= 0;
-            end
+
+                UART_START: begin
+                    if (baud_cnt == HALF_BAUD_DIV-1) begin
+                        baud_cnt <= 0;
+                        if (!rx_sync2) begin
+                            uart_state <= UART_DATA;
+                        end else begin
+                            uart_state <= UART_IDLE;
+                        end
+                    end else begin
+                        baud_cnt <= baud_cnt + 1;
+                    end
+                end
+
+                UART_DATA: begin
+                    if (baud_cnt == BAUD_DIV-1) begin
+                        baud_cnt <= 0;
+                        shift_reg <= {rx_sync2, shift_reg[7:1]};
+                        if (bit_cnt == 3'd7) begin
+                            byte_data <= {rx_sync2, shift_reg[7:1]};
+                            bit_cnt <= 0;
+                            uart_state <= UART_STOP;
+                        end else begin
+                            bit_cnt <= bit_cnt + 1;
+                        end
+                    end else begin
+                        baud_cnt <= baud_cnt + 1;
+                    end
+                end
+
+                UART_STOP: begin
+                    if (baud_cnt == BAUD_DIV-1) begin
+                        baud_cnt <= 0;
+                        byte_valid <= rx_sync2;
+                        uart_state <= UART_IDLE;
+                    end else begin
+                        baud_cnt <= baud_cnt + 1;
+                    end
+                end
+
+                default: uart_state <= UART_IDLE;
+            endcase
         end
     end
-
-    // ============================================================
-    // SOF detection
-    // ============================================================
-    reg [7:0] sof_shift;
-
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            sof_shift <= 8'h00;
-        end else if (baud_tick) begin
-            sof_shift <= {rx_sync2, sof_shift[7:1]};
-        end
-    end
-
-    wire sof_detected = (sof_shift == 8'hAA);
 
     // ============================================================
     // Packet FSM
@@ -147,10 +160,9 @@ module serial_packet_rx #(
 
             case(state)
                 IDLE: begin
-                    if (sof_detected) begin
+                    if (byte_valid && (byte_data == 8'hAA)) begin
                         state <= GET_CMD;
                         crc   <= 0;
-                        bit_cnt <= 0;   // realign byte boundary
                     end
                 end
 

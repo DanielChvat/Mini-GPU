@@ -47,6 +47,26 @@ target_include_directories(comm
         ${CMAKE_CURRENT_SOURCE_DIR}/gpu_comm/src
 )
 
+add_library(minigpu_runtime_gpu_comm
+    runtime/src/transports/gpu_comm_transport.cpp
+)
+
+set_target_properties(minigpu_runtime_gpu_comm PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
+target_include_directories(minigpu_runtime_gpu_comm
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/gpu_comm/src
+)
+
+target_link_libraries(minigpu_runtime_gpu_comm
+    PUBLIC
+        minigpu_runtime
+        comm
+)
+
 if(MINIGPU_BUILD_PYTHON)
     pybind11_add_module(_gpu_comm
         gpu_comm/bindings/python_bindings.cpp
@@ -86,7 +106,7 @@ if(MINIGPU_BUILD_TORCH)
 
     target_link_libraries(minigpu_torch
         PRIVATE
-            minigpu_runtime
+            minigpu_runtime_gpu_comm
             ${TORCH_LIBRARIES}
     )
 

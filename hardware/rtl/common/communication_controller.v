@@ -188,6 +188,7 @@ module communication_controller #(
     reg [15:0] read_resp_len;
     reg        write_done_hold;
     reg        read_payload_requested;
+    reg        read_sending_word;
 
     wire [ADDR_WIDTH-1:0] rx_word_addr =
         (rx_addr >> 2) + write_words_seen[ADDR_WIDTH-1:0];
@@ -226,6 +227,7 @@ module communication_controller #(
             read_resp_addr <= 0;
             read_resp_len <= 0;
             read_payload_requested <= 0;
+            read_sending_word <= 0;
         end else begin
 
             // defaults
@@ -393,18 +395,28 @@ module communication_controller #(
 
             // ----------------------------------------------------
             READ_SEND: begin
-                if (tx_payload_advance || read_payload_requested) begin
+                if (!read_sending_word) begin
+                    if (tx_payload_advance || read_payload_requested) begin
+                        tx_payload_data <= rsp_buffer;
+                        tx_payload_valid <= 1'b1;
+                        read_sending_word <= 1'b1;
+                    end
+                end else begin
                     tx_payload_data <= rsp_buffer;
                     tx_payload_valid <= 1'b1;
-                    read_payload_requested <= 1'b0;
 
-                    if (read_bytes_left > 16'd4) begin
-                        read_bytes_left <= read_bytes_left - 16'd4;
-                    end else begin
-                        read_bytes_left <= 16'd0;
+                    if (!tx_payload_advance) begin
+                        read_sending_word <= 1'b0;
+                        read_payload_requested <= 1'b0;
+
+                        if (read_bytes_left > 16'd4) begin
+                            read_bytes_left <= read_bytes_left - 16'd4;
+                        end else begin
+                            read_bytes_left <= 16'd0;
+                        end
+
+                        state <= READ_PAYLOAD;
                     end
-
-                    state <= READ_PAYLOAD;
                 end
             end
 
@@ -421,7 +433,6 @@ module communication_controller #(
                 end else if (!tx_busy) begin
                     state <= IDLE;
                 end
-                tx_payload_valid <= 1;
             end
 
             // ----------------------------------------------------

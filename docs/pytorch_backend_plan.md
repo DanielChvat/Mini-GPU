@@ -27,7 +27,7 @@
 - [ ] `com_launch`
 - [ ] `com_read_status`
 - [ ] `com_wait`
-- [ ] Runtime-to-`gpu_comm` transport factory
+- [x] Runtime-to-`gpu_comm` transport factory
 
 ## PyTorch Backend Functions
 

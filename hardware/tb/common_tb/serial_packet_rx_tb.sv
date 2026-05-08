@@ -51,19 +51,16 @@ end
 task send_byte(input [7:0] b);
     integer i;
     begin
-        // start bit
-        // rx_line = 0;
-        // #(8680); // approx baud period (for 115200 @ 100MHz simplified)
+        rx_line = 0;
+        #(8680);
 
-        // data bits
         for (i = 0; i < 8; i = i + 1) begin
             rx_line = b[i];
             #(8680);
         end
 
-        // stop bit
-        // rx_line = 1;
-        // #(8680);
+        rx_line = 1;
+        #(8680);
     end
 endtask
 

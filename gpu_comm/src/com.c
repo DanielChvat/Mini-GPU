@@ -244,6 +244,13 @@ int com_build_packet(uint8_t *buf,
     return com_build_packet_fields(buf, cmd, addr, payload_len, payload, payload_len);
 }
 
+int com_build_request_packet(uint8_t *buf,
+                              com_cmd_t cmd,
+                              uint16_t addr,
+                              uint16_t request_len) {
+    return com_build_packet_fields(buf, cmd, addr, request_len, NULL, 0);
+}
+
 static com_err_t com_send_ack(com_dev_t *dev, uint16_t addr){
     uint8_t tries = 0;
     com_err_t last_err = COM_ERR_IO;
@@ -306,20 +313,31 @@ com_err_t com_write_data(com_dev_t *dev, uint16_t addr,
     if (data_len > (size_t)UINT16_MAX - (size_t)addr + 1u) return COM_ERR_BAD_ARG;
 
     uint8_t packet[COM_MAX_PACKET];
+    uint8_t payload[COM_MAX_ALIGNED_PAYLOAD];
     size_t offset = 0;
 
     while (offset < data_len) {
         size_t remaining = data_len - offset;
-        uint16_t chunk_len = (uint16_t)(remaining > COM_MAX_PAYLOAD
-                             ? COM_MAX_PAYLOAD
+        uint16_t chunk_len = (uint16_t)(remaining > COM_MAX_ALIGNED_PAYLOAD
+                             ? COM_MAX_ALIGNED_PAYLOAD
                              : remaining);
+        uint16_t packet_payload_len = (uint16_t)(
+            ((size_t)chunk_len + COM_WORD_BYTES - 1u) &
+            ~(COM_WORD_BYTES - 1u));
         uint16_t chunk_addr = (uint16_t)(addr + offset);
+
+        if ((size_t)chunk_addr + packet_payload_len > (size_t)UINT16_MAX + 1u) {
+            return COM_ERR_BAD_ARG;
+        }
+
+        memset(payload, 0, packet_payload_len);
+        memcpy(payload, data + offset, chunk_len);
 
         int packet_len = com_build_packet(packet,
                                            COM_CMD_WRITE_DATA,
                                            chunk_addr,
-                                           data + offset,
-                                           chunk_len);
+                                           payload,
+                                           packet_payload_len);
         if (packet_len < 0) return (com_err_t)packet_len;
 
         com_err_t last_err = COM_ERR_FPGA;

@@ -62,10 +62,10 @@ module serial_packet_tx #(
     reg [3:0] state;
 
     // ============================================================
-    // TX shift logic (byte → bit)
+    // TX shift logic (byte -> UART 8N1 frame)
     // ============================================================
-    reg [7:0] tx_shift;
-    reg [2:0] bit_cnt;
+    reg [9:0] tx_shift;
+    reg [3:0] bit_cnt;
     reg       sending_byte;
     // reg       tx_busy;
     reg [7:0] tx_buffer;
@@ -89,7 +89,7 @@ module serial_packet_tx #(
     task send_byte(input [7:0] b);
     begin
         if(!sending_byte) begin
-            tx_shift    <= b;
+            tx_shift    <= {1'b1, b, 1'b0};
             sending_byte<= 1;
             bit_cnt     <= 0;
         end else if (!buffer_valid) begin // this 
@@ -127,23 +127,24 @@ module serial_packet_tx #(
                 if(sending_byte) begin
                     tx_line   <= tx_shift[0];
                     
-                    if (bit_cnt == 3'd7) begin
+                    if (bit_cnt == 4'd9) begin
                         if(buffer_valid)begin
-                            tx_shift <= tx_buffer;
+                            tx_shift <= {1'b1, tx_buffer, 1'b0};
                             buffer_valid <= 0;
                             bit_cnt <= 0;
                         end
                         else begin
                             sending_byte <= 0;
+                            tx_line <= 1'b1;
                         end
                     end else begin
                         bit_cnt <= bit_cnt + 1;
-                        tx_shift  <= {1'b0, tx_shift[7:1]};
+                        tx_shift  <= {1'b1, tx_shift[9:1]};
                     end
                 end 
                 else begin // when buffer_valid is active, but sending_byte is not activated
-                    tx_line   <= tx_buffer[0];              // send first bit
-                    tx_shift <= {1'b0, tx_buffer[7:1]};     // shift buffer for next bit 
+                    tx_line   <= 1'b0;                      // start bit
+                    tx_shift <= {1'b1, 1'b1, tx_buffer};    // stop bit followed by data bits
                     buffer_valid <= 0;
                     sending_byte <= 1;
                     bit_cnt <= 1;                           // already sent the first bit 
@@ -232,20 +233,15 @@ module serial_packet_tx #(
 
                     send_byte(cur_byte);
                     crc <= crc ^ cur_byte;
+                    payload_count <= payload_count + 16'd1;
 
-                    if (byte_idx == 3) begin
+                    if (payload_count + 16'd1 >= len) begin
                         byte_idx <= 0;
-                        payload_count <= payload_count + 4;
-
-                        // if (payload_count + 4 >= len) begin
-                        //     state <= SEND_CRC;
-                        // end else begin
-                        //     state <= SEND_PAY;
-                        //     payload_advance <= 1;
-                        // end
-
-                        // current design specs limit the TX size to 4 bytes
                         state <= SEND_CRC;
+                    end else if (byte_idx == 2'd3) begin
+                        byte_idx <= 0;
+                        state <= LOAD_PAY;
+                        payload_advance <= 1;
                     end else begin
                         byte_idx <= byte_idx + 1;
                     end
