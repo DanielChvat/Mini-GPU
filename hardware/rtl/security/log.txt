@@ -57,3 +57,9 @@
     - the design trade off would be creating logic that allows us to handle this issue, or to use an architecture where weights must be streamed continuously, and if an error is discovered restart the security gate and retransmit all the weights
     - honestly I think that this case is rare enough that we wouldn't have to worry about it being a real issue. 
     - will be neccesary to adjust software so that weights are fully retransmit when a NACK is recieved 
+
+- 5/7
+    - implemented a memory wrapper to control memory privilege levels 
+    - imported the SHA256 ip from secworks
+    - created wrapper for the SHA256 ip that fits the our use case (sha256_weight_stream.v)
+        - note: there are many inefficiencies in the current code, it works, but it likely uses extra resources that can be minimized, so in the future, it will likely be good to come back to it and optimize
