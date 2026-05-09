@@ -82,6 +82,10 @@ module basys3_comm_top #(
     reg [15:0] write_count = 16'b0;
     reg [15:0] read_count = 16'b0;
 
+    reg  mem_write_done = 1'b1;
+    reg  mem_write_fail = 1'b0;
+    wire memory_status_consumed;    
+
     wire mem_write0 = data_mem_req_valid[0] && data_mem_req_write[0] && data_mem_req_ready[0];
     wire mem_read0 = data_mem_req_valid[0] && !data_mem_req_write[0] && data_mem_req_ready[0];
 
@@ -106,6 +110,9 @@ module basys3_comm_top #(
         .data_mem_req_ready(data_mem_req_ready),
         .data_mem_resp_valid(data_mem_resp_valid),
         .data_mem_resp_rdata(data_mem_resp_rdata),
+        .mem_write_done(mem_write_done),
+        .mem_write_fail(mem_write_fail),
+        .memory_status_consumed(memory_status_consumed),
         .prog_we(prog_we_full),
         .prog_addr(prog_addr_full),
         .prog_wdata(prog_wdata),

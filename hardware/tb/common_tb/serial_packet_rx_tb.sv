@@ -15,6 +15,7 @@ wire [15:0] addr;
 wire [15:0] len;
 
 reg write_done;
+reg write_fail;
 wire send_ack;
 wire send_nack;
 
@@ -34,6 +35,7 @@ serial_packet_rx dut (
     .addr(addr),
     .len(len),
     .write_done(write_done),
+    .write_fail(write_fail),
     .send_ack(send_ack),
     .send_nack(send_nack)
 );
@@ -136,7 +138,9 @@ initial begin
     rx_line = 1;
     word_taken = 0;
     write_done = 0;
+    write_fail = 0;
     errors = 0;
+
 
     testNum = 0;
 
@@ -154,6 +158,7 @@ initial begin
     // TEST 1: Small packet (fits in 1 word)
     // ========================================================
     testNum = 1;
+    $display("Starting test %d", testNum);
 
     payload[0] = 8'h11;
     payload[1] = 8'h22;
@@ -186,6 +191,7 @@ initial begin
     // TEST 2: Multi-word packet
     // ========================================================
     testNum = 2;
+    $display("Starting test %d", testNum);
     
 
     payload[7] = 8'hAA;
@@ -226,6 +232,7 @@ initial begin
     // TEST 3: ACK behavior
     // ========================================================
     testNum = 3;
+    $display("Starting test %d", testNum);
 
     write_done = 1;
     #20;
@@ -240,6 +247,7 @@ initial begin
     // TEST 4: NACK case (bad CRC)
     // ========================================================
     testNum = 4;
+    $display("Starting test %d", testNum);
 
     // corrupt payload (wrong CRC)
     send_byte(8'hAA);
@@ -247,6 +255,7 @@ initial begin
     send_byte(8'h00);
     send_byte(8'h10);
     send_byte(8'h00);
+    send_byte(8'h01);
     send_byte(8'h01);
     fork
         // thread 1
@@ -261,6 +270,54 @@ initial begin
             end
         end
     join
+
+    write_done = 1;
+    #20;
+    write_done = 0;
+
+    // ========================================================
+    // TEST 5: NACK after failed write
+    // ========================================================
+    testNum = 5;
+    $display("Starting test %d", testNum);
+
+    payload[0] = 8'h11;
+    payload[1] = 8'h22;
+    payload[2] = 8'h33;
+    payload[3] = 8'h44;
+
+    fork
+        // thread 1
+        send_packet(8'h01, 16'h1000, 4);
+
+        // thread 2
+        begin
+            // wait for word
+            wait(word_valid == 1);
+
+            if (word_data !== 32'h44332211) begin
+                $display("TEST5 FAIL: word_data=%h", word_data);
+                errors = errors + 1;
+            end
+        end
+    join
+
+    write_done = 0;
+
+    fork
+        // thread 1
+        write_fail = 1;
+
+        // thread 2
+        begin
+            wait(send_nack == 1);
+            if (send_nack !== 1) begin
+                $display("NACK FAIL");
+                errors = errors + 1;
+            end
+        end
+    join
+
 
     // ========================================================
     // DONE
