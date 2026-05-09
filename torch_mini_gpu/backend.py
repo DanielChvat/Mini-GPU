@@ -13,6 +13,8 @@ EXTENSION_MODULE = "torch_mini_gpu.minigpu_torch"
 
 _initialized = False
 _extension = None
+_print_hook_installed = False
+_original_tensor_str = None
 
 
 def _load_extension():
@@ -46,6 +48,7 @@ def init() -> None:
         for_storage=True,
         unsupported_dtype=_unsupported_storage_dtypes(),
     )
+    _install_print_hook()
 
     _initialized = True
 
@@ -64,6 +67,18 @@ def is_available() -> bool:
     if not is_built():
         return False
     return bool(_load_extension().is_available())
+
+
+def connect(port: str, baud: int = 115200, memory_size: int = 65536) -> None:
+    """Open the board transport used by tensor.to('minigpu')."""
+    init()
+    _load_extension().connect(str(port), int(baud), int(memory_size))
+
+
+def disconnect() -> None:
+    """Close the board transport used by Mini-GPU tensors."""
+    if is_built():
+        _load_extension().disconnect()
 
 
 def device_count() -> int:
@@ -96,3 +111,25 @@ def _unsupported_storage_dtypes() -> Iterable[torch.dtype]:
         torch.qint8,
         torch.qint32,
     ]
+
+
+def _install_print_hook() -> None:
+    """Format Mini-GPU tensors through a temporary CPU copy."""
+    global _print_hook_installed, _original_tensor_str
+
+    if _print_hook_installed:
+        return
+
+    import torch._tensor_str as tensor_str
+
+    _original_tensor_str = tensor_str._str
+
+    def _minigpu_aware_str(tensor, *, tensor_contents=None):
+        if tensor_contents is None and getattr(tensor, "device", None).type == BACKEND_NAME:
+            prefix = "tensor(" if type(tensor) is torch.Tensor else f"{type(tensor).__name__}("
+            cpu_tensor = tensor.to("cpu")
+            tensor_contents = tensor_str._tensor_str(cpu_tensor, len(prefix))
+        return _original_tensor_str(tensor, tensor_contents=tensor_contents)
+
+    tensor_str._str = _minigpu_aware_str
+    _print_hook_installed = True

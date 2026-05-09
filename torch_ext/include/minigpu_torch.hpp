@@ -5,6 +5,9 @@
 #include <c10/core/Device.h>
 #include "minigpu_runtime.hpp"
 
+#include <cstdint>
+#include <string>
+
 namespace minigpu::torch_backend {
 
 /* Initialize global Mini-GPU/PyTorch backend state. */
@@ -28,6 +31,12 @@ void set_device(int index);
 /* Return the active Mini-GPU runtime context. */
 minigpu::Context &runtime_context();
 
+/* Open a gpu_comm serial device and create the runtime context. */
+void connect(const std::string &port, std::uint32_t baud, std::uint32_t memory_size);
+
+/* Close the gpu_comm serial device and destroy the runtime context. */
+void disconnect();
+
 /* Convert communication errors into runtime status values. */
 minigpu::Status map_com_status(int err);
 
@@ -42,6 +51,31 @@ at::Tensor empty(
     c10::optional<c10::Device> device,
     c10::optional<bool> pin_memory,
     c10::optional<c10::MemoryFormat> memory_format);
+
+/* Allocate a strided PrivateUse1 tensor. */
+at::Tensor empty_strided(
+    at::IntArrayRef size,
+    at::IntArrayRef stride,
+    c10::optional<c10::ScalarType> dtype,
+    c10::optional<c10::Layout> layout,
+    c10::optional<c10::Device> device,
+    c10::optional<bool> pin_memory);
+
+/* Return a reshaped alias of a Mini-GPU tensor. */
+at::Tensor view(const at::Tensor &self, c10::SymIntArrayRef size);
+
+/* Return an alias with explicit size, stride, and storage offset metadata. */
+at::Tensor as_strided(
+    const at::Tensor &self,
+    c10::SymIntArrayRef size,
+    c10::SymIntArrayRef stride,
+    ::std::optional<c10::SymInt> storage_offset);
+
+/* Return a reshape alias when PyTorch has already computed the target strides. */
+at::Tensor reshape_alias(
+    const at::Tensor &self,
+    c10::SymIntArrayRef size,
+    c10::SymIntArrayRef stride);
 
 /* Copy data between CPU and Mini-GPU tensors. */
 at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking);

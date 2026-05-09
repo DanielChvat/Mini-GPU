@@ -4,7 +4,13 @@ module basys3_comm_top #(
     parameter BAUD_RATE = 115200,
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,
-    parameter MEMORY_BANK_DEPTH = 8192
+    parameter MEMORY_BANK_DEPTH = 8192,
+    parameter PROG_ADDR_WIDTH = 8,
+    parameter CONST_ADDR_WIDTH = 8,
+    parameter WARP_SIZE = 4,
+    parameter NUM_CORES = 1,
+    parameter NUM_WARPS_PER_CORE = 1,
+    parameter WARP_ID_WIDTH = 1
 ) (
     input  wire        CLK100MHZ,
     input  wire        btnC,
@@ -37,6 +43,38 @@ module basys3_comm_top #(
     wire [7:0]  dbg_rx_cmd;
     wire [15:0] dbg_rx_addr;
     wire [15:0] dbg_rx_len;
+    wire        prog_we_full;
+    wire [ADDR_WIDTH-1:0] prog_addr_full;
+    wire [31:0] prog_wdata;
+    wire        const_we_full;
+    wire [ADDR_WIDTH-1:0] const_addr_full;
+    wire [31:0] const_wdata;
+    wire        launch_valid;
+    wire [ADDR_WIDTH-1:0] launch_base_pc_full;
+    wire [31:0] launch_grid_dim;
+    wire [31:0] launch_block_dim;
+    wire [31:0] launch_active_mask_full;
+    wire [31:0] status_word;
+
+    wire [NUM_CORES-1:0] core_busy;
+    wire [NUM_CORES-1:0] core_done;
+    wire [NUM_CORES-1:0] core_error;
+    wire [NUM_CORES-1:0] core_unsupported;
+    wire [NUM_CORES-1:0] core_divide_by_zero;
+    wire [(NUM_CORES*PROG_ADDR_WIDTH)-1:0] core_pc;
+    wire [(NUM_CORES*32)-1:0] core_current_instr;
+    wire [(NUM_CORES*32)-1:0] core_last_instr;
+    wire [(NUM_CORES*16)-1:0] core_retired_count;
+    wire [(NUM_CORES*WARP_SIZE)-1:0] core_last_writeback_mask;
+    wire [(NUM_CORES*4)-1:0] core_last_writeback_addr;
+    wire [(NUM_CORES*WARP_SIZE*DATA_WIDTH)-1:0] core_last_writeback_data;
+    wire gpu_busy;
+    wire gpu_done;
+    wire gpu_error;
+    wire gpu_unsupported;
+    wire gpu_divide_by_zero;
+    wire [DATA_WIDTH-1:0] gpu_grid_dim = {{(DATA_WIDTH-1){1'b0}}, 1'b1};
+    wire [DATA_WIDTH-1:0] gpu_block_dim = {{(DATA_WIDTH-3){1'b0}}, 3'd4};
 
     reg [15:0] last_mem_addr = 16'b0;
     reg [31:0] last_mem_wdata = 32'b0;
@@ -75,26 +113,89 @@ module basys3_comm_top #(
         .mem_write_done(mem_write_done),
         .mem_write_fail(mem_write_fail),
         .memory_status_consumed(memory_status_consumed),
+        .prog_we(prog_we_full),
+        .prog_addr(prog_addr_full),
+        .prog_wdata(prog_wdata),
+        .const_we(const_we_full),
+        .const_addr(const_addr_full),
+        .const_wdata(const_wdata),
+        .launch_valid(launch_valid),
+        .launch_base_pc(launch_base_pc_full),
+        .launch_grid_dim(launch_grid_dim),
+        .launch_block_dim(launch_block_dim),
+        .launch_active_mask(launch_active_mask_full),
+        .status_word(status_word),
         .dbg_rx_cmd(dbg_rx_cmd),
         .dbg_rx_addr(dbg_rx_addr),
         .dbg_rx_len(dbg_rx_len)
     );
 
-    memory #(
+    mini_gpu #(
+        .WIDTH(DATA_WIDTH),
+        .WARP_SIZE(WARP_SIZE),
+        .NUM_CORES(NUM_CORES),
+        .NUM_WARPS_PER_CORE(NUM_WARPS_PER_CORE),
+        .WARP_ID_WIDTH(WARP_ID_WIDTH),
+        .PROG_ADDR_WIDTH(PROG_ADDR_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
-        .DATA_WIDTH(DATA_WIDTH),
-        .BANK_DEPTH(MEMORY_BANK_DEPTH)
-    ) data_memory (
+        .CONST_ADDR_WIDTH(CONST_ADDR_WIDTH),
+        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH),
+        .ENABLE_FLOAT_ADD(1),
+        .ENABLE_FLOAT_MUL(1),
+        .ENABLE_FLOAT_DIV(0),
+        .FLOAT_FP32_ONLY(1),
+        .USE_SHARED_FLOAT(1),
+        .SHARED_FLOAT_UNITS(2)
+    ) gpu (
         .clk(CLK100MHZ),
         .rst(rst),
-        .req_valid(data_mem_req_valid),
-        .req_write(data_mem_req_write),
-        .req_addr(data_mem_req_addr),
-        .req_wdata(data_mem_req_wdata),
-        .req_ready(data_mem_req_ready),
-        .resp_valid(data_mem_resp_valid),
-        .resp_rdata(data_mem_resp_rdata)
+        .prog_we(prog_we_full),
+        .prog_addr(prog_addr_full[PROG_ADDR_WIDTH-1:0]),
+        .prog_wdata(prog_wdata),
+        .const_we(const_we_full),
+        .const_addr(const_addr_full[CONST_ADDR_WIDTH-1:0]),
+        .const_wdata(const_wdata),
+        .launch(launch_valid),
+        .base_pc(launch_base_pc_full[PROG_ADDR_WIDTH-1:0]),
+        .active_mask(launch_active_mask_full[WARP_SIZE-1:0]),
+        .block_dim(gpu_block_dim),
+        .grid_dim(gpu_grid_dim),
+        .host_mem_req_valid(data_mem_req_valid),
+        .host_mem_req_write(data_mem_req_write),
+        .host_mem_req_addr(data_mem_req_addr),
+        .host_mem_req_wdata(data_mem_req_wdata),
+        .host_mem_req_ready(data_mem_req_ready),
+        .host_mem_resp_valid(data_mem_resp_valid),
+        .host_mem_resp_rdata(data_mem_resp_rdata),
+        .core_busy(core_busy),
+        .core_done(core_done),
+        .core_error(core_error),
+        .core_unsupported(core_unsupported),
+        .core_divide_by_zero(core_divide_by_zero),
+        .core_pc(core_pc),
+        .core_current_instr(core_current_instr),
+        .core_last_instr(core_last_instr),
+        .core_retired_count(core_retired_count),
+        .core_last_writeback_mask(core_last_writeback_mask),
+        .core_last_writeback_addr(core_last_writeback_addr),
+        .core_last_writeback_data(core_last_writeback_data),
+        .busy(gpu_busy),
+        .done(gpu_done),
+        .error(gpu_error),
+        .unsupported(gpu_unsupported),
+        .divide_by_zero(gpu_divide_by_zero)
     );
+
+    assign status_word = {
+        16'b0,
+        core_retired_count[7:0],
+        3'b0,
+        gpu_divide_by_zero,
+        gpu_unsupported,
+        gpu_error,
+        gpu_busy,
+        gpu_done
+    };
 
     always @(posedge CLK100MHZ) begin
         btnC_meta <= btnC;
@@ -141,11 +242,11 @@ module basys3_comm_top #(
     assign led[0] = !rst;
     assign led[1] = RsRx;
     assign led[2] = RsTx;
-    assign led[3] = rsp_ready;
+    assign led[3] = launch_valid;
     assign led[4] = mem_write0;
     assign led[5] = mem_read0;
     assign led[6] = data_mem_resp_valid[0];
-    assign led[7] = data_mem_req_ready[0];
+    assign led[7] = gpu_busy;
     assign led[15:8] = dbg_rx_cmd;
 
     basys3_comm_sevenseg display (

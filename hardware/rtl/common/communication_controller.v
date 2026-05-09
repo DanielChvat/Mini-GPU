@@ -31,6 +31,20 @@ module communication_controller #(
     input  wire [3:0] data_mem_resp_valid,
     input  wire [(4*DATA_WIDTH)-1:0] data_mem_resp_rdata,
 
+    // ================= Program / launch interface =================
+    output reg                         prog_we,
+    output reg  [ADDR_WIDTH-1:0]       prog_addr,
+    output reg  [31:0]                 prog_wdata,
+    output reg                         const_we,
+    output reg  [ADDR_WIDTH-1:0]       const_addr,
+    output reg  [31:0]                 const_wdata,
+    output reg                         launch_valid,
+    output reg  [ADDR_WIDTH-1:0]       launch_base_pc,
+    output reg  [31:0]                 launch_grid_dim,
+    output reg  [31:0]                 launch_block_dim,
+    output reg  [31:0]                 launch_active_mask,
+    input  wire [31:0]                 status_word,
+
     // ================= Debug / observability =================
     output wire [7:0]  dbg_rx_cmd,
     output wire [15:0] dbg_rx_addr,
@@ -44,11 +58,12 @@ module communication_controller #(
     localparam COM_CMD_WRITE_DATA    = 8'h01; // write data to data BRAM
     localparam COM_CMD_READ_DATA     = 8'h02; // read data from data BRAM
 
-    //==!! not implemented !!==//
-    /*
     localparam COM_CMD_WRITE_PROGRAM = 8'h03; // write program to instr BRAM
     localparam COM_CMD_LAUNCH        = 8'h04; // start execution
     localparam COM_CMD_READ_STATUS   = 8'h05; // read status register
+    localparam COM_CMD_WRITE_CONSTANTS = 8'h0B; // write constant memory
+    //==!! not implemented !!==//
+    /*
     localparam COM_CMD_WRITE_HASH    = 8'h06; // load expected SHA256 hash
     localparam COM_CMD_VALIDATE      = 8'h07; // trigger hash validation
     */
@@ -168,7 +183,10 @@ module communication_controller #(
     localparam READ_WAIT       = 4'd7; // wait for memory read data
     localparam READ_SEND       = 4'd8; // present one read word to TX
     localparam READ_PAYLOAD    = 4'd9; // request next read word or finish packet
-    localparam WAIT_WRITE_RESPONSE = 4'd10; // wait for write_done or write_fail from memory
+    localparam STATUS_START    = 4'd10; // start status response packet
+    localparam STATUS_SEND     = 4'd11; // present status word to TX
+    localparam STATUS_WAIT     = 4'd12; // wait for status response to finish
+    localparam WAIT_WRITE_RESPONSE = 4'd13; // wait for write_done or write_fail from memory
 
     reg [3:0] state;
 
@@ -233,6 +251,17 @@ module communication_controller #(
             data_mem_req_write <= 4'b0000;
             data_mem_req_addr <= {(4*ADDR_WIDTH){1'b0}};
             data_mem_req_wdata <= {(4*DATA_WIDTH){1'b0}};
+            prog_we <= 1'b0;
+            prog_addr <= {ADDR_WIDTH{1'b0}};
+            prog_wdata <= 32'b0;
+            const_we <= 1'b0;
+            const_addr <= {ADDR_WIDTH{1'b0}};
+            const_wdata <= 32'b0;
+            launch_valid <= 1'b0;
+            launch_base_pc <= {ADDR_WIDTH{1'b0}};
+            launch_grid_dim <= 32'b0;
+            launch_block_dim <= 32'd4;
+            launch_active_mask <= 32'h0000000f;
             write_words_seen <= 0;
             read_bytes_left <= 0;
             read_addr <= 0;
@@ -253,10 +282,15 @@ module communication_controller #(
             data_mem_req_write <= 4'b0000;
             data_mem_req_addr <= {(4*ADDR_WIDTH){1'b0}};
             data_mem_req_wdata <= {(4*DATA_WIDTH){1'b0}};
+            prog_we <= 1'b0;
+            const_we <= 1'b0;
+            launch_valid <= 1'b0;
 
             // Remember when TX asks for read payload before memory data is ready.
             if ((state == READ_START) || (state == READ_WAIT) ||
-                (state == READ_SEND) || (state == READ_PAYLOAD)) begin
+                (state == READ_SEND) || (state == READ_PAYLOAD) ||
+                (state == STATUS_START) || (state == STATUS_SEND) ||
+                (state == STATUS_WAIT)) begin
                 if (tx_payload_advance) begin
                     read_payload_requested <= 1'b1;
                 end
@@ -271,7 +305,10 @@ module communication_controller #(
             end
 
             // Restart write-word addressing whenever the current command is not a data write.
-            if (rx_cmd != COM_CMD_WRITE_DATA) begin
+            if ((rx_cmd != COM_CMD_WRITE_DATA) &&
+                (rx_cmd != COM_CMD_WRITE_PROGRAM) &&
+                (rx_cmd != COM_CMD_WRITE_CONSTANTS) &&
+                (rx_cmd != COM_CMD_LAUNCH)) begin
                 write_words_seen <= 0;
             end
 
@@ -284,10 +321,47 @@ module communication_controller #(
                 write_words_seen <= write_words_seen + 16'd1;
             end
 
+            // Stream each received WRITE_PROGRAM word into instruction memory.
+            if (word_valid && (rx_cmd == COM_CMD_WRITE_PROGRAM)) begin
+                prog_we <= 1'b1;
+                prog_addr <= rx_word_addr;
+                prog_wdata <= word_data;
+                write_words_seen <= write_words_seen + 16'd1;
+            end
+
+            // Stream each received WRITE_CONSTANTS word into constant memory.
+            if (word_valid && (rx_cmd == COM_CMD_WRITE_CONSTANTS)) begin
+                const_we <= 1'b1;
+                const_addr <= rx_word_addr;
+                const_wdata <= word_data;
+                write_words_seen <= write_words_seen + 16'd1;
+            end
+
+            // Capture the three launch payload words: grid_dim, block_dim, active_mask.
+            if (word_valid && (rx_cmd == COM_CMD_LAUNCH)) begin
+                case (write_words_seen[1:0])
+                    2'd0: launch_grid_dim <= word_data;
+                    2'd1: launch_block_dim <= word_data;
+                    default: launch_active_mask <= word_data;
+                endcase
+                write_words_seen <= write_words_seen + 16'd1;
+            end
+
             // Mark write completion, or initialize a READ_DATA response sequence.
             if (packet_done && (rx_cmd == COM_CMD_WRITE_DATA)) begin
                 write_words_seen <= 16'd0;
                 state <= WAIT_WRITE_RESPONSE;
+            end else if (packet_done && (rx_cmd == COM_CMD_WRITE_PROGRAM)) begin
+                write_done_hold <= 1'b1;
+                write_words_seen <= 16'd0;
+            end else if (packet_done && (rx_cmd == COM_CMD_WRITE_CONSTANTS)) begin
+                write_done_hold <= 1'b1;
+                write_words_seen <= 16'd0;
+            end else if (packet_done && (rx_cmd == COM_CMD_LAUNCH)) begin
+                launch_valid <= 1'b1;
+                launch_base_pc <= rx_addr[ADDR_WIDTH-1:0];
+                write_done_hold <= 1'b1;
+                write_words_seen <= 16'd0;
             end else if (packet_done && (rx_cmd == COM_CMD_READ_DATA)) begin
                 write_done_hold <= 1'b1;
                 read_resp_addr <= rx_addr;
@@ -296,6 +370,13 @@ module communication_controller #(
                 read_bytes_left <= rx_len;
                 read_payload_requested <= 1'b0;
                 state <= READ_START;
+            end else if (packet_done && (rx_cmd == COM_CMD_READ_STATUS)) begin
+                write_done_hold <= 1'b1;
+                read_resp_addr <= rx_addr;
+                read_resp_len <= 16'd4;
+                rsp_buffer <= status_word;
+                read_payload_requested <= 1'b0;
+                state <= STATUS_START;
             end
 
             // ====================================================
@@ -308,7 +389,8 @@ module communication_controller #(
                     pending_len <= 0;
                     req_valid   <= 1;
                 end
-                else if (ack_edge && (rx_cmd != COM_CMD_READ_DATA)) begin
+                else if (ack_edge && (rx_cmd != COM_CMD_READ_DATA) &&
+                         (rx_cmd != COM_CMD_READ_STATUS)) begin
                     pending_cmd <= COM_CMD_ACK;
                     pending_addr <= rx_addr;
                     pending_len <= 0;
@@ -459,6 +541,38 @@ module communication_controller #(
                 end else if (mem_write_fail) begin
                     write_fail_hold <= 1'b1;
                     memory_status_consumed <= 1'b1;
+            STATUS_START: begin
+                tx_cmd <= COM_CMD_READ_STATUS;
+                tx_addr <= read_resp_addr;
+                tx_len <= 16'd4;
+                tx_start <= 1'b1;
+                read_sending_word <= 1'b0;
+                state <= STATUS_SEND;
+            end
+
+            // ----------------------------------------------------
+            STATUS_SEND: begin
+                if (!read_sending_word) begin
+                    if (tx_payload_advance || read_payload_requested) begin
+                        tx_payload_data <= rsp_buffer;
+                        tx_payload_valid <= 1'b1;
+                        read_sending_word <= 1'b1;
+                    end
+                end else begin
+                    tx_payload_data <= rsp_buffer;
+                    tx_payload_valid <= 1'b1;
+
+                    if (!tx_payload_advance) begin
+                        read_sending_word <= 1'b0;
+                        read_payload_requested <= 1'b0;
+                        state <= STATUS_WAIT;
+                    end
+                end
+            end
+
+            // ----------------------------------------------------
+            STATUS_WAIT: begin
+                if (!tx_busy) begin
                     state <= IDLE;
                 end
             end

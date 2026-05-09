@@ -25,6 +25,7 @@ class Command(IntEnum):
     READ_STATUS: int
     WRITE_HASH: int
     VALIDATE: int
+    WRITE_CONSTANTS: int
 
 
 class ParsedPacket(TypedDict):

@@ -177,7 +177,8 @@ PYBIND11_MODULE(_gpu_comm, m) {
         .value("LAUNCH", COM_CMD_LAUNCH)
         .value("READ_STATUS", COM_CMD_READ_STATUS)
         .value("WRITE_HASH", COM_CMD_WRITE_HASH)
-        .value("VALIDATE", COM_CMD_VALIDATE);
+        .value("VALIDATE", COM_CMD_VALIDATE)
+        .value("WRITE_CONSTANTS", COM_CMD_WRITE_CONSTANTS);
 
     m.def("strerror",
           [](int err) {

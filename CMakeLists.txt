@@ -23,6 +23,7 @@ endif()
 
 add_library(minigpu_runtime
     runtime/src/minigpu_runtime.cpp
+    runtime/src/minigpu_kernels.cpp
 )
 
 set_target_properties(minigpu_runtime PROPERTIES
@@ -32,6 +33,11 @@ set_target_properties(minigpu_runtime PROPERTIES
 target_include_directories(minigpu_runtime
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+)
+
+target_compile_definitions(minigpu_runtime
+    PRIVATE
+        MINIGPU_DEFAULT_KERNEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels"
 )
 
 add_library(comm
@@ -133,4 +139,22 @@ if(MINIGPU_BUILD_TESTS)
     )
 
     add_test(NAME minigpu_runtime_smoke COMMAND minigpu_runtime_smoke)
+
+    add_executable(minigpu_runtime_board_comm
+        test/runtime/runtime_board_comm.cpp
+    )
+
+    target_link_libraries(minigpu_runtime_board_comm
+        PRIVATE
+            minigpu_runtime_gpu_comm
+    )
+
+    add_executable(minigpu_runtime_board_vector_add
+        test/runtime/runtime_board_vector_add.cpp
+    )
+
+    target_link_libraries(minigpu_runtime_board_vector_add
+        PRIVATE
+            minigpu_runtime_gpu_comm
+    )
 endif()

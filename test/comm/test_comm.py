@@ -21,6 +21,15 @@ def parse_hex_bytes(value):
     return bytes.fromhex(cleaned)
 
 
+def flip_words_for_rtl_rx(data):
+    if len(data) % 4:
+        raise ValueError("payload must be word-aligned")
+    out = bytearray()
+    for offset in range(0, len(data), 4):
+        out.extend(reversed(data[offset:offset + 4]))
+    return bytes(out)
+
+
 def print_packet(packet):
     print("packet:", packet.hex(" "))
     print("packet length:", len(packet))
@@ -204,6 +213,98 @@ def send_rtl_roundtrip(args):
         print("closed")
 
 
+def send_write_program(args):
+    payload = parse_hex_bytes(args.payload)
+    dev = open_device(args.port, args.baud, args.timeout_ms)
+    try:
+        offset = 0
+        while offset < len(payload):
+            chunk = payload[offset:offset + 252]
+            if len(chunk) % 4:
+                chunk = chunk + bytes(4 - (len(chunk) % 4))
+            chunk = flip_words_for_rtl_rx(chunk)
+            packet = gpu_comm.build_packet(
+                gpu_comm.Command.WRITE_PROGRAM, args.addr + offset, chunk)
+            dev.send_raw(packet)
+            parsed, _ = recv_packet(dev)
+            if parsed["cmd"] != 0x08:
+                raise RuntimeError(f"expected ACK, got cmd=0x{parsed['cmd']:02x}")
+            offset += min(252, len(payload) - offset)
+
+        print(f"write_program acked: addr=0x{args.addr:04x} len={len(payload)}")
+    finally:
+        dev.close()
+        print("closed")
+
+
+def send_write_constants(args):
+    payload = parse_hex_bytes(args.payload)
+    dev = open_device(args.port, args.baud, args.timeout_ms)
+    try:
+        offset = 0
+        while offset < len(payload):
+            chunk = payload[offset:offset + 252]
+            if len(chunk) % 4:
+                chunk = chunk + bytes(4 - (len(chunk) % 4))
+            chunk = flip_words_for_rtl_rx(chunk)
+            packet = gpu_comm.build_packet(
+                gpu_comm.Command.WRITE_CONSTANTS, args.addr + offset, chunk)
+            dev.send_raw(packet)
+            parsed, _ = recv_packet(dev)
+            if parsed["cmd"] != 0x08:
+                raise RuntimeError(f"expected ACK, got cmd=0x{parsed['cmd']:02x}")
+            offset += min(252, len(payload) - offset)
+
+        print(f"write_constants acked: addr=0x{args.addr:04x} len={len(payload)}")
+    finally:
+        dev.close()
+        print("closed")
+
+
+def send_launch(args):
+    payload = (
+        args.grid_dim.to_bytes(4, "little") +
+        args.block_dim.to_bytes(4, "little") +
+        args.active_mask.to_bytes(4, "little")
+    )
+    packet = gpu_comm.build_packet(gpu_comm.Command.LAUNCH, args.base_pc, payload)
+    dev = open_device(args.port, args.baud, args.timeout_ms)
+    try:
+        dev.send_raw(packet)
+        parsed, _ = recv_packet(dev)
+        if parsed["cmd"] != 0x08:
+            raise RuntimeError(f"expected ACK, got cmd=0x{parsed['cmd']:02x}")
+        print(
+            f"launch acked: base_pc=0x{args.base_pc:04x} "
+            f"grid={args.grid_dim} block={args.block_dim} mask=0x{args.active_mask:08x}"
+        )
+    finally:
+        dev.close()
+        print("closed")
+
+
+def send_status(args):
+    packet = gpu_comm.build_packet(gpu_comm.Command.READ_STATUS, 0, bytes(4))
+    dev = open_device(args.port, args.baud, args.timeout_ms)
+    try:
+        dev.send_raw(packet)
+        parsed, response = recv_packet(dev)
+        if parsed["cmd"] != int(gpu_comm.Command.READ_STATUS) or parsed["len"] != 4:
+            raise RuntimeError(
+                f"unexpected status response: {response.hex(' ')}")
+        status = int.from_bytes(bytes(parsed["payload"]), "little")
+        print(f"status: 0x{status:08x}")
+        print(f"  done={status & 1}")
+        print(f"  busy={(status >> 1) & 1}")
+        print(f"  error={(status >> 2) & 1}")
+        print(f"  unsupported={(status >> 3) & 1}")
+        print(f"  divide_by_zero={(status >> 4) & 1}")
+        print(f"  retired={(status >> 8) & 0xff}")
+    finally:
+        dev.close()
+        print("closed")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Send Mini-GPU gpu_comm packets to an FPGA serial port."
@@ -257,6 +358,26 @@ def build_parser():
     rtl_roundtrip.add_argument("--payload", default="0f1e2d1f")
     rtl_roundtrip.add_argument("--verbose-packets", action="store_true")
     rtl_roundtrip.set_defaults(func=send_rtl_roundtrip)
+
+    write_program = subparsers.add_parser("write-program", help="write raw instruction words")
+    write_program.add_argument("--addr", type=parse_int, default=0x0000)
+    write_program.add_argument("--payload", required=True)
+    write_program.set_defaults(func=send_write_program)
+
+    write_constants = subparsers.add_parser("write-constants", help="write 32-bit constant words")
+    write_constants.add_argument("--addr", type=parse_int, default=0x0000)
+    write_constants.add_argument("--payload", required=True)
+    write_constants.set_defaults(func=send_write_constants)
+
+    launch = subparsers.add_parser("launch", help="send a kernel launch command")
+    launch.add_argument("--base-pc", type=parse_int, default=0x0000)
+    launch.add_argument("--grid-dim", type=parse_int, default=1)
+    launch.add_argument("--block-dim", type=parse_int, default=4)
+    launch.add_argument("--active-mask", type=parse_int, default=0x0000000f)
+    launch.set_defaults(func=send_launch)
+
+    status = subparsers.add_parser("status", help="read Mini-GPU status word")
+    status.set_defaults(func=send_status)
 
     return parser
 

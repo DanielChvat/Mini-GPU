@@ -4,13 +4,14 @@
 #include <cstring>
 #include <limits>
 #include <thread>
+#include <vector>
 
 namespace minigpu::transports {
 
 namespace {
 
 constexpr int kRetries = 3;
-constexpr std::uint32_t kDefaultAddressUnitBytes = 4u;
+constexpr std::uint32_t kDefaultAddressUnitBytes = 1u;
 
 /* Return true when an address range fits in the current 16-bit COM address field. */
 bool fits_u16(DeviceAddress addr, std::size_t size = 0) {
@@ -26,35 +27,43 @@ bool aligned_range(DeviceAddress addr, std::size_t size, std::uint32_t unit_byte
     return unit_bytes != 0 && (addr % unit_bytes) == 0 && (size % unit_bytes) == 0;
 }
 
-/* Return the largest payload size that preserves address-unit alignment. */
+/* Return the largest payload size that preserves 32-bit memory-word alignment. */
 std::uint16_t max_aligned_payload(std::uint32_t unit_bytes) {
-    if (unit_bytes == 0 || unit_bytes > COM_MAX_PAYLOAD) {
+    (void)unit_bytes;
+    if (COM_WORD_BYTES == 0 || COM_WORD_BYTES > COM_MAX_PAYLOAD) {
         return 0;
     }
-    return static_cast<std::uint16_t>(COM_MAX_PAYLOAD - (COM_MAX_PAYLOAD % unit_bytes));
+    return static_cast<std::uint16_t>(COM_MAX_ALIGNED_PAYLOAD);
 }
 
-/* Convert a byte address into a protocol word address. */
+/* Round a transfer length up to the RTL memory word size. */
+std::uint16_t padded_payload_len(std::uint16_t len) {
+    return static_cast<std::uint16_t>(
+        (static_cast<std::uint32_t>(len) + COM_WORD_BYTES - 1u) &
+        ~(COM_WORD_BYTES - 1u));
+}
+
+/* Convert a byte address into a protocol address. */
 Status protocol_addr(DeviceAddress byte_addr, std::uint32_t unit_bytes, std::uint16_t *addr) {
     if (!addr || unit_bytes == 0 || (byte_addr % unit_bytes) != 0) {
         return Status::BadArgument;
     }
 
-    const DeviceAddress word_addr = byte_addr / unit_bytes;
-    if (!fits_u16(word_addr)) {
+    const DeviceAddress protocol_address = byte_addr / unit_bytes;
+    if (!fits_u16(protocol_address)) {
         return Status::OutOfRange;
     }
 
-    *addr = static_cast<std::uint16_t>(word_addr);
+    *addr = static_cast<std::uint16_t>(protocol_address);
     return Status::Ok;
 }
 
-/* Store a 32-bit value in big-endian packet payload order. */
-void put_u32_be(std::uint8_t *dst, std::uint32_t value) {
-    dst[0] = static_cast<std::uint8_t>((value >> 24) & 0xffu);
-    dst[1] = static_cast<std::uint8_t>((value >> 16) & 0xffu);
-    dst[2] = static_cast<std::uint8_t>((value >> 8) & 0xffu);
-    dst[3] = static_cast<std::uint8_t>(value & 0xffu);
+/* Store a 32-bit value in the byte order reconstructed by the RTL RX word packer. */
+void put_u32_rtl_rx(std::uint8_t *dst, std::uint32_t value) {
+    dst[0] = static_cast<std::uint8_t>(value & 0xffu);
+    dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xffu);
+    dst[2] = static_cast<std::uint8_t>((value >> 16) & 0xffu);
+    dst[3] = static_cast<std::uint8_t>((value >> 24) & 0xffu);
 }
 
 /* Load a 32-bit value from big-endian packet payload order. */
@@ -65,12 +74,20 @@ std::uint32_t get_u32_be(const std::uint8_t *src) {
            static_cast<std::uint32_t>(src[3]);
 }
 
-/* Convert host-order 32-bit words into big-endian packet payload words. */
+/* Load a 32-bit value from little-endian packet payload order. */
+std::uint32_t get_u32_le(const std::uint8_t *src) {
+    return static_cast<std::uint32_t>(src[0]) |
+           (static_cast<std::uint32_t>(src[1]) << 8) |
+           (static_cast<std::uint32_t>(src[2]) << 16) |
+           (static_cast<std::uint32_t>(src[3]) << 24);
+}
+
+/* Convert host-order 32-bit words into RTL RX packet payload words. */
 void host_words_to_packet(std::uint8_t *dst, const std::uint8_t *src, std::size_t size) {
     for (std::size_t offset = 0; offset < size; offset += 4) {
         std::uint32_t word = 0;
         std::memcpy(&word, src + offset, sizeof(word));
-        put_u32_be(dst + offset, word);
+        put_u32_rtl_rx(dst + offset, word);
     }
 }
 
@@ -184,9 +201,11 @@ Status write_chunked_command(
             return chunk_addr_status;
         }
 
-        host_words_to_packet(payload, bytes + offset, chunk_len);
+        const std::uint16_t packet_payload_len = padded_payload_len(chunk_len);
+        std::memset(payload, 0, packet_payload_len);
+        std::memcpy(payload, bytes + offset, chunk_len);
 
-        Status status = send_packet(dev, cmd, chunk_addr, payload, chunk_len);
+        Status status = send_packet(dev, cmd, chunk_addr, payload, packet_payload_len);
         if (status != Status::Ok) {
             return status;
         }
@@ -246,15 +265,20 @@ Status read_chunked_command(
         }
 
         com_packet_t response;
-        Status status = read_packet(dev, cmd, chunk_addr, nullptr, chunk_len, &response);
+        const std::uint16_t packet_payload_len = padded_payload_len(chunk_len);
+        std::uint8_t payload[COM_MAX_ALIGNED_PAYLOAD] = {};
+        Status status = read_packet(
+            dev, cmd, chunk_addr, payload, packet_payload_len, &response);
         if (status != Status::Ok) {
             return status;
         }
-        if (response.cmd != cmd || response.addr != chunk_addr || response.len != chunk_len) {
+        if (response.cmd != cmd ||
+            response.addr != chunk_addr ||
+            response.len != packet_payload_len) {
             return Status::Transport;
         }
 
-        packet_words_to_host(bytes + offset, response.payload, chunk_len);
+        std::memcpy(bytes + offset, response.payload, chunk_len);
         offset += chunk_len;
     }
 
@@ -321,12 +345,6 @@ Status read_packet(
             continue;
         }
 
-        Status ack_status = send_ack(dev, response->addr);
-        if (ack_status != Status::Ok) {
-            last_status = ack_status;
-            continue;
-        }
-
         return Status::Ok;
     }
 
@@ -359,7 +377,14 @@ Status status_from_com(com_err_t err) noexcept {
 /* Write bytes into data memory using the gpu_comm data-write command. */
 Status gpu_comm_write_data(
     com_dev_t *dev, DeviceAddress dst_addr, const void *src, std::size_t size) {
-    return write_chunked_command(dev, COM_CMD_WRITE_DATA, dst_addr, src, size);
+    if (!fits_u16(dst_addr, size)) {
+        return Status::OutOfRange;
+    }
+    return status_from_com(com_write_data(
+        dev,
+        static_cast<std::uint16_t>(dst_addr),
+        static_cast<const std::uint8_t *>(src),
+        size));
 }
 
 /* Read bytes from data memory using the gpu_comm data-read command. */
@@ -371,7 +396,15 @@ Status gpu_comm_read_data(
 /* Write encoded instruction bytes using the gpu_comm program-write command. */
 Status gpu_comm_write_program(
     com_dev_t *dev, DeviceAddress dst_addr, const void *src, std::size_t size) {
-    return write_chunked_command(dev, COM_CMD_WRITE_PROGRAM, dst_addr, src, size);
+    if ((size % COM_WORD_BYTES) != 0u) {
+        return Status::BadArgument;
+    }
+
+    std::vector<std::uint8_t> packet_words(size);
+    host_words_to_packet(
+        packet_words.data(), static_cast<const std::uint8_t *>(src), size);
+    return write_chunked_command(
+        dev, COM_CMD_WRITE_PROGRAM, dst_addr, packet_words.data(), packet_words.size());
 }
 
 /* Write constant bytes using the configured constant-memory transport behavior. */
@@ -381,11 +414,24 @@ Status gpu_comm_write_constants(
     DeviceAddress dst_addr,
     const void *src,
     std::size_t size) {
-    if (!config.constants_use_data_memory) {
-        return Status::Unsupported;
+    if ((size % COM_WORD_BYTES) != 0u) {
+        return Status::BadArgument;
     }
+
+    if (config.constants_use_data_memory) {
+        return write_chunked_command(
+            dev, COM_CMD_WRITE_DATA, dst_addr, src, size, config.address_unit_bytes);
+    }
+
+    if (config.address_unit_bytes != kDefaultAddressUnitBytes) {
+        return Status::BadArgument;
+    }
+
+    std::vector<std::uint8_t> packet_words(size);
+    host_words_to_packet(
+        packet_words.data(), static_cast<const std::uint8_t *>(src), size);
     return write_chunked_command(
-        dev, COM_CMD_WRITE_DATA, dst_addr, src, size, config.address_unit_bytes);
+        dev, COM_CMD_WRITE_CONSTANTS, dst_addr, packet_words.data(), packet_words.size());
 }
 
 /* Send a kernel launch command with launch dimensions in the payload. */
@@ -403,9 +449,9 @@ Status gpu_comm_launch(
     }
 
     std::uint8_t payload[12];
-    put_u32_be(payload, grid_dim);
-    put_u32_be(payload + 4, block_dim);
-    put_u32_be(payload + 8, active_mask);
+    put_u32_rtl_rx(payload, grid_dim);
+    put_u32_rtl_rx(payload + 4, block_dim);
+    put_u32_rtl_rx(payload + 8, active_mask);
     return send_packet(
         dev, COM_CMD_LAUNCH, static_cast<std::uint16_t>(base_pc),
         payload, sizeof(payload));
@@ -417,8 +463,9 @@ Status gpu_comm_read_status(com_dev_t *dev, std::uint32_t *status) {
         return Status::BadArgument;
     }
 
+    std::uint8_t payload[4] = {};
     com_packet_t response;
-    Status read_status = read_packet(dev, COM_CMD_READ_STATUS, 0, nullptr, 0, &response);
+    Status read_status = read_packet(dev, COM_CMD_READ_STATUS, 0, payload, sizeof(payload), &response);
     if (read_status != Status::Ok) {
         return read_status;
     }
@@ -426,7 +473,7 @@ Status gpu_comm_read_status(com_dev_t *dev, std::uint32_t *status) {
         return Status::Transport;
     }
 
-    *status = get_u32_be(response.payload);
+    *status = get_u32_le(response.payload);
     return Status::Ok;
 }
 
@@ -459,8 +506,11 @@ Transport make_gpu_comm_transport(com_dev_t *dev, GpuCommTransportConfig config)
     Transport transport;
     transport.write_data =
         [dev, config](DeviceAddress dst_addr, const void *src, std::size_t size) {
-            return write_chunked_command(
-                dev, COM_CMD_WRITE_DATA, dst_addr, src, size, config.address_unit_bytes);
+            if (config.address_unit_bytes != kDefaultAddressUnitBytes) {
+                return write_chunked_command(
+                    dev, COM_CMD_WRITE_DATA, dst_addr, src, size, config.address_unit_bytes);
+            }
+            return gpu_comm_write_data(dev, dst_addr, src, size);
     };
     transport.read_data =
         [dev, config](DeviceAddress src_addr, void *dst, std::size_t size) {
@@ -469,8 +519,10 @@ Transport make_gpu_comm_transport(com_dev_t *dev, GpuCommTransportConfig config)
     };
     transport.write_program =
         [dev, config](DeviceAddress dst_addr, const void *src, std::size_t size) {
-            return write_chunked_command(
-                dev, COM_CMD_WRITE_PROGRAM, dst_addr, src, size, config.address_unit_bytes);
+            if (config.address_unit_bytes != kDefaultAddressUnitBytes) {
+                return Status::BadArgument;
+            }
+            return gpu_comm_write_program(dev, dst_addr, src, size);
     };
     transport.write_constants =
         [dev, config](DeviceAddress dst_addr, const void *src, std::size_t size) {

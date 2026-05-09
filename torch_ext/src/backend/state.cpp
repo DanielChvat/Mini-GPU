@@ -1,10 +1,12 @@
 #include "minigpu_torch.hpp"
 
 #include "minigpu_runtime.hpp"
+#include "transports/gpu_comm_transport.hpp"
 
 #include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <string>
 
 namespace minigpu::torch_backend {
 
@@ -14,6 +16,7 @@ namespace {
 struct BackendState {
     bool initialized = false;
     int current_device = 0;
+    com_dev_t *dev = nullptr;
     std::unique_ptr<minigpu::Context> context;
 };
 
@@ -64,6 +67,42 @@ void set_device(int index) {
 
     std::lock_guard<std::mutex> lock(state_mutex);
     state.current_device = index;
+}
+
+void connect(const std::string &port, std::uint32_t baud, std::uint32_t memory_size) {
+    std::lock_guard<std::mutex> lock(state_mutex);
+    if (state.context) {
+        return;
+    }
+
+    com_dev_t *dev = open_com(port.c_str(), static_cast<int>(baud), 5000);
+    if (!dev) {
+        throw std::runtime_error("failed to open Mini-GPU serial device: " + port);
+    }
+
+    minigpu::Config config;
+    config.memory_base = 0;
+    config.memory_size = memory_size;
+    config.default_alignment = 4;
+    config.transport = minigpu::transports::make_gpu_comm_transport(dev);
+
+    try {
+        state.context = std::make_unique<minigpu::Context>(std::move(config));
+        state.dev = dev;
+        state.initialized = true;
+    } catch (...) {
+        close_com(dev);
+        throw;
+    }
+}
+
+void disconnect() {
+    std::lock_guard<std::mutex> lock(state_mutex);
+    state.context.reset();
+    if (state.dev) {
+        close_com(state.dev);
+        state.dev = nullptr;
+    }
 }
 
 } // namespace minigpu::torch_backend
