@@ -17,6 +17,11 @@ module communication_controller #(
     input  wire [31:0] rsp_data,
     output reg         rsp_ready,
 
+    // ================= Memory write status interface =================
+    input  wire        mem_write_done,
+    input  wire        mem_write_fail,
+    output reg         memory_status_consumed,
+
     // ================= External data memory interface =================
     output reg  [3:0] data_mem_req_valid,
     output reg  [3:0] data_mem_req_write,
@@ -67,6 +72,7 @@ module communication_controller #(
     wire packet_done;
 
     reg  write_done;
+    reg  write_fail;
 
     assign dbg_rx_cmd  = rx_cmd;
     assign dbg_rx_addr = rx_addr;
@@ -105,6 +111,7 @@ module communication_controller #(
         .len(rx_len),
 
         .write_done(write_done),
+        .write_fail(write_fail),
 
         .packet_done(packet_done),
         .send_ack(send_ack),
@@ -161,6 +168,7 @@ module communication_controller #(
     localparam READ_WAIT       = 4'd7; // wait for memory read data
     localparam READ_SEND       = 4'd8; // present one read word to TX
     localparam READ_PAYLOAD    = 4'd9; // request next read word or finish packet
+    localparam WAIT_WRITE_RESPONSE = 4'd10; // wait for write_done or write_fail from memory
 
     reg [3:0] state;
 
@@ -187,6 +195,7 @@ module communication_controller #(
     reg [15:0] read_resp_addr;
     reg [15:0] read_resp_len;
     reg        write_done_hold;
+    reg        write_fail_hold;
     reg        read_payload_requested;
     reg        read_sending_word;
 
@@ -215,7 +224,10 @@ module communication_controller #(
 
             rsp_ready <= 0;
             write_done <= 0;
+            write_fail <= 0;
             write_done_hold <= 0;
+            write_fail_hold <= 0;
+            memory_status_consumed <= 0;
 
             data_mem_req_valid <= 4'b0000;
             data_mem_req_write <= 4'b0000;
@@ -235,6 +247,8 @@ module communication_controller #(
             tx_payload_valid <= 0;
             rsp_ready <= 0;
             write_done <= write_done_hold;
+            write_fail <= write_fail_hold;
+            memory_status_consumed <= 0;
             data_mem_req_valid <= 4'b0000;
             data_mem_req_write <= 4'b0000;
             data_mem_req_addr <= {(4*ADDR_WIDTH){1'b0}};
@@ -253,6 +267,7 @@ module communication_controller #(
             // Clear the held write/read-done flag after RX emits ACK/NAK status.
             if (nack_edge || ack_edge) begin
                 write_done_hold <= 0;
+                write_fail_hold <= 0;
             end
 
             // Restart write-word addressing whenever the current command is not a data write.
@@ -271,8 +286,8 @@ module communication_controller #(
 
             // Mark write completion, or initialize a READ_DATA response sequence.
             if (packet_done && (rx_cmd == COM_CMD_WRITE_DATA)) begin
-                write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
+                state <= WAIT_WRITE_RESPONSE;
             end else if (packet_done && (rx_cmd == COM_CMD_READ_DATA)) begin
                 write_done_hold <= 1'b1;
                 read_resp_addr <= rx_addr;
@@ -431,6 +446,19 @@ module communication_controller #(
                         state <= READ_WAIT;
                     end
                 end else if (!tx_busy) begin
+                    state <= IDLE;
+                end
+            end
+
+            // ----------------------------------------------------
+            WAIT_WRITE_RESPONSE: begin
+                if (mem_write_done) begin
+                    write_done_hold <= 1'b1;
+                    memory_status_consumed <= 1'b1;
+                    state <= IDLE;
+                end else if (mem_write_fail) begin
+                    write_fail_hold <= 1'b1;
+                    memory_status_consumed <= 1'b1;
                     state <= IDLE;
                 end
             end

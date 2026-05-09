@@ -35,6 +35,11 @@ wire [3:0] data_mem_req_ready;
 wire [3:0] data_mem_resp_valid;
 wire [(4*DATA_WIDTH)-1:0] data_mem_resp_rdata;
 
+reg  mem_write_done;
+reg  mem_write_fail;
+reg  force_mem_write_fail;
+wire memory_status_consumed;
+
 integer testNum;
 integer errors;
 integer write_count;
@@ -68,6 +73,9 @@ communication_controller #(
     .data_mem_req_ready(data_mem_req_ready),
     .data_mem_resp_valid(data_mem_resp_valid),
     .data_mem_resp_rdata(data_mem_resp_rdata),
+    .mem_write_done(mem_write_done),
+    .mem_write_fail(mem_write_fail),
+    .memory_status_consumed(memory_status_consumed),
     .dbg_rx_cmd(dbg_rx_cmd),
     .dbg_rx_addr(dbg_rx_addr),
     .dbg_rx_len(dbg_rx_len)
@@ -105,6 +113,26 @@ always @(posedge clk) begin
         write_addr_seen[write_count] <= data_mem_req_addr[0 +: ADDR_WIDTH];
         write_data_seen[write_count] <= data_mem_req_wdata[0 +: DATA_WIDTH];
         write_count <= write_count + 1;
+    end
+end
+
+always @(posedge clk or posedge rst) begin
+    if (rst) begin
+        mem_write_done <= 1'b0;
+        mem_write_fail <= 1'b0;
+        force_mem_write_fail <= 1'b0;
+    end else begin
+        if (memory_status_consumed) begin
+            mem_write_done <= 1'b0;
+            mem_write_fail <= 1'b0;
+        end else if (dut.state == 4'd10) begin
+            // Respond immediately to WRITE_DATA packet completion.
+            if (force_mem_write_fail) begin
+                mem_write_fail <= 1'b1;
+            end else begin
+                mem_write_done <= 1'b1;
+            end
+        end
     end
 end
 
@@ -466,6 +494,34 @@ initial begin
 
     if (write_addr_seen[1] !== 16'h0005 || write_data_seen[1] !== 32'h88776655) begin
         $display("TEST1 FAIL WORD1: addr=%h data=%h", write_addr_seen[1], write_data_seen[1]);
+        errors = errors + 1;
+    end
+
+    // ========================================================
+    // TEST 1B: WRITE_DATA NAKs when memory write fails
+    // ========================================================
+    testNum = 11;
+    write_count = 0;
+    force_mem_write_fail = 1'b1;
+
+    payload[0] = 8'h11;
+    payload[1] = 8'h22;
+    payload[2] = 8'h33;
+    payload[3] = 8'h44;
+    payload[4] = 8'h55;
+    payload[5] = 8'h66;
+    payload[6] = 8'h77;
+    payload[7] = 8'h88;
+
+    fork
+        send_packet(COM_CMD_WRITE_DATA, 16'h0100, 16'd8);
+        expect_tx_done(COM_CMD_NAK, 16'h0100, 16'd0);
+    join
+    wait_tx_idle();
+    force_mem_write_fail = 1'b0;
+
+    if (write_count !== 2) begin
+        $display("TEST1B FAIL: write_count expected 2 got %0d", write_count);
         errors = errors + 1;
     end
 

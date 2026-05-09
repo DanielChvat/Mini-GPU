@@ -136,7 +136,8 @@ module sha256_weight_stream_tb;
         word_data = 32'b0;
         finish = 1'b0;
 
-        repeat (2) @(posedge clk);
+        // repeat (2) @(posedge clk);
+        #10;
         rst = 1'b0;
 
         // Expected values are SHA-256 over 32-bit words serialized big-endian.

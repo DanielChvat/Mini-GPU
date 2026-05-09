@@ -64,3 +64,24 @@
         - using FIFO between the controller and memory would be an optimal design choice, but i don't think we have enough resources for this
     - we will do the padding on the software side. ie all transmission from the pc will be in increments of 4 bytes, so that we don't have to create padding in hardware. This will hopefully save some resources, and will also make things easier on my end 
     - list of none-implemented functions at line 42 of the communication_controller.v module 
+
+- 5/7
+    - additional CMD that should be implemented:
+        - reset chip
+        - reset security gate 
+        - 
+
+- 5/8 
+    - communication now runs on top of the UART protocol 
+    - a change is required on the rx
+        - during the WAIT_WRITE state, it needs to be able to recieve a signal that indicates that the write failed 
+        - when the write fail occurs, it needs to be able to transmit a NACK
+        - note: this means that a NACK doesn't only refer to a CRC fail, but also potentially a security failure 
+    - communication_controller needs changes to support this
+        - in the communication_controller, it sends the write_done signal regardless if the write was successful, so there is going to be some stuff that needs to be fixed here. 
+            - this is fine, and the correct implementation for all commands, but with the write command, this shouldn't be how it is implemented 
+        - thinking about how the communication will occur with the security module, i think we might need to add a memory status consumed signal, because the memory writes will inevitably be faster than the transmission, so a flag that is active for only a clock cycle is likely not enough
+        - I think we need to add a new state in the FSM, so that when `packet_done && (rx_cmd == COM_CMD_WRITE_DATA)` it goes into a WAIT_WRITE_RESPONSE state
+            - in this state it waits for the either the write_done signal or write_fail signal from the memory controller (the security module)
+            - when the signal is recieved, it will send the quick memory status consumed signal 
+                - this is neccessary because we need both signals to be low for the next set of words 

@@ -4,8 +4,14 @@
     - during this command the chip will run the security layer by hashing the address region and comparing it to a hardcoded value
     - the address region will only be locked when the hash matches 
     - when lock is enabled any write to the weight region is blocked
-- security FSM: IDLE, LOAD, FINALIZE_HASH, VERIFY, LOCK, EXECUTE
-    - during LOAD, the hash will continuously hash the input, this will save time during the verify state 
+- security FSM: IDLE, LOAD, FINALIZE, VERIFY, LOCK, ERROR
+    - IDLE: wait for host, memory is unrestricted 
+    - LOAD: streaming weights into memory and SHA256 core and actively calculating hash
+    - FINALIZE: stop accepting weights, and send finalize flag the sha256 wrapper
+    - VERIFY: compare hash vs expected hash 
+    - LOCK: freeze weights and lock down system
+    - EXECUTE: allows access to normal accelerator functions, with read only access to protected regions
+    - ERROR: hash mismatch
 
 - "secure GPU like accelerator with hardware-enforced memory protection, where model weights reside in a region that is cryptographically verified and locked prior to execution"
 
@@ -63,3 +69,30 @@
     - imported the SHA256 ip from secworks
     - created wrapper for the SHA256 ip that fits the our use case (sha256_weight_stream.v)
         - note: there are many inefficiencies in the current code, it works, but it likely uses extra resources that can be minimized, so in the future, it will likely be good to come back to it and optimize
+
+Main security gate design 
+- security FSM: IDLE, LOAD, FINALIZE, VERIFY, LOCK, ERROR
+    - IDLE: wait for host, memory is unrestricted 
+    - LOAD: streaming weights into memory and SHA256 core and actively calculating hash
+    - FINALIZE: stop accepting weights, and send finalize flag the sha256 wrapper
+    - VERIFY: compare hash vs expected hash 
+    - LOCK: freeze weights and lock down system
+    - EXECUTE: allows access to normal accelerator functions, with read only access to protected regions
+    - ERROR: hash mismatch
+- when a write command is recieved from the communication_controller, during the LOAD state, it will route the data from the communication_controller to the secure memory wrapper and the SHA256 wrapper
+- it will need to keep track of the memory region that needs to be locked 
+    - to avoid extra logic, it might be good to standarize the weight input with software 
+    - we could add logic that keeps track of the region that was loaded, but to save LUTs standarize the following for loading weights:
+        - weights will always be sent first
+        - the address of the weights will start from 0x0000
+        - the weights need to be sent sequentially and in order
+        - when a NACK is discovered, the gate will go into ERROR mode (only when loading weights)
+            - when this happens the security gate will need to be explicitly reset 
+            - the transfer of weights will need to be fully reset 
+        - the HW will be making the assumption that the last accessed address is where the weights end 
+    - with this design implementation on the SW we can minimize the logic the HW
+    - although this is heavily reliant on SW compatibility, even if an attacker has full access to the SW the chip should still be secure with zero trust logic
+- the hash values that will be compared to will be hardcoded into the chip, but there can be multiple stored hashes
+    - we will need to add for loop logic to manage the hash comparisons 
+- when a write is blocked because it attempted to overwrite a locked region, it should send a signal to the communication_controller and trigger an NACK    
+    - note: as of 5/8 communication_controller does not support this 

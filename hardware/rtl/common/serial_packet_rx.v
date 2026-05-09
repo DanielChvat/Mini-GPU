@@ -18,6 +18,7 @@ module serial_packet_rx #(
 
     // control
     input  wire        write_done,
+    input  wire        write_fail,
 
     // response signals
     output reg         packet_done,
@@ -170,6 +171,8 @@ module serial_packet_rx #(
                 WAIT_WRITE: begin
                     if (write_done)
                         state <= SEND_ACK;
+                    else if (write_fail)
+                        state <= SEND_NACK;
                 end
 
                 // ------------------------------------------------
