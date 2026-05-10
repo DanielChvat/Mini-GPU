@@ -43,6 +43,8 @@ module basys3_comm_top #(
     wire [7:0]  dbg_rx_cmd;
     wire [15:0] dbg_rx_addr;
     wire [15:0] dbg_rx_len;
+    wire [3:0]  validate_model_id;
+    wire        validate_triggered;
     wire        prog_we_full;
     wire [ADDR_WIDTH-1:0] prog_addr_full;
     wire [31:0] prog_wdata;
@@ -125,6 +127,8 @@ module basys3_comm_top #(
         .launch_block_dim(launch_block_dim),
         .launch_active_mask(launch_active_mask_full),
         .status_word(status_word),
+        .validate_model_id(validate_model_id),
+        .validate_triggered(validate_triggered),
         .dbg_rx_cmd(dbg_rx_cmd),
         .dbg_rx_addr(dbg_rx_addr),
         .dbg_rx_len(dbg_rx_len)

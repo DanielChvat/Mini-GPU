@@ -85,3 +85,11 @@
             - in this state it waits for the either the write_done signal or write_fail signal from the memory controller (the security module)
             - when the signal is recieved, it will send the quick memory status consumed signal 
                 - this is neccessary because we need both signals to be low for the next set of words 
+
+- 5/9
+    - for communication we will now have VALIDATE also send an input that determines which model is being ran 
+        - this value be contained in the address field 
+            - but we don't need the full address field, only the lowest 4 bits will be used
+            - these 4 bits will be transfered outside through a 4 bit output wire
+            - we will also need to add a signal that tells the controller that verification has been triggered
+        - LEN will be 0, with no payload for the command 

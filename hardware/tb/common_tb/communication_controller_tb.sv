@@ -13,6 +13,7 @@ localparam COM_CMD_WRITE_DATA = 8'h01;
 localparam COM_CMD_READ_DATA  = 8'h02;
 localparam COM_CMD_ACK        = 8'h08;
 localparam COM_CMD_NAK        = 8'h09;
+localparam COM_CMD_VALIDATE   = 8'h07;
 
 reg clk;
 reg rst;
@@ -26,6 +27,22 @@ wire rsp_ready;
 wire [7:0]  dbg_rx_cmd;
 wire [15:0] dbg_rx_addr;
 wire [15:0] dbg_rx_len;
+
+wire [3:0]  validate_model_id;
+wire        validate_triggered;
+
+wire        prog_we;
+wire [ADDR_WIDTH-1:0] prog_addr;
+wire [31:0] prog_wdata;
+wire        const_we;
+wire [ADDR_WIDTH-1:0] const_addr;
+wire [31:0] const_wdata;
+wire        launch_valid;
+wire [ADDR_WIDTH-1:0] launch_base_pc;
+wire [31:0] launch_grid_dim;
+wire [31:0] launch_block_dim;
+wire [31:0] launch_active_mask;
+reg [31:0] status_word;
 
 wire [3:0] data_mem_req_valid;
 wire [3:0] data_mem_req_write;
@@ -48,6 +65,7 @@ integer i;
 reg [15:0] write_addr_seen [0:31];
 reg [31:0] write_data_seen [0:31];
 reg [7:0] payload [0:255];
+reg validate_triggered_seen;
 
 // ============================================================
 // DUT
@@ -78,7 +96,21 @@ communication_controller #(
     .memory_status_consumed(memory_status_consumed),
     .dbg_rx_cmd(dbg_rx_cmd),
     .dbg_rx_addr(dbg_rx_addr),
-    .dbg_rx_len(dbg_rx_len)
+    .dbg_rx_len(dbg_rx_len),
+    .validate_model_id(validate_model_id),
+    .validate_triggered(validate_triggered),
+    .prog_we(prog_we),
+    .prog_addr(prog_addr),
+    .prog_wdata(prog_wdata),
+    .const_we(const_we),
+    .const_addr(const_addr),
+    .const_wdata(const_wdata),
+    .launch_valid(launch_valid),
+    .launch_base_pc(launch_base_pc),
+    .launch_grid_dim(launch_grid_dim),
+    .launch_block_dim(launch_block_dim),
+    .launch_active_mask(launch_active_mask),
+    .status_word(status_word)
 );
 
 // External memory instance, like the top module should provide.
@@ -93,6 +125,7 @@ memory #(
     .req_write(data_mem_req_write),
     .req_addr(data_mem_req_addr),
     .req_wdata(data_mem_req_wdata),
+    .req_wmask({4{1'b1}}),
     .req_ready(data_mem_req_ready),
     .resp_valid(data_mem_resp_valid),
     .resp_rdata(data_mem_resp_rdata)
@@ -116,16 +149,25 @@ always @(posedge clk) begin
     end
 end
 
+always @(posedge clk) begin
+    if (rst) begin
+        validate_triggered_seen <= 1'b0;
+    end else if (validate_triggered) begin
+        validate_triggered_seen <= 1'b1;
+    end
+end
+
 always @(posedge clk or posedge rst) begin
     if (rst) begin
         mem_write_done <= 1'b0;
         mem_write_fail <= 1'b0;
         force_mem_write_fail <= 1'b0;
+        status_word <= 32'b0;
     end else begin
         if (memory_status_consumed) begin
             mem_write_done <= 1'b0;
             mem_write_fail <= 1'b0;
-        end else if (dut.state == 4'd10) begin
+        end else if (dut.state == 4'd13) begin
             // Respond immediately to WRITE_DATA packet completion.
             if (force_mem_write_fail) begin
                 mem_write_fail <= 1'b1;
@@ -754,6 +796,28 @@ initial begin
             $display("TEST9 FAIL DATA[%0d]: expected %h got %h", i, expected_counting_word(i), write_data_seen[i]);
             errors = errors + 1;
         end
+    end
+
+    // ========================================================
+    // TEST 10: VALIDATE command triggers validation and sends ACK
+    // ========================================================
+    testNum = 10;
+    validate_triggered_seen = 1'b0;
+
+    fork
+        send_packet(COM_CMD_VALIDATE, 16'h0005, 16'd0);
+        expect_tx_done(COM_CMD_ACK, 16'h0005, 16'd0);
+    join
+    wait_tx_idle();
+
+    if (validate_model_id !== 4'h5) begin
+        $display("TEST10 FAIL: validate_model_id expected 4'h5 got %h", validate_model_id);
+        errors = errors + 1;
+    end
+
+    if (!validate_triggered_seen) begin
+        $display("TEST10 FAIL: validate_triggered was not pulsed");
+        errors = errors + 1;
     end
 
     // ========================================================
