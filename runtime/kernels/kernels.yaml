@@ -1,0 +1,61 @@
+kernels:
+  - name: vector_add.i32
+    op: vector_add
+    dtype: i32
+    file: vector_add.bin
+    program_addr: 0
+    base_pc: 0
+    grid_dim: 1
+    block_dim: 4
+    active_mask: 0x0000000f
+    timeout_ms: 5000
+  - name: vector_add.i16
+    op: vector_add
+    dtype: i16
+    file: vector_add.bin
+    program_addr: 0
+    base_pc: 13
+    grid_dim: 1
+    block_dim: 4
+    active_mask: 0x0000000f
+    timeout_ms: 5000
+  - name: vector_add.i8
+    op: vector_add
+    dtype: i8
+    file: vector_add.bin
+    program_addr: 0
+    base_pc: 38
+    grid_dim: 1
+    block_dim: 4
+    active_mask: 0x0000000f
+    timeout_ms: 5000
+  - name: vector_add.fp32
+    op: vector_add
+    dtype: fp32
+    file: vector_add.bin
+    program_addr: 0
+    base_pc: 63
+    grid_dim: 1
+    block_dim: 4
+    active_mask: 0x0000000f
+    timeout_ms: 5000
+  - name: vector_add.fp16
+    op: vector_add
+    dtype: fp16
+    file: vector_add.bin
+    program_addr: 0
+    base_pc: 76
+    grid_dim: 1
+    block_dim: 4
+    active_mask: 0x0000000f
+    timeout_ms: 5000
+  - name: vector_add.fp8
+    op: vector_add
+    dtype: fp8
+    file: vector_add.bin
+    program_addr: 0
+    base_pc: 101
+    grid_dim: 1
+    block_dim: 4
+    active_mask: 0x0000000f
+    timeout_ms: 5000

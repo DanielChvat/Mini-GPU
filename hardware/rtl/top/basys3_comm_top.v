@@ -143,7 +143,7 @@ module basys3_comm_top #(
         .ENABLE_FLOAT_ADD(1),
         .ENABLE_FLOAT_MUL(1),
         .ENABLE_FLOAT_DIV(0),
-        .FLOAT_FP32_ONLY(1),
+        .FLOAT_FP32_ONLY(0),
         .USE_SHARED_FLOAT(1),
         .SHARED_FLOAT_UNITS(2)
     ) gpu (

@@ -14,7 +14,7 @@ Mini-GPU uses a fixed-width 32-bit instruction format. The encoding is intention
 
 Registers are `r0` through `r15`. Immediates are signed 14-bit values. Raw `.bin` output is big-endian per instruction word, so hex word `0C000000` is emitted as bytes `0C 00 00 00`.
 
-For register-to-register typed ALU instructions, `imm14[2:0]` carries a data-format tag. Existing un-suffixed integer assembly keeps encoding as `I32`.
+For typed ALU and memory instructions, `imm14[2:0]` carries a data-format tag. Existing un-suffixed integer assembly keeps encoding as `I32`.
 
 | Format | ID | Meaning |
 |---|---:|---|
@@ -27,7 +27,7 @@ For register-to-register typed ALU instructions, `imm14[2:0]` carries a data-for
 
 The CUDA subset compiler tracks scalar and pointer element types for `int`, `int16_t`, `int8_t`, `float`, `half`, and `fp8_e4m3`. It emits typed IR such as `add.fp32` or `add.i8`, which lowers to ISA suffixes such as `FADD.FP32` or `ADD.I8`.
 
-Typed memory operations are represented in IR, for example `load_global.fp16`, but the current ISA still encodes loads/stores as `LDG/STG` without a width field. Packed byte/halfword/fp8 memory behavior must be added in the memory unit before these types are fully correct end to end.
+Typed memory operations are represented in IR, for example `load_global.fp16`, and lower to ISA suffixes such as `LDG.FP16` or `STG.I8`. Packed byte, halfword, and fp8 memory operations use byte addresses internally so the memory unit can apply byte write masks while keeping the external tensor layout packed.
 
 ## Instruction Forms
 
@@ -107,6 +107,7 @@ Used for global and shared memory loads.
 
 ```text
 LDG rd, [rs1 + imm]
+LDG.FP16 rd, [rs1 + imm]
 LDS rd, [rs1 + imm]
 ```
 
@@ -116,7 +117,8 @@ LDS rd, [rs1 + imm]
 | `rd` | destination register |
 | `rs1` | base address register |
 | `rs2` | `0` |
-| `imm14` | signed offset |
+| `imm14[13:3]` | signed word offset |
+| `imm14[2:0]` | format ID |
 
 ### Store
 
@@ -124,6 +126,7 @@ Used for global and shared memory stores.
 
 ```text
 STG [rs1 + imm], rs2
+STG.FP16 [rs1 + imm], rs2
 STS [rs1 + imm], rs2
 ```
 
@@ -133,7 +136,8 @@ STS [rs1 + imm], rs2
 | `rd` | `0` |
 | `rs1` | base address register |
 | `rs2` | value register |
-| `imm14` | signed offset |
+| `imm14[13:3]` | signed word offset |
+| `imm14[2:0]` | format ID |
 
 ### Thread Metadata
 

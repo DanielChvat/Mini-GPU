@@ -67,6 +67,7 @@ module mini_gpu #(
     wire [(NUM_CORES*WARP_SIZE)-1:0]             core_mem_req_write;
     wire [(NUM_CORES*WARP_SIZE*ADDR_WIDTH)-1:0]  core_mem_req_addr;
     wire [(NUM_CORES*WARP_SIZE*WIDTH)-1:0]       core_mem_req_wdata;
+    wire [(NUM_CORES*WARP_SIZE*4)-1:0]           core_mem_req_wmask;
     reg  [(NUM_CORES*WARP_SIZE)-1:0]             core_mem_req_ready;
     reg  [(NUM_CORES*WARP_SIZE)-1:0]             core_mem_resp_valid;
     reg  [(NUM_CORES*WARP_SIZE*WIDTH)-1:0]       core_mem_resp_rdata;
@@ -79,10 +80,12 @@ module mini_gpu #(
     reg [WARP_SIZE-1:0] memory_req_write;
     reg [(WARP_SIZE*ADDR_WIDTH)-1:0] memory_req_addr;
     reg [(WARP_SIZE*WIDTH)-1:0] memory_req_wdata;
+    reg [(WARP_SIZE*4)-1:0] memory_req_wmask;
     wire [3:0] memory_req_valid_bus;
     wire [3:0] memory_req_write_bus;
     wire [(4*ADDR_WIDTH)-1:0] memory_req_addr_bus;
     wire [(4*WIDTH)-1:0] memory_req_wdata_bus;
+    wire [(4*4)-1:0] memory_req_wmask_bus;
     wire [3:0] memory_req_ready_bus;
     wire [3:0] memory_resp_valid_bus;
     wire [(4*WIDTH)-1:0] memory_resp_rdata_bus;
@@ -95,6 +98,7 @@ module mini_gpu #(
     assign memory_req_write_bus = host_mem_active ? host_mem_req_write : memory_req_write;
     assign memory_req_addr_bus = host_mem_active ? host_mem_req_addr : memory_req_addr;
     assign memory_req_wdata_bus = host_mem_active ? host_mem_req_wdata : memory_req_wdata;
+    assign memory_req_wmask_bus = host_mem_active ? {4{4'b1111}} : memory_req_wmask;
     assign core_selected_mem_req_ready = host_mem_active ? {WARP_SIZE{1'b0}} :
                                          memory_req_ready_bus[WARP_SIZE-1:0];
     assign core_selected_mem_resp_valid = host_mem_active ? {WARP_SIZE{1'b0}} :
@@ -126,6 +130,7 @@ module mini_gpu #(
         memory_req_write = {WARP_SIZE{1'b0}};
         memory_req_addr = {(WARP_SIZE*ADDR_WIDTH){1'b0}};
         memory_req_wdata = {(WARP_SIZE*WIDTH){1'b0}};
+        memory_req_wmask = {(WARP_SIZE*4){1'b0}};
         core_mem_req_ready = {(NUM_CORES*WARP_SIZE){1'b0}};
 
         if (arb_valid) begin
@@ -133,6 +138,7 @@ module mini_gpu #(
             memory_req_write = core_mem_req_write[(arb_core*WARP_SIZE) +: WARP_SIZE];
             memory_req_addr = core_mem_req_addr[(arb_core*WARP_SIZE*ADDR_WIDTH) +: (WARP_SIZE*ADDR_WIDTH)];
             memory_req_wdata = core_mem_req_wdata[(arb_core*WARP_SIZE*WIDTH) +: (WARP_SIZE*WIDTH)];
+            memory_req_wmask = core_mem_req_wmask[(arb_core*WARP_SIZE*4) +: (WARP_SIZE*4)];
             core_mem_req_ready[(arb_core*WARP_SIZE) +: WARP_SIZE] = core_selected_mem_req_ready;
         end
     end
@@ -170,6 +176,7 @@ module mini_gpu #(
         .req_write(memory_req_write_bus),
         .req_addr(memory_req_addr_bus),
         .req_wdata(memory_req_wdata_bus),
+        .req_wmask(memory_req_wmask_bus),
         .req_ready(memory_req_ready_bus),
         .resp_valid(memory_resp_valid_bus),
         .resp_rdata(memory_resp_rdata_bus)
@@ -215,6 +222,7 @@ module mini_gpu #(
                 .mem_req_write(core_mem_req_write[(core_id*WARP_SIZE) +: WARP_SIZE]),
                 .mem_req_addr(core_mem_req_addr[(core_id*WARP_SIZE*ADDR_WIDTH) +: (WARP_SIZE*ADDR_WIDTH)]),
                 .mem_req_wdata(core_mem_req_wdata[(core_id*WARP_SIZE*WIDTH) +: (WARP_SIZE*WIDTH)]),
+                .mem_req_wmask(core_mem_req_wmask[(core_id*WARP_SIZE*4) +: (WARP_SIZE*4)]),
                 .mem_req_ready(core_mem_req_ready[(core_id*WARP_SIZE) +: WARP_SIZE]),
                 .mem_resp_valid(core_mem_resp_valid[(core_id*WARP_SIZE) +: WARP_SIZE]),
                 .mem_resp_rdata(core_mem_resp_rdata[(core_id*WARP_SIZE*WIDTH) +: (WARP_SIZE*WIDTH)]),

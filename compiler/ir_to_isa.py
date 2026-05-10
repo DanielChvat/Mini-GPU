@@ -85,8 +85,8 @@ class RegisterAllocator:
         return self.value_regs[value]
 
     def release_after_use(self, value: str) -> None:
-        """Free temporary registers after their final textual use."""
-        if not value.startswith("%t"):
+        """Free value registers after their final textual use."""
+        if not value.startswith("%"):
             return
 
         self.remaining_uses[value] -= 1
@@ -176,29 +176,43 @@ def ir_to_isa(ir_text: str) -> str:
     """Lower a complete Mini-GPU IR module to ISA assembly."""
     lines = [clean_line(line) for line in ir_text.splitlines()]
     lines = [line for line in lines if line]
-    allocator = RegisterAllocator(value_operands(lines))
     asm: list[str] = []
 
+    kernel_lines: list[list[str]] = []
+    current: list[str] = []
     for line in lines:
         if line.startswith("kernel "):
-            name = line.split(None, 1)[1]
-            if asm:
-                asm.append("")
-            asm.append(f".kernel {name}")
-            continue
+            if current:
+                kernel_lines.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        kernel_lines.append(current)
 
-        if line.startswith("label "):
-            label = line.split(None, 1)[1]
-            asm.append(f"{label}:")
-            continue
+    for section in kernel_lines:
+        allocator = RegisterAllocator(value_operands(section))
 
-        match = IR_ASSIGN_RE.match(line)
-        if match:
-            dst, op, rest = match.groups()
-            lower_assignment(dst, op, split_operands(rest), allocator, asm)
-            continue
+        for line in section:
+            if line.startswith("kernel "):
+                name = line.split(None, 1)[1]
+                if asm:
+                    asm.append("")
+                asm.append(f".kernel {name}")
+                continue
 
-        lower_statement(line, allocator, asm)
+            if line.startswith("label "):
+                label = line.split(None, 1)[1]
+                asm.append(f"{label}:")
+                continue
+
+            match = IR_ASSIGN_RE.match(line)
+            if match:
+                dst, op, rest = match.groups()
+                lower_assignment(dst, op, split_operands(rest), allocator, asm)
+                continue
+
+            lower_statement(line, allocator, asm)
 
     return "\n".join(asm)
 
@@ -270,7 +284,8 @@ def lower_assignment(
         if len(operands) != 1:
             raise IsaLoweringError("load_global expects one address operand")
         rs = allocator.use(operands[0])
-        asm.append(f"  LDG {rd}, [{rs} + 0]")
+        suffix = f".{isa_format(fmt)}" if fmt is not None else ""
+        asm.append(f"  LDG{suffix} {rd}, [{rs} + 0]")
         allocator.release_after_use(operands[0])
         return
 
@@ -278,7 +293,8 @@ def lower_assignment(
         if len(operands) != 1:
             raise IsaLoweringError("load_shared expects one address operand")
         rs = allocator.use(operands[0])
-        asm.append(f"  LDS {rd}, [{rs} + 0]")
+        suffix = f".{isa_format(fmt)}" if fmt is not None else ""
+        asm.append(f"  LDS{suffix} {rd}, [{rs} + 0]")
         allocator.release_after_use(operands[0])
         return
 
@@ -342,7 +358,7 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
     """Lower one non-assigning IR instruction."""
     parts = line.split(None, 1)
     op = parts[0]
-    base_op, _ = split_typed_op(op)
+    base_op, fmt = split_typed_op(op)
     operands = split_operands(parts[1] if len(parts) > 1 else None)
 
     if base_op == "store_global":
@@ -350,7 +366,8 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
             raise IsaLoweringError("store_global expects address and value operands")
         addr = allocator.use(operands[0])
         value = allocator.use(operands[1])
-        asm.append(f"  STG [{addr} + 0], {value}")
+        suffix = f".{isa_format(fmt)}" if fmt is not None else ""
+        asm.append(f"  STG{suffix} [{addr} + 0], {value}")
         allocator.release_after_use(operands[0])
         allocator.release_after_use(operands[1])
         return
@@ -360,7 +377,8 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
             raise IsaLoweringError("store_shared expects address and value operands")
         addr = allocator.use(operands[0])
         value = allocator.use(operands[1])
-        asm.append(f"  STS [{addr} + 0], {value}")
+        suffix = f".{isa_format(fmt)}" if fmt is not None else ""
+        asm.append(f"  STS{suffix} [{addr} + 0], {value}")
         allocator.release_after_use(operands[0])
         allocator.release_after_use(operands[1])
         return

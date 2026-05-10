@@ -489,6 +489,9 @@ Status gpu_comm_wait(
         if (status != Status::Ok) {
             return status;
         }
+        if ((status_word & config.status_error_mask) != 0u) {
+            return Status::Unsupported;
+        }
         if ((status_word & config.status_done_mask) != 0u) {
             return Status::Ok;
         }

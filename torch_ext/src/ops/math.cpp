@@ -1,5 +1,7 @@
 #include "minigpu_torch.hpp"
 
+#include "elementwise.hpp"
+
 #include <stdexcept>
 
 namespace minigpu::torch_backend {
@@ -15,18 +17,15 @@ namespace {
 } // namespace
 
 at::Tensor add_tensor(const at::Tensor &a, const at::Tensor &b, const at::Scalar &alpha) {
-    (void)a;
-    (void)b;
-    (void)alpha;
+    if (alpha.toDouble() != 1.0) {
+        throw std::runtime_error("aten::add.Tensor on Mini-GPU currently requires alpha=1");
+    }
 
-    unimplemented_op("aten::add.Tensor");
+    return detail::run_vector_add_kernel(a, b, "aten::add.Tensor");
 }
 
 at::Tensor vector_add(const at::Tensor &a, const at::Tensor &b) {
-    (void)a;
-    (void)b;
-
-    unimplemented_op("minigpu::vector_add");
+    return detail::run_vector_add_kernel(a, b, "minigpu::vector_add");
 }
 
 at::Tensor mul_tensor(const at::Tensor &a, const at::Tensor &b) {

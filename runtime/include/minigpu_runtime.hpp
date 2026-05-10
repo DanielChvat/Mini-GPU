@@ -100,6 +100,8 @@ struct Kernel {
 /* A precompiled instruction stream that can be launched by registry name. */
 struct PrecompiledKernel {
     std::string name;
+    std::string op;
+    std::string dtype;
     const void *program = nullptr;
     std::size_t program_size = 0;
     std::vector<std::uint8_t> program_bytes;

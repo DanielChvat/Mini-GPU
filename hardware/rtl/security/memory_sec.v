@@ -14,6 +14,7 @@ module memory_sec #(
     input  wire [3:0]                req_write,
     input  wire [(4*ADDR_WIDTH)-1:0] req_addr,
     input  wire [(4*DATA_WIDTH)-1:0] req_wdata,
+    input  wire [(4*4)-1:0]          req_wmask,
     output wire [3:0]                req_ready,
     output wire [3:0]                resp_valid,
     output wire [(4*DATA_WIDTH)-1:0] resp_rdata,
@@ -61,6 +62,7 @@ module memory_sec #(
         .req_write(req_write),
         .req_addr(req_addr),
         .req_wdata(req_wdata),
+        .req_wmask(req_wmask),
         .req_ready(inner_req_ready),
         .resp_valid(resp_valid),
         .resp_rdata(resp_rdata)

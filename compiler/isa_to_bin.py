@@ -177,7 +177,7 @@ def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
     op, fmt, operands = split_instruction(line)
     if op not in OPCODES:
         raise EncodeError(f"unknown opcode: {op}")
-    if fmt is not None and op not in RRR_OPS and op not in FRR_OPS:
+    if fmt is not None and op not in RRR_OPS and op not in FRR_OPS and op not in {"LDG", "LDS", "STG", "STS"}:
         raise EncodeError(f"{op} does not accept a data-format suffix")
 
     if op in ZERO_OPS:
@@ -219,12 +219,12 @@ def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
     if op in {"LDG", "LDS"}:
         expect_count(op, operands, 2)
         base, imm = parse_memory(operands[1])
-        return pack(op, rd=reg(operands[0]), rs1=base, imm=imm)
+        return pack(op, rd=reg(operands[0]), rs1=base, imm=memory_imm(imm, fmt))
 
     if op in {"STG", "STS"}:
         expect_count(op, operands, 2)
         base, imm = parse_memory(operands[0])
-        return pack(op, rs1=base, rs2=reg(operands[1]), imm=imm)
+        return pack(op, rs1=base, rs2=reg(operands[1]), imm=memory_imm(imm, fmt))
 
     if op in {"PRED", "PREDN"}:
         expect_count(op, operands, 1)
@@ -295,6 +295,13 @@ def parse_memory(text: str) -> tuple[int, int]:
     if not match:
         raise EncodeError(f"expected memory operand [rX + imm], got {text!r}")
     return reg(match.group(1)), parse_imm14(match.group(2))
+
+
+def memory_imm(offset: int, fmt: str | None) -> int:
+    """Pack signed memory word offset and low-bit format ID into imm14."""
+    if not -(1 << 10) <= offset < (1 << 10):
+        raise EncodeError(f"memory offset out of signed 11-bit range: {offset}")
+    return (offset << 3) | format_id(fmt, "I32")
 
 
 def branch_offset(label: str, pc: int, state: AssemblerState) -> int:

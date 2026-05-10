@@ -80,6 +80,9 @@ at::Tensor reshape_alias(
 /* Copy data between CPU and Mini-GPU tensors. */
 at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking);
 
+/* Return the runtime device address backing a Mini-GPU tensor. */
+minigpu::DeviceAddress device_address(const at::Tensor &tensor);
+
 /* Elementwise add operation for Mini-GPU tensors. */
 at::Tensor add_tensor(const at::Tensor &a, const at::Tensor &b, const at::Scalar &alpha);
 

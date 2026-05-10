@@ -1,5 +1,6 @@
 #include "minigpu_torch.hpp"
 
+#include "minigpu_kernels.hpp"
 #include "minigpu_runtime.hpp"
 #include "transports/gpu_comm_transport.hpp"
 
@@ -88,6 +89,7 @@ void connect(const std::string &port, std::uint32_t baud, std::uint32_t memory_s
 
     try {
         state.context = std::make_unique<minigpu::Context>(std::move(config));
+        minigpu::kernels::register_builtin_kernels(*state.context);
         state.dev = dev;
         state.initialized = true;
     } catch (...) {

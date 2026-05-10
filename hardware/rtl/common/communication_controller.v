@@ -541,6 +541,11 @@ module communication_controller #(
                 end else if (mem_write_fail) begin
                     write_fail_hold <= 1'b1;
                     memory_status_consumed <= 1'b1;
+                    state <= IDLE;
+                end
+            end
+
+            // ----------------------------------------------------
             STATUS_START: begin
                 tx_cmd <= COM_CMD_READ_STATUS;
                 tx_addr <= read_resp_addr;

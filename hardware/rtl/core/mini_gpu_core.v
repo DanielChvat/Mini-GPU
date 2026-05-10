@@ -41,6 +41,7 @@ module mini_gpu_core #(
     output wire [WARP_SIZE-1:0]         mem_req_write,
     output wire [(WARP_SIZE*ADDR_WIDTH)-1:0] mem_req_addr,
     output wire [(WARP_SIZE*WIDTH)-1:0] mem_req_wdata,
+    output wire [(WARP_SIZE*4)-1:0]     mem_req_wmask,
     input  wire [WARP_SIZE-1:0]         mem_req_ready,
     input  wire [WARP_SIZE-1:0]         mem_resp_valid,
     input  wire [(WARP_SIZE*WIDTH)-1:0] mem_resp_rdata,
@@ -117,6 +118,7 @@ module mini_gpu_core #(
     wire [TOTAL_LANES-1:0] sm_mem_req_write;
     wire [(TOTAL_LANES*ADDR_WIDTH)-1:0] sm_mem_req_addr;
     wire [(TOTAL_LANES*WIDTH)-1:0] sm_mem_req_wdata;
+    wire [(TOTAL_LANES*4)-1:0] sm_mem_req_wmask;
     wire [TOTAL_LANES-1:0] sm_supported_mask;
     wire [TOTAL_LANES-1:0] sm_divide_by_zero_mask;
     wire [TOTAL_LANES-1:0] sm_busy_mask;
@@ -172,6 +174,8 @@ module mini_gpu_core #(
         sm_mem_req_addr[(selected_idx*WARP_SIZE*ADDR_WIDTH) +: (WARP_SIZE*ADDR_WIDTH)];
     assign mem_req_wdata =
         sm_mem_req_wdata[(selected_idx*WARP_SIZE*WIDTH) +: (WARP_SIZE*WIDTH)];
+    assign mem_req_wmask =
+        sm_mem_req_wmask[(selected_idx*WARP_SIZE*4) +: (WARP_SIZE*4)];
 
     sm #(
         .WIDTH(WIDTH),
@@ -203,6 +207,7 @@ module mini_gpu_core #(
         .mem_req_write(sm_mem_req_write),
         .mem_req_addr(sm_mem_req_addr),
         .mem_req_wdata(sm_mem_req_wdata),
+        .mem_req_wmask(sm_mem_req_wmask),
         .mem_req_ready(sm_mem_req_ready),
         .mem_resp_valid(sm_mem_resp_valid),
         .mem_resp_rdata(sm_mem_resp_rdata),

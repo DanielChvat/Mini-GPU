@@ -305,13 +305,18 @@ class MiniGpuIrLowerer:
 
         if kind == "ArraySubscriptExpr":
             base, index = array_parts(lhs)
+            fmt = format_from_qual_type(type_text(lhs)) or state.value_types.get(value, "i32")
+            store_op = "store_shared" if is_shared_array_base(base, state) else "store_global"
+            if is_packed_format(fmt):
+                addr = self.lower_packed_byte_address(base, index, fmt, state)
+                state.emit(f"{typed_ir_op(store_op, fmt)} {addr}, {value}")
+                return
+
             base_value = self.lower_expr(base, state)
             index_value = self.lower_expr(index, state)
             addr = state.temp()
             state.value_types[addr] = "i32"
             state.emit(f"{addr} = add.i32 {base_value}, {index_value}")
-            fmt = format_from_qual_type(type_text(lhs)) or state.value_types.get(value, "i32")
-            store_op = "store_shared" if is_shared_array_base(base, state) else "store_global"
             store_op = typed_ir_op(store_op, fmt)
             state.emit(f"{store_op} {addr}, {value}")
             return
@@ -372,15 +377,20 @@ class MiniGpuIrLowerer:
 
         if kind == "ArraySubscriptExpr":
             base, index = array_parts(node)
+            value = state.temp()
+            fmt = format_from_qual_type(type_text(node)) or "i32"
+            state.value_types[value] = fmt
+            load_op = "load_shared" if is_shared_array_base(base, state) else "load_global"
+            if is_packed_format(fmt):
+                addr = self.lower_packed_byte_address(base, index, fmt, state)
+                state.emit(f"{value} = {typed_ir_op(load_op, fmt)} {addr}")
+                return value
+
             base_value = self.lower_expr(base, state)
             index_value = self.lower_expr(index, state)
             addr = state.temp()
-            value = state.temp()
             state.value_types[addr] = "i32"
-            fmt = format_from_qual_type(type_text(node)) or "i32"
-            state.value_types[value] = fmt
             state.emit(f"{addr} = add.i32 {base_value}, {index_value}")
-            load_op = "load_shared" if is_shared_array_base(base, state) else "load_global"
             load_op = typed_ir_op(load_op, fmt)
             state.emit(f"{value} = {load_op} {addr}")
             return value
@@ -474,6 +484,29 @@ class MiniGpuIrLowerer:
             state.value_types.get(rhs, "i32"),
         )
         state.emit(f"{temp} = {ir_opcode} {lhs}, {rhs}")
+        return temp
+
+    def lower_packed_byte_address(
+        self,
+        base: dict[str, Any],
+        index: dict[str, Any],
+        fmt: str,
+        state: KernelState,
+    ) -> str:
+        """Lower packed subword element addressing to a byte address."""
+        base_value = self.lower_expr(base, state)
+        index_value = self.lower_expr(index, state)
+        word_to_byte_shift = self.const(2, state)
+        base_bytes = self.lower_binary_value("shl.i32", base_value, word_to_byte_shift, state, "i32")
+        element_shift = self.const(packed_byte_shift(fmt), state)
+        element_bytes = self.lower_binary_value("shl.i32", index_value, element_shift, state, "i32")
+        return self.lower_binary_value("add.i32", base_bytes, element_bytes, state, "i32")
+
+    def const(self, value: int, state: KernelState) -> str:
+        """Emit a small integer constant and return its value name."""
+        temp = state.temp()
+        state.value_types[temp] = "i32"
+        state.emit(f"{temp} = const {value}")
         return temp
 
     def unsupported(self, node: dict[str, Any], context: str) -> None:
@@ -602,6 +635,25 @@ def merge_value_formats(lhs: str, rhs: str) -> str:
     if "i16" in {lhs, rhs}:
         return "i16"
     return "i8"
+
+
+def is_packed_format(fmt: str | None) -> bool:
+    """Return true when a scalar lives inside a packed 32-bit memory word."""
+    return fmt in {"i16", "i8", "fp16", "fp8"}
+
+
+def packed_element_bits(fmt: str) -> int:
+    """Return the number of meaningful bits for one packed element."""
+    if fmt in {"i16", "fp16"}:
+        return 16
+    if fmt in {"i8", "fp8"}:
+        return 8
+    raise LoweringError(f"format is not packed: {fmt}")
+
+
+def packed_byte_shift(fmt: str) -> int:
+    """Return log2(bytes per packed element)."""
+    return 1 if packed_element_bits(fmt) == 16 else 0
 
 
 def array_parts(node: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

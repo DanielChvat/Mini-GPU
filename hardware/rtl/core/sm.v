@@ -30,6 +30,7 @@ module sm #(
     output wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE)-1:0]       mem_req_write,
     output wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*ADDR_WIDTH)-1:0] mem_req_addr,
     output wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*WIDTH)-1:0] mem_req_wdata,
+    output wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*4)-1:0]     mem_req_wmask,
     input  wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE)-1:0]       mem_req_ready,
     input  wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE)-1:0]       mem_resp_valid,
     input  wire [(NUM_BLOCKS*NUM_WARPS*WARP_SIZE*WIDTH)-1:0] mem_resp_rdata,
@@ -48,6 +49,7 @@ module sm #(
     localparam BLOCK_MASK_WIDTH = NUM_WARPS * WARP_SIZE;
     localparam BLOCK_MEM_ADDR_WIDTH = NUM_WARPS * WARP_SIZE * ADDR_WIDTH;
     localparam BLOCK_MEM_DATA_WIDTH = NUM_WARPS * WARP_SIZE * WIDTH;
+    localparam BLOCK_MEM_MASK_WIDTH = NUM_WARPS * WARP_SIZE * 4;
     localparam BLOCK_WB_ADDR_WIDTH = NUM_WARPS * WARP_SIZE * 4;
     localparam BLOCK_WB_DATA_WIDTH = NUM_WARPS * WARP_SIZE * WIDTH;
     wire [(NUM_BLOCKS*NUM_WARPS)-1:0] warp_busy_unused;
@@ -84,6 +86,7 @@ module sm #(
                 .mem_req_write(mem_req_write[(block_id*BLOCK_MASK_WIDTH) +: BLOCK_MASK_WIDTH]),
                 .mem_req_addr(mem_req_addr[(block_id*BLOCK_MEM_ADDR_WIDTH) +: BLOCK_MEM_ADDR_WIDTH]),
                 .mem_req_wdata(mem_req_wdata[(block_id*BLOCK_MEM_DATA_WIDTH) +: BLOCK_MEM_DATA_WIDTH]),
+                .mem_req_wmask(mem_req_wmask[(block_id*BLOCK_MEM_MASK_WIDTH) +: BLOCK_MEM_MASK_WIDTH]),
                 .mem_req_ready(mem_req_ready[(block_id*BLOCK_MASK_WIDTH) +: BLOCK_MASK_WIDTH]),
                 .mem_resp_valid(mem_resp_valid[(block_id*BLOCK_MASK_WIDTH) +: BLOCK_MASK_WIDTH]),
                 .mem_resp_rdata(mem_resp_rdata[(block_id*BLOCK_MEM_DATA_WIDTH) +: BLOCK_MEM_DATA_WIDTH]),

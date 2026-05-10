@@ -26,6 +26,7 @@ module thread #(
     output wire             mem_req_write,
     output wire [ADDR_WIDTH-1:0] mem_req_addr,
     output wire [WIDTH-1:0] mem_req_wdata,
+    output wire [3:0]       mem_req_wmask,
     input  wire             mem_req_ready,
     input  wire             mem_resp_valid,
     input  wire [WIDTH-1:0] mem_resp_rdata,
@@ -54,6 +55,8 @@ module thread #(
     wire [13:0] imm14;
     wire [2:0] fmt;
     wire [31:0] imm_sext;
+    wire [ADDR_WIDTH-1:0] mem_offset;
+    wire [ADDR_WIDTH-1:0] mem_effective_addr;
 
     wire [WIDTH-1:0] lhs;
     wire [WIDTH-1:0] rhs;
@@ -74,6 +77,9 @@ module thread #(
     reg [3:0] mem_pending_writeback_addr;
     reg [ADDR_WIDTH-1:0] mem_addr_r;
     reg [WIDTH-1:0] mem_wdata_r;
+    reg [3:0] mem_wmask_r;
+    reg [1:0] mem_byte_offset_r;
+    reg [2:0] mem_fmt_r;
     reg [WIDTH-1:0] mem_rdata_r;
     reg float_busy;
     reg float_req_sent;
@@ -102,6 +108,9 @@ module thread #(
         .fmt(fmt),
         .imm_sext(imm_sext)
     );
+
+    assign mem_offset = {{(ADDR_WIDTH-11){imm14[13]}}, imm14[13:3]};
+    assign mem_effective_addr = lhs[ADDR_WIDTH-1:0] + mem_offset;
 
     regfile #(.WIDTH(WIDTH)) registers (
         .clk(clk),
@@ -160,6 +169,7 @@ module thread #(
     assign mem_req_write = !mem_pending_load;
     assign mem_req_addr = mem_addr_r;
     assign mem_req_wdata = mem_wdata_r;
+    assign mem_req_wmask = mem_wmask_r;
     assign float_req_valid = float_busy && !float_req_sent;
     assign float_req_opcode = float_opcode_r;
     assign float_req_fmt = float_fmt_r;
@@ -177,6 +187,9 @@ module thread #(
             mem_pending_writeback_addr <= 4'b0;
             mem_addr_r <= {ADDR_WIDTH{1'b0}};
             mem_wdata_r <= {WIDTH{1'b0}};
+            mem_wmask_r <= 4'b1111;
+            mem_byte_offset_r <= 2'b0;
+            mem_fmt_r <= `MGPU_FMT_I32;
             mem_rdata_r <= {WIDTH{1'b0}};
             float_busy <= 1'b0;
             float_req_sent <= 1'b0;
@@ -198,8 +211,18 @@ module thread #(
                 mem_req_sent <= 1'b0;
                 mem_pending_load <= is_load_opcode(opcode);
                 mem_pending_writeback_addr <= rd;
-                mem_addr_r <= lhs[ADDR_WIDTH-1:0] + imm_sext[ADDR_WIDTH-1:0];
-                mem_wdata_r <= rhs;
+                mem_fmt_r <= fmt;
+                mem_byte_offset_r <= packed_memory_format(fmt) ?
+                    mem_effective_addr[1:0] : 2'b0;
+                mem_addr_r <= packed_memory_format(fmt) ?
+                    (mem_effective_addr >> 2) :
+                    mem_effective_addr;
+                mem_wdata_r <= packed_memory_format(fmt) ?
+                    shift_store_data(rhs, fmt, mem_effective_addr[1:0]) :
+                    rhs;
+                mem_wmask_r <= packed_memory_format(fmt) ?
+                    store_byte_mask(fmt, mem_effective_addr[1:0]) :
+                    4'b1111;
             end else if (mem_busy && !mem_req_sent) begin
                 if (mem_req_ready) begin
                     mem_req_sent <= 1'b1;
@@ -210,7 +233,9 @@ module thread #(
                 end
             end else if (mem_busy && mem_req_sent && mem_pending_load) begin
                 if (mem_resp_valid) begin
-                    mem_rdata_r <= mem_resp_rdata;
+                    mem_rdata_r <= packed_memory_format(mem_fmt_r) ?
+                        extract_load_data(mem_resp_rdata, mem_fmt_r, mem_byte_offset_r) :
+                        mem_resp_rdata;
                     mem_busy <= 1'b0;
                     mem_done <= 1'b1;
                 end
@@ -278,6 +303,70 @@ module thread #(
                 `MGPU_OP_FMUL,
                 `MGPU_OP_FDIV: is_float_opcode = 1'b1;
                 default: is_float_opcode = 1'b0;
+            endcase
+        end
+    endfunction
+
+    function packed_memory_format;
+        input [2:0] value_fmt;
+        begin
+            case (value_fmt)
+                `MGPU_FMT_I16,
+                `MGPU_FMT_I8,
+                `MGPU_FMT_FP16,
+                `MGPU_FMT_FP8: packed_memory_format = 1'b1;
+                default: packed_memory_format = 1'b0;
+            endcase
+        end
+    endfunction
+
+    function [3:0] store_byte_mask;
+        input [2:0] value_fmt;
+        input [1:0] byte_offset;
+        begin
+            case (value_fmt)
+                `MGPU_FMT_I16,
+                `MGPU_FMT_FP16: store_byte_mask = byte_offset[1] ? 4'b1100 : 4'b0011;
+                `MGPU_FMT_I8,
+                `MGPU_FMT_FP8: store_byte_mask = 4'b0001 << byte_offset;
+                default: store_byte_mask = 4'b1111;
+            endcase
+        end
+    endfunction
+
+    function [WIDTH-1:0] shift_store_data;
+        input [WIDTH-1:0] value;
+        input [2:0] value_fmt;
+        input [1:0] byte_offset;
+        begin
+            case (value_fmt)
+                `MGPU_FMT_I16,
+                `MGPU_FMT_FP16: shift_store_data =
+                    byte_offset[1] ? {value[15:0], 16'b0} : {{(WIDTH-16){1'b0}}, value[15:0]};
+                `MGPU_FMT_I8,
+                `MGPU_FMT_FP8: shift_store_data =
+                    ({24'b0, value[7:0]} << {byte_offset, 3'b000});
+                default: shift_store_data = value;
+            endcase
+        end
+    endfunction
+
+    function [WIDTH-1:0] extract_load_data;
+        input [WIDTH-1:0] word;
+        input [2:0] value_fmt;
+        input [1:0] byte_offset;
+        reg [WIDTH-1:0] shifted_word;
+        begin
+            shifted_word = word >> {byte_offset, 3'b000};
+            case (value_fmt)
+                `MGPU_FMT_I16,
+                `MGPU_FMT_FP16: extract_load_data =
+                    byte_offset[1] ? {{(WIDTH-16){1'b0}}, word[31:16]} :
+                                     {{(WIDTH-16){1'b0}}, word[15:0]};
+                `MGPU_FMT_I8,
+                `MGPU_FMT_FP8: extract_load_data =
+                    {{(WIDTH-8){1'b0}}, shifted_word[7:0]};
+                default: extract_load_data = word;
             endcase
         end
     endfunction

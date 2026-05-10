@@ -9,6 +9,8 @@ option(MINIGPU_BUILD_PYTHON "Build Python bindings" ON)
 option(MINIGPU_BUILD_TESTS "Build Mini-GPU runtime tests" ON)
 option(MINIGPU_BUILD_TORCH "Build PyTorch PrivateUse1 backend stubs" ON)
 
+find_package(yaml-cpp REQUIRED)
+
 if(MINIGPU_BUILD_PYTHON OR MINIGPU_BUILD_TORCH)
     find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
     set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
@@ -38,6 +40,11 @@ target_include_directories(minigpu_runtime
 target_compile_definitions(minigpu_runtime
     PRIVATE
         MINIGPU_DEFAULT_KERNEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels"
+)
+
+target_link_libraries(minigpu_runtime
+    PUBLIC
+        yaml-cpp::yaml-cpp
 )
 
 add_library(comm
@@ -98,6 +105,7 @@ if(MINIGPU_BUILD_TORCH)
         torch_ext/src/backend/state.cpp
         torch_ext/src/backend/transport.cpp
         torch_ext/src/bindings/module.cpp
+        torch_ext/src/ops/elementwise.cpp
         torch_ext/src/ops/math.cpp
         torch_ext/src/ops/tensor.cpp
         torch_ext/src/registrations/aten.cpp

@@ -300,6 +300,13 @@ at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking) {
     return self;
 }
 
+minigpu::DeviceAddress device_address(const at::Tensor &tensor) {
+    if (!is_minigpu_tensor(tensor)) {
+        throw std::runtime_error("Mini-GPU tensor address requested for CPU tensor");
+    }
+    return MiniGpuDataPtr::decode(tensor.data_ptr());
+}
+
 at::Tensor view(const at::Tensor &self, c10::SymIntArrayRef size) {
     if (!self.is_contiguous()) {
         throw std::runtime_error("Mini-GPU view currently requires contiguous input");
