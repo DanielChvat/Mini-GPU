@@ -31,6 +31,8 @@ wire [15:0] dbg_rx_len;
 wire [3:0]  validate_model_id;
 wire        validate_triggered;
 
+wire security_reset_triggered;
+
 wire        prog_we;
 wire [ADDR_WIDTH-1:0] prog_addr;
 wire [31:0] prog_wdata;
@@ -99,6 +101,7 @@ communication_controller #(
     .dbg_rx_len(dbg_rx_len),
     .validate_model_id(validate_model_id),
     .validate_triggered(validate_triggered),
+    .security_reset_triggered(security_reset_triggered),
     .prog_we(prog_we),
     .prog_addr(prog_addr),
     .prog_wdata(prog_wdata),

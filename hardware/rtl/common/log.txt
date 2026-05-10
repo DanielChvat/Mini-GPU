@@ -93,3 +93,4 @@
             - these 4 bits will be transfered outside through a 4 bit output wire
             - we will also need to add a signal that tells the controller that verification has been triggered
         - LEN will be 0, with no payload for the command 
+    - also implemented the security reset CMD, which will signal the security gate to reset its state
