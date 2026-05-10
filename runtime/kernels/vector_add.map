@@ -1,0 +1,29 @@
+{
+  "symbols": [
+    {
+      "name": "vector_add",
+      "pc": 0
+    },
+    {
+      "name": "vector_add_i16",
+      "pc": 20
+    },
+    {
+      "name": "vector_add_i8",
+      "pc": 52
+    },
+    {
+      "name": "vector_add_fp32",
+      "pc": 84
+    },
+    {
+      "name": "vector_add_fp16",
+      "pc": 104
+    },
+    {
+      "name": "vector_add_fp8_e4m3fn",
+      "pc": 136
+    }
+  ],
+  "instruction_words": 168
+}

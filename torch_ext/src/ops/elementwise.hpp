@@ -11,6 +11,8 @@ at::Tensor run_vector_add_kernel(
     const at::Tensor &b,
     const char *op_name);
 
+at::Tensor run_relu_kernel(const at::Tensor &a, const char *op_name);
+
 } // namespace minigpu::torch_backend::detail
 
 #endif

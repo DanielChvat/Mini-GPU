@@ -49,6 +49,8 @@ FLOAT_PREFIX_OPS = {
     "div": "FDIV",
 }
 
+COMPARE_OPS = {"lt", "le", "gt", "ge", "eq", "ne"}
+
 
 class IsaLoweringError(Exception):
     """Raised when IR cannot be represented in the current ISA assembly."""
@@ -66,7 +68,8 @@ class RegisterAllocator:
         """Assign a physical register to a newly defined IR value."""
         old_reg = self.value_regs.pop(value, None)
         if old_reg is not None:
-            self.free_regs.insert(0, old_reg)
+            self.value_regs[value] = old_reg
+            return old_reg
 
         if not self.free_regs:
             raise IsaLoweringError(
@@ -86,7 +89,7 @@ class RegisterAllocator:
 
     def release_after_use(self, value: str) -> None:
         """Free value registers after their final textual use."""
-        if not value.startswith("%"):
+        if not value.startswith("%t"):
             return
 
         self.remaining_uses[value] -= 1
@@ -160,6 +163,10 @@ def isa_format(fmt: str | None, default: str = "i32") -> str:
 def isa_value_opcode(base_op: str, fmt: str | None) -> str | None:
     """Return an ISA opcode for a typed or untyped value op."""
     effective_fmt = fmt or "i32"
+    if base_op in COMPARE_OPS:
+        opcode = VALUE_OPS.get(base_op)
+        return f"{opcode}.{isa_format(fmt)}" if fmt is not None else opcode
+
     if effective_fmt.startswith("fp"):
         opcode = FLOAT_PREFIX_OPS.get(base_op)
         return f"{opcode}.{isa_format(effective_fmt)}" if opcode else None

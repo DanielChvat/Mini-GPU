@@ -39,6 +39,25 @@ void launch_elementwise_binary(
     const TensorView &out,
     const LaunchConfig *launch_config = nullptr);
 
+/* Resolve and launch a unary elementwise kernel using tensor addresses as args. */
+void launch_elementwise_unary(
+    Context &context,
+    std::string_view op,
+    const TensorView &a,
+    const TensorView &out,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch a matrix-multiply kernel with row-major tensor arguments. */
+void launch_matmul(
+    Context &context,
+    const TensorView &a,
+    const TensorView &b,
+    const TensorView &out,
+    std::uint32_t m,
+    std::uint32_t n,
+    std::uint32_t k,
+    const LaunchConfig *launch_config = nullptr);
+
 /* Return the Mini-GPU kernel dtype name for a C++ scalar type. */
 template <typename T>
 std::string_view dtype_name();

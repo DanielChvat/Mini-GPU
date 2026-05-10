@@ -598,6 +598,9 @@ void Context::launch_kernel(
     kernel.timeout_ms = launch.timeout_ms;
     std::ostringstream log;
     log << "launch_kernel name=" << name << " args=" << args.size();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        log << " arg" << i << "=0x" << std::hex << args[i].value;
+    }
     log_event(log.str());
     launch_kernel(kernel);
 }

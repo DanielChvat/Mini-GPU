@@ -143,17 +143,42 @@ def parse_program(asm_text: str) -> tuple[list[str], AssemblerState]:
     """Collect labels and return only real instruction lines."""
     state = AssemblerState()
     instructions: list[str] = []
+    scope = "__global__"
 
     for raw_line in asm_text.splitlines():
         line = clean_line(raw_line)
-        if not line or line.startswith(".kernel"):
+        if not line:
+            continue
+        if line.startswith(".kernel"):
+            parts = line.split(None, 1)
+            scope = parts[1].strip() if len(parts) == 2 else "__global__"
             continue
         if line.endswith(":"):
-            state.labels[line[:-1]] = len(instructions)
+            state.labels[scoped_label(scope, line[:-1])] = len(instructions)
             continue
-        instructions.append(line)
+        instructions.append(scope_branch_label(scope, line))
 
     return instructions, state
+
+
+def scoped_label(scope: str, label: str) -> str:
+    """Return a kernel-scoped label key."""
+    return f"{scope}:{label}"
+
+
+def scope_branch_label(scope: str, line: str) -> str:
+    """Resolve local branch targets inside the current kernel scope."""
+    op, fmt, operands = split_instruction(line)
+    if fmt is not None:
+        op_text = f"{op}.{fmt}"
+    else:
+        op_text = op
+
+    if op == "BRA" and len(operands) == 1 and not is_int(operands[0]):
+        return f"{op_text} {scoped_label(scope, operands[0])}"
+    if op in {"BZ", "BNZ"} and len(operands) == 2 and not is_int(operands[1]):
+        return f"{op_text} {operands[0]}, {scoped_label(scope, operands[1])}"
+    return line
 
 
 def isa_to_words(asm_text: str) -> list[int]:

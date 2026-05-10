@@ -1,61 +1,71 @@
-kernels:
-  - name: vector_add.i32
-    op: vector_add
-    dtype: i32
-    file: vector_add.bin
-    program_addr: 0
-    base_pc: 0
-    grid_dim: 1
-    block_dim: 4
-    active_mask: 0x0000000f
-    timeout_ms: 5000
-  - name: vector_add.i16
-    op: vector_add
-    dtype: i16
-    file: vector_add.bin
-    program_addr: 0
-    base_pc: 13
-    grid_dim: 1
-    block_dim: 4
-    active_mask: 0x0000000f
-    timeout_ms: 5000
-  - name: vector_add.i8
-    op: vector_add
-    dtype: i8
-    file: vector_add.bin
-    program_addr: 0
-    base_pc: 38
-    grid_dim: 1
-    block_dim: 4
-    active_mask: 0x0000000f
-    timeout_ms: 5000
-  - name: vector_add.fp32
-    op: vector_add
-    dtype: fp32
-    file: vector_add.bin
-    program_addr: 0
-    base_pc: 63
-    grid_dim: 1
-    block_dim: 4
-    active_mask: 0x0000000f
-    timeout_ms: 5000
-  - name: vector_add.fp16
-    op: vector_add
-    dtype: fp16
-    file: vector_add.bin
-    program_addr: 0
-    base_pc: 76
-    grid_dim: 1
-    block_dim: 4
-    active_mask: 0x0000000f
-    timeout_ms: 5000
-  - name: vector_add.fp8
-    op: vector_add
-    dtype: fp8
-    file: vector_add.bin
-    program_addr: 0
-    base_pc: 101
-    grid_dim: 1
-    block_dim: 4
-    active_mask: 0x0000000f
-    timeout_ms: 5000
+defaults:
+  grid_dim: 1
+  block_dim: 4
+  active_mask: auto
+  timeout_ms: 5000
+
+artifacts:
+  - file: vector_add.bin
+    kernels:
+      - name: vector_add.i32
+        op: vector_add
+        dtype: i32
+        entry: vector_add
+      - name: vector_add.i16
+        op: vector_add
+        dtype: i16
+        entry: vector_add_i16
+      - name: vector_add.i8
+        op: vector_add
+        dtype: i8
+        entry: vector_add_i8
+      - name: vector_add.fp32
+        op: vector_add
+        dtype: fp32
+        entry: vector_add_fp32
+      - name: vector_add.fp16
+        op: vector_add
+        dtype: fp16
+        entry: vector_add_fp16
+      - name: vector_add.fp8_e4m3fn
+        op: vector_add
+        dtype: fp8_e4m3fn
+        entry: vector_add_fp8_e4m3fn
+
+  - file: relu.bin
+    kernels:
+      - name: relu.i32
+        op: relu
+        dtype: i32
+        entry: relu
+      - name: relu.i16
+        op: relu
+        dtype: i16
+        entry: relu_i16
+      - name: relu.i8
+        op: relu
+        dtype: i8
+        entry: relu_i8
+      - name: relu.fp32
+        op: relu
+        dtype: fp32
+        entry: relu_fp32
+      - name: relu.fp16
+        op: relu
+        dtype: fp16
+        entry: relu_fp16
+      - name: relu.fp8_e4m3fn
+        op: relu
+        dtype: fp8_e4m3fn
+        entry: relu_fp8_e4m3fn
+
+  - file: matmul.bin
+    kernels:
+      - name: matmul.i32
+        op: matmul
+        dtype: i32
+        entry: matmul
+      - name: matmul.fp32
+        op: matmul
+        dtype: fp32
+        entry: matmul_fp32

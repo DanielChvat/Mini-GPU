@@ -216,7 +216,8 @@ module execute #(
             supported <= 1'b1;
             divide_by_zero <= 1'b0;
 
-            if (is_typed_int_opcode(opcode_r) && !is_integer_format(fmt)) begin
+            if (is_typed_int_opcode(opcode_r) && !is_integer_format(fmt) &&
+                !is_compare_opcode(opcode_r)) begin
                 supported <= 1'b0;
             end else begin
                 case (op_class)
@@ -365,13 +366,30 @@ module execute #(
         end
     endfunction
 
+    function is_compare_opcode;
+        input [5:0] value_opcode;
+        begin
+            case (value_opcode)
+                `MGPU_OP_SLT,
+                `MGPU_OP_SLE,
+                `MGPU_OP_SGT,
+                `MGPU_OP_SGE,
+                `MGPU_OP_SEQ,
+                `MGPU_OP_SNE: is_compare_opcode = 1'b1;
+                default: is_compare_opcode = 1'b0;
+            endcase
+        end
+    endfunction
+
     function signed [WIDTH-1:0] sign_extend_int;
         input [WIDTH-1:0] value;
         input [2:0] value_fmt;
         begin
             case (value_fmt)
-                `MGPU_FMT_I8:  sign_extend_int = {{(WIDTH-8){value[7]}}, value[7:0]};
-                `MGPU_FMT_I16: sign_extend_int = {{(WIDTH-16){value[15]}}, value[15:0]};
+                `MGPU_FMT_I8,
+                `MGPU_FMT_FP8:  sign_extend_int = {{(WIDTH-8){value[7]}}, value[7:0]};
+                `MGPU_FMT_I16,
+                `MGPU_FMT_FP16: sign_extend_int = {{(WIDTH-16){value[15]}}, value[15:0]};
                 default:       sign_extend_int = value;
             endcase
         end

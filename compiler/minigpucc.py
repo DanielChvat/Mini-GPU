@@ -64,6 +64,14 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="Also write encoded hex text; default path is <source>.hex",
     )
+    parser.add_argument(
+        "--save-map",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="PATH",
+        help="Also write kernel entry PC metadata; default path is <source>.map",
+    )
     parser.add_argument("--clang", default="auto", help="Clang++ executable (default: auto)")
     parser.add_argument("--cuda-path", default="auto", help="CUDA toolkit path (default: auto)")
     parser.add_argument("--gpu-arch", default="auto", help="CUDA parse arch (default: sm_50)")
@@ -99,6 +107,25 @@ def encode_ast(ast: Any) -> str:
     return json.dumps(ast, indent=2)
 
 
+def kernel_map(isa: str) -> str:
+    """Return YAML metadata mapping kernel names to instruction PCs."""
+    symbols: list[dict[str, int | str]] = []
+    pc = 0
+    for line in isa.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(".kernel"):
+            parts = stripped.split(None, 1)
+            if len(parts) == 2:
+                symbols.append({"name": parts[1].strip(), "pc": pc})
+            continue
+        if not stripped.endswith(":"):
+            pc += 1
+
+    return json.dumps({"symbols": symbols, "instruction_words": pc}, indent=2)
+
+
 def compile_source(args: argparse.Namespace) -> tuple[str | bytes, dict[str, str | bytes]]:
     """Run the requested compiler pipeline and return primary plus side outputs."""
     compact_ast = get_cuda_ast(
@@ -132,6 +159,7 @@ def compile_source(args: argparse.Namespace) -> tuple[str | bytes, dict[str, str
         "isa": isa,
         "hex": hex_text,
         "bin": binary,
+        "map": kernel_map(isa),
     }
 
     primary = {
@@ -154,6 +182,7 @@ def main() -> int:
         "isa": optional_path(args.save_isa, args.source, ".isa"),
         "hex": optional_path(args.save_hex, args.source, ".hex"),
         "bin": optional_path(args.save_bin, args.source, ".bin"),
+        "map": optional_path(args.save_map, args.source, ".map"),
     }
     for stage, path in save_paths.items():
         if path is not None:

@@ -25,7 +25,7 @@ For typed ALU and memory instructions, `imm14[2:0]` carries a data-format tag. E
 | `FP16` | `4` | 16-bit floating point in low register bits |
 | `FP8` | `5` | 8-bit floating point in low register bits |
 
-The CUDA subset compiler tracks scalar and pointer element types for `int`, `int16_t`, `int8_t`, `float`, `half`, and `fp8_e4m3`. It emits typed IR such as `add.fp32` or `add.i8`, which lowers to ISA suffixes such as `FADD.FP32` or `ADD.I8`.
+The CUDA subset compiler tracks scalar and pointer element types for `int`, `int16_t`, `int8_t`, `float`, `half`, and `fp8_e4m3fn`. It emits typed IR such as `add.fp32` or `add.i8`, which lowers to ISA suffixes such as `FADD.FP32` or `ADD.I8`.
 
 Typed memory operations are represented in IR, for example `load_global.fp16`, and lower to ISA suffixes such as `LDG.FP16` or `STG.I8`. Packed byte, halfword, and fp8 memory operations use byte addresses internally so the memory unit can apply byte write masks while keeping the external tensor layout packed.
 

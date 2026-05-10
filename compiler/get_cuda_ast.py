@@ -48,6 +48,7 @@ typedef unsigned short half;
 typedef unsigned short __half;
 typedef unsigned char fp8;
 typedef unsigned char fp8_e4m3;
+typedef unsigned char fp8_e4m3fn;
 typedef unsigned char __nv_fp8_e4m3;
 
 extern __device__ const dim3 threadIdx;

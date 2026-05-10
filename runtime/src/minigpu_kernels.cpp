@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,19 @@ std::uint32_t yaml_u32(const YAML::Node &node, std::uint32_t fallback) {
     }
 
     throw Error(Status::BadArgument);
+}
+
+/* Convert a YAML scalar into an active mask, with "auto" meaning all block lanes. */
+std::uint32_t yaml_active_mask(const YAML::Node &node, std::uint32_t block_dim) {
+    if (!node) {
+        return block_dim >= 32u ? 0xffffffffu : ((1u << block_dim) - 1u);
+    }
+
+    const std::string text = node.as<std::string>();
+    if (text == "auto") {
+        return block_dim >= 32u ? 0xffffffffu : ((1u << block_dim) - 1u);
+    }
+    return static_cast<std::uint32_t>(std::stoul(text, nullptr, 0));
 }
 
 /* Return true when a path is already absolute. */
@@ -149,6 +163,74 @@ std::vector<std::uint8_t> read_kernel_file(const std::string &path) {
     return read_binary_file(path);
 }
 
+/* Load a compiler-generated kernel symbol map. */
+std::unordered_map<std::string, DeviceAddress> read_symbol_map(const std::string &path) {
+    YAML::Node root;
+    try {
+        root = YAML::LoadFile(path);
+    } catch (const YAML::Exception &) {
+        throw Error(Status::NotFound);
+    }
+
+    const YAML::Node symbols = root["symbols"];
+    if (!symbols || !symbols.IsSequence()) {
+        throw Error(Status::BadArgument);
+    }
+
+    std::unordered_map<std::string, DeviceAddress> out;
+    for (const YAML::Node &entry : symbols) {
+        out.emplace(
+            entry["name"].as<std::string>(),
+            static_cast<DeviceAddress>(yaml_u32(entry["pc"], 0)));
+    }
+    return out;
+}
+
+/* Return a file stem with a new extension. */
+std::string replace_extension(const std::string &path, std::string_view extension) {
+    const std::size_t slash = path.find_last_of('/');
+    const std::size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) {
+        return path + std::string(extension);
+    }
+    return path.substr(0, dot) + std::string(extension);
+}
+
+/* Parse one kernel entry inside an artifact block. */
+PrecompiledKernel parse_kernel_entry(
+    const YAML::Node &entry,
+    const std::string &artifact_path,
+    const std::vector<std::uint8_t> &program_bytes,
+    const std::unordered_map<std::string, DeviceAddress> &symbols,
+    const LaunchConfig &defaults) {
+    PrecompiledKernel kernel;
+    kernel.name = entry["name"].as<std::string>();
+    kernel.op = entry["op"].as<std::string>();
+    kernel.dtype = entry["dtype"].as<std::string>();
+    const std::string entry_name =
+        entry["entry"] ? entry["entry"].as<std::string>() : kernel.name;
+
+    const auto symbol = symbols.find(entry_name);
+    if (symbol == symbols.end()) {
+        throw Error(Status::NotFound);
+    }
+
+    kernel.program_bytes = program_bytes;
+    kernel.program_addr = 0;
+    kernel.base_pc = symbol->second;
+    kernel.default_grid_dim = yaml_u32(entry["grid_dim"], defaults.grid_dim);
+    kernel.default_block_dim = yaml_u32(entry["block_dim"], defaults.block_dim);
+    kernel.default_active_mask =
+        yaml_active_mask(entry["active_mask"], kernel.default_block_dim);
+    kernel.default_timeout_ms = yaml_u32(entry["timeout_ms"], defaults.timeout_ms);
+
+    if (kernel.name.empty() || kernel.op.empty() ||
+        kernel.dtype.empty() || artifact_path.empty() || kernel.program_bytes.empty()) {
+        throw Error(Status::BadArgument);
+    }
+    return kernel;
+}
+
 /* Parse the runtime kernel manifest. */
 std::vector<PrecompiledKernel> parse_manifest(std::string_view manifest_path) {
     YAML::Node root;
@@ -158,35 +240,46 @@ std::vector<PrecompiledKernel> parse_manifest(std::string_view manifest_path) {
         throw Error(Status::NotFound);
     }
 
-    const YAML::Node kernel_nodes = root["kernels"];
-    if (!kernel_nodes || !kernel_nodes.IsSequence()) {
+    const YAML::Node artifact_nodes = root["artifacts"];
+    if (!artifact_nodes || !artifact_nodes.IsSequence()) {
         throw Error(Status::BadArgument);
     }
 
+    LaunchConfig defaults;
+    if (const YAML::Node defaults_node = root["defaults"]) {
+        defaults.grid_dim = yaml_u32(defaults_node["grid_dim"], defaults.grid_dim);
+        defaults.block_dim = yaml_u32(defaults_node["block_dim"], defaults.block_dim);
+        defaults.active_mask =
+            yaml_active_mask(defaults_node["active_mask"], defaults.block_dim);
+        defaults.timeout_ms = yaml_u32(defaults_node["timeout_ms"], defaults.timeout_ms);
+    } else {
+        defaults.active_mask = yaml_active_mask(YAML::Node{}, defaults.block_dim);
+    }
+
     std::vector<PrecompiledKernel> kernels;
-    for (const YAML::Node &entry : kernel_nodes) {
-        if (!entry.IsMap()) {
+    for (const YAML::Node &artifact : artifact_nodes) {
+        if (!artifact.IsMap()) {
             throw Error(Status::BadArgument);
         }
 
-        PrecompiledKernel kernel;
-        kernel.name = entry["name"].as<std::string>();
-        kernel.op = entry["op"].as<std::string>();
-        kernel.dtype = entry["dtype"].as<std::string>();
-        const std::string file = entry["file"].as<std::string>();
-        kernel.program_bytes = read_kernel_file(resolve_artifact_path(manifest_path, file));
-        kernel.program_addr = yaml_u32(entry["program_addr"], 0);
-        kernel.base_pc = yaml_u32(entry["base_pc"], 0);
-        kernel.default_grid_dim = yaml_u32(entry["grid_dim"], 1);
-        kernel.default_block_dim = yaml_u32(entry["block_dim"], 4);
-        kernel.default_active_mask = yaml_u32(entry["active_mask"], 0xffffffffu);
-        kernel.default_timeout_ms = yaml_u32(entry["timeout_ms"], 0);
+        const std::string file = artifact["file"].as<std::string>();
+        const std::string artifact_path = resolve_artifact_path(manifest_path, file);
+        const std::string map_file = artifact["map"]
+            ? artifact["map"].as<std::string>()
+            : replace_extension(file, ".map");
+        const std::string map_path = resolve_artifact_path(manifest_path, map_file);
+        const std::vector<std::uint8_t> program_bytes = read_kernel_file(artifact_path);
+        const auto symbols = read_symbol_map(map_path);
 
-        if (kernel.name.empty() || kernel.op.empty() ||
-            kernel.dtype.empty() || kernel.program_bytes.empty()) {
+        const YAML::Node kernel_nodes = artifact["kernels"];
+        if (!kernel_nodes || !kernel_nodes.IsSequence()) {
             throw Error(Status::BadArgument);
         }
-        kernels.push_back(std::move(kernel));
+
+        for (const YAML::Node &entry : kernel_nodes) {
+            kernels.push_back(parse_kernel_entry(
+                entry, artifact_path, program_bytes, symbols, defaults));
+        }
     }
 
     return kernels;
@@ -238,6 +331,9 @@ void launch_elementwise_binary(
         a.elements != b.elements || a.elements != out.elements) {
         throw Error(Status::BadArgument);
     }
+    if (a.elements > UINT32_MAX) {
+        throw Error(Status::OutOfRange);
+    }
 
     context.launch_kernel(
         std::string(op) + "." + std::string(a.dtype),
@@ -245,6 +341,58 @@ void launch_elementwise_binary(
             KernelArg::device_ptr(a.addr),
             KernelArg::device_ptr(b.addr),
             KernelArg::device_ptr(out.addr),
+            KernelArg::u32(static_cast<std::uint32_t>(a.elements)),
+        },
+        launch_config);
+}
+
+/* Resolve and launch a unary elementwise kernel using tensor addresses as args. */
+void launch_elementwise_unary(
+    Context &context,
+    std::string_view op,
+    const TensorView &a,
+    const TensorView &out,
+    const LaunchConfig *launch_config) {
+    if (a.dtype != out.dtype || a.elements != out.elements) {
+        throw Error(Status::BadArgument);
+    }
+    if (a.elements > UINT32_MAX) {
+        throw Error(Status::OutOfRange);
+    }
+
+    context.launch_kernel(
+        std::string(op) + "." + std::string(a.dtype),
+        {
+            KernelArg::device_ptr(a.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(static_cast<std::uint32_t>(a.elements)),
+        },
+        launch_config);
+}
+
+/* Resolve and launch a matrix-multiply kernel with row-major tensor arguments. */
+void launch_matmul(
+    Context &context,
+    const TensorView &a,
+    const TensorView &b,
+    const TensorView &out,
+    std::uint32_t m,
+    std::uint32_t n,
+    std::uint32_t k,
+    const LaunchConfig *launch_config) {
+    if (a.dtype != b.dtype || a.dtype != out.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("matmul.") + std::string(a.dtype),
+        {
+            KernelArg::device_ptr(a.addr),
+            KernelArg::device_ptr(b.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(m),
+            KernelArg::u32(n),
+            KernelArg::u32(k),
         },
         launch_config);
 }

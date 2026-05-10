@@ -610,6 +610,7 @@ def format_from_qual_type(text: str) -> str | None:
         "_Float16": "fp16",
         "fp8": "fp8",
         "fp8_e4m3": "fp8",
+        "fp8_e4m3fn": "fp8",
         "__nv_fp8_e4m3": "fp8",
     }
     return aliases.get(normalized)

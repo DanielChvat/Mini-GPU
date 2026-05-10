@@ -1,0 +1,29 @@
+{
+  "symbols": [
+    {
+      "name": "relu",
+      "pc": 0
+    },
+    {
+      "name": "relu_i16",
+      "pc": 24
+    },
+    {
+      "name": "relu_i8",
+      "pc": 56
+    },
+    {
+      "name": "relu_fp32",
+      "pc": 88
+    },
+    {
+      "name": "relu_fp16",
+      "pc": 112
+    },
+    {
+      "name": "relu_fp8_e4m3fn",
+      "pc": 144
+    }
+  ],
+  "instruction_words": 176
+}

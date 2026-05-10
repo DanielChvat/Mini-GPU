@@ -1,0 +1,13 @@
+{
+  "symbols": [
+    {
+      "name": "matmul",
+      "pc": 0
+    },
+    {
+      "name": "matmul_fp32",
+      "pc": 44
+    }
+  ],
+  "instruction_words": 88
+}
