@@ -4,7 +4,7 @@
     - during this command the chip will run the security layer by hashing the address region and comparing it to a hardcoded value
     - the address region will only be locked when the hash matches 
     - when lock is enabled any write to the weight region is blocked
-- security FSM: IDLE, LOAD, FINALIZE, VERIFY, LOCK, ERROR
+- security FSM: IDLE, LOAD, FINALIZE, VERIFY, LOCK, EXECUTE, ERROR
     - IDLE: wait for host, memory is unrestricted 
     - LOAD: streaming weights into memory and SHA256 core and actively calculating hash
     - FINALIZE: stop accepting weights, and send finalize flag the sha256 wrapper
@@ -71,28 +71,43 @@
         - note: there are many inefficiencies in the current code, it works, but it likely uses extra resources that can be minimized, so in the future, it will likely be good to come back to it and optimize
 
 Main security gate design 
-- security FSM: IDLE, LOAD, FINALIZE, VERIFY, LOCK, ERROR
+- security FSM: IDLE, LOAD, FINALIZE, VERIFY, LOCK, EXECUTE, ERROR
     - IDLE: wait for host, memory is unrestricted 
     - LOAD: streaming weights into memory and SHA256 core and actively calculating hash
     - FINALIZE: stop accepting weights, and send finalize flag the sha256 wrapper
     - VERIFY: compare hash vs expected hash 
-    - LOCK: freeze weights and lock down system
+    - LOCK: apply security policy 
     - EXECUTE: allows access to normal accelerator functions, with read only access to protected regions
-    - ERROR: hash mismatch
+    - ERROR: hash mismatch, or other error
 - when a write command is recieved from the communication_controller, during the LOAD state, it will route the data from the communication_controller to the secure memory wrapper and the SHA256 wrapper
-- it will need to keep track of the memory region that needs to be locked 
+- it will need to keep track of the memory region that needs to be locked
     - to avoid extra logic, it might be good to standarize the weight input with software 
     - we could add logic that keeps track of the region that was loaded, but to save LUTs standarize the following for loading weights:
         - weights will always be sent first
         - the address of the weights will start from 0x0000
         - the weights need to be sent sequentially and in order
+        - therefore, the position of each weight is locked, and each weight must be in it's appropriate position for it to pass the security check
         - when a NACK is discovered, the gate will go into ERROR mode (only when loading weights)
             - when this happens the security gate will need to be explicitly reset 
             - the transfer of weights will need to be fully reset 
         - the HW will be making the assumption that the last accessed address is where the weights end 
     - with this design implementation on the SW we can minimize the logic the HW
     - although this is heavily reliant on SW compatibility, even if an attacker has full access to the SW the chip should still be secure with zero trust logic
+    - the protected region will be something like this: [0x0000, last_weight_address]
+    - important to note that the last_weight_address only gets updated during load
 - the hash values that will be compared to will be hardcoded into the chip, but there can be multiple stored hashes
-    - we will need to add for loop logic to manage the hash comparisons 
-- when a write is blocked because it attempted to overwrite a locked region, it should send a signal to the communication_controller and trigger an NACK    
-    - note: as of 5/8 communication_controller does not support this 
+    - when the verify command is called, it will attach a 4 bit sequence that determines which hash value to comapre to
+- when a write is blocked because it attempted to overwrite a locked region, it should send a signal to the communication_controller (mem_write_fail)   
+    - when the write region is unlocked, then it should send the mem_write_done signal
+- during LOAD, if CRC fail, SHA error, transition into the ERROR state 
+- when in EXECUTE or ERROR states, the only way to exit is via a security reset signal
+- verified and security_fault registers will be needed to contain information about the chip's status
+- !== Potential future feature ==!
+    - when calculating the hash, we will compute it with a salted value (the address), so the hash input becomes something like HASH({address, address} || data) 
+        - this will gurantee that weights are placed in the correct placed
+        - this feature will not be implemented in the first round of implementation, because debugging will become more difficult, but should be an easy feature to add in the future
+    - the read from the protected region is only from the accelerator, host's request to read from the protected region will be declined. 
+        - when the read is attempted, return 0xDEADDEADDEADDEAD
+        - this again can be added later, because it will make debugging more difficult, for now host can read from protected region 
+    - add security codes to the NACK that is sent 
+        - ie we can populate the address region of the header with codes that indicate what kind of error (hash mismatch, CRC fail, write attempt to lock region, SHA failure)

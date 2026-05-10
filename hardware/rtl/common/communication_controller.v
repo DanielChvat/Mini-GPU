@@ -45,6 +45,10 @@ module communication_controller #(
     output reg  [31:0]                 launch_active_mask,
     input  wire [31:0]                 status_word,
 
+    // ================= Validate interface =================
+    output reg [3:0]   validate_model_id,
+    output reg         validate_triggered,
+
     // ================= Debug / observability =================
     output wire [7:0]  dbg_rx_cmd,
     output wire [15:0] dbg_rx_addr,
@@ -65,8 +69,9 @@ module communication_controller #(
     //==!! not implemented !!==//
     /*
     localparam COM_CMD_WRITE_HASH    = 8'h06; // load expected SHA256 hash
-    localparam COM_CMD_VALIDATE      = 8'h07; // trigger hash validation
     */
+    localparam COM_CMD_VALIDATE      = 8'h07; // trigger hash validation
+    
 
     localparam COM_CMD_ACK           = 8'h08; // successful operation
     localparam COM_CMD_NAK           = 8'h09; // failed operation / bad packet
@@ -246,6 +251,7 @@ module communication_controller #(
             write_done_hold <= 0;
             write_fail_hold <= 0;
             memory_status_consumed <= 0;
+            validate_triggered <= 0;
 
             data_mem_req_valid <= 4'b0000;
             data_mem_req_write <= 4'b0000;
@@ -269,6 +275,7 @@ module communication_controller #(
             read_resp_len <= 0;
             read_payload_requested <= 0;
             read_sending_word <= 0;
+            validate_model_id <= 4'b0;
         end else begin
 
             // defaults
@@ -285,6 +292,7 @@ module communication_controller #(
             prog_we <= 1'b0;
             const_we <= 1'b0;
             launch_valid <= 1'b0;
+            validate_triggered <= 1'b0;
 
             // Remember when TX asks for read payload before memory data is ready.
             if ((state == READ_START) || (state == READ_WAIT) ||
@@ -362,6 +370,10 @@ module communication_controller #(
                 launch_base_pc <= rx_addr[ADDR_WIDTH-1:0];
                 write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
+            end else if (packet_done && (rx_cmd == COM_CMD_VALIDATE)) begin
+                validate_model_id <= rx_addr[3:0];
+                validate_triggered <= 1'b1;
+                write_done_hold <= 1'b1;
             end else if (packet_done && (rx_cmd == COM_CMD_READ_DATA)) begin
                 write_done_hold <= 1'b1;
                 read_resp_addr <= rx_addr;
