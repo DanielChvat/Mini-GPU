@@ -14,6 +14,7 @@ module memory_sec_tb;
     reg [LANES-1:0] req_write;
     reg [(LANES*ADDR_WIDTH)-1:0] req_addr;
     reg [(LANES*DATA_WIDTH)-1:0] req_wdata;
+    reg [(LANES*4)-1:0] req_wmask;
     wire [LANES-1:0] req_ready;
     wire [LANES-1:0] resp_valid;
     wire [(LANES*DATA_WIDTH)-1:0] resp_rdata;
@@ -33,6 +34,7 @@ module memory_sec_tb;
         .req_write(req_write),
         .req_addr(req_addr),
         .req_wdata(req_wdata),
+        .req_wmask(req_wmask),
         .req_ready(req_ready),
         .resp_valid(resp_valid),
         .resp_rdata(resp_rdata),
@@ -55,6 +57,7 @@ module memory_sec_tb;
             req_write[lane] = write;
             req_addr[(lane*ADDR_WIDTH) +: ADDR_WIDTH] = addr;
             req_wdata[(lane*DATA_WIDTH) +: DATA_WIDTH] = data;
+            req_wmask[(lane*4) +: 4] = 4'b1111;  // Enable all 4 bytes
         end
     endtask
 
@@ -64,6 +67,7 @@ module memory_sec_tb;
             req_write = {LANES{1'b0}};
             req_addr = {(LANES*ADDR_WIDTH){1'b0}};
             req_wdata = {(LANES*DATA_WIDTH){1'b0}};
+            req_wmask = {(LANES*4){1'b0}};
         end
     endtask
 
