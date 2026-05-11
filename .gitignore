@@ -127,6 +127,10 @@ uart_gpu_comm/_uart_gpu_comm*.dylib
 *.os/
 *.data/
 
+# Runtime precompiled kernel artifacts are source inputs for non-CUDA builds.
+!runtime/kernels/*.bin
+!runtime/kernels/*.map
+
 # Python cache / packaging
 __pycache__/
 *.py[cod]
