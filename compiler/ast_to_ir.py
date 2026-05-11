@@ -246,11 +246,12 @@ class MiniGpuIrLowerer:
 
         state.emit(f"label {loop_label}")
         cond_value = self.lower_expr(cond, state)
-        state.emit(f"branch_zero {cond_value}, {end_label}")
+        state.emit(f"pred_begin {cond_value}")
         self.lower_stmt(body, state)
         if inc.get("kind") != "NullStmt":
             self.lower_stmt(inc, state)
-        state.emit(f"branch {loop_label}")
+        state.emit("pred_end")
+        state.emit(f"branch_nzero {cond_value}, {loop_label}")
         state.emit(f"label {end_label}")
 
     def lower_unary_stmt(self, node: dict[str, Any], state: KernelState) -> None:
@@ -280,6 +281,15 @@ class MiniGpuIrLowerer:
         if callee == "__syncthreads":
             state.emit("barrier")
             return None
+        if callee in {"minigpu_as_u32", "minigpu_as_f32"}:
+            args = call_args(node)
+            if len(args) != 1:
+                self.unsupported(node, f"call to {callee} with unexpected arity")
+            value = self.lower_expr(args[0], state)
+            result = state.temp()
+            state.value_types[result] = "i32" if callee == "minigpu_as_u32" else "fp32"
+            state.emit(f"{result} = mov {value}")
+            return result
         self.unsupported(node, f"call to {callee or '<unknown>'}")
 
     def assign(self, lhs: dict[str, Any], rhs: dict[str, Any], state: KernelState) -> None:
@@ -594,7 +604,9 @@ def format_from_qual_type(text: str) -> str | None:
     aliases = {
         "int": "i32",
         "signed int": "i32",
+        "unsigned int": "i32",
         "int32_t": "i32",
+        "uint32_t": "i32",
         "short": "i16",
         "short int": "i16",
         "signed short": "i16",
@@ -766,6 +778,19 @@ def call_name(node: dict[str, Any]) -> str | None:
         if child.get("kind") == "DeclRefExpr":
             return referenced_name(child)
     return None
+
+
+def call_args(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return call expression arguments, skipping the callee expression."""
+    args: list[dict[str, Any]] = []
+    found_callee = False
+    for child in children(node):
+        unwrapped = unwrap(child)
+        if not found_callee and unwrapped.get("kind") == "DeclRefExpr":
+            found_callee = True
+            continue
+        args.append(child)
+    return args
 
 
 def ast_to_ir(document: dict[str, Any]) -> str:

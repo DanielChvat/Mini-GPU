@@ -21,6 +21,7 @@ module float_mul #(
     reg stage1_sign;
     reg [2:0] stage1_fmt;
     reg stage1_supported;
+    reg stage1_zero;
     reg [9:0] stage1_exp_r;
     reg [31:0] stage1_lhs_mant;
     reg [31:0] stage1_rhs_mant;
@@ -28,12 +29,14 @@ module float_mul #(
     reg stage2_sign;
     reg [2:0] stage2_fmt;
     reg stage2_supported;
+    reg stage2_zero;
     reg [9:0] stage2_exp_r;
     (* use_dsp = "yes" *) reg [63:0] stage2_product;
 
     reg stage3_sign;
     reg [2:0] stage3_fmt;
     reg stage3_supported;
+    reg stage3_zero;
     reg [9:0] stage3_exp_r;
     reg [31:0] stage3_fraction;
 
@@ -49,17 +52,20 @@ module float_mul #(
             stage1_sign <= 1'b0;
             stage1_fmt <= 3'b0;
             stage1_supported <= 1'b0;
+            stage1_zero <= 1'b0;
             stage1_exp_r <= 10'b0;
             stage1_lhs_mant <= 32'b0;
             stage1_rhs_mant <= 32'b0;
             stage2_sign <= 1'b0;
             stage2_fmt <= 3'b0;
             stage2_supported <= 1'b0;
+            stage2_zero <= 1'b0;
             stage2_exp_r <= 10'b0;
             stage2_product <= 64'b0;
             stage3_sign <= 1'b0;
             stage3_fmt <= 3'b0;
             stage3_supported <= 1'b0;
+            stage3_zero <= 1'b0;
             stage3_exp_r <= 10'b0;
             stage3_fraction <= 32'b0;
             stage4_result <= 32'b0;
@@ -74,8 +80,9 @@ module float_mul #(
 
             stage1_sign <= sign_for(stage0_lhs, stage0_rhs, stage0_fmt);
             stage1_fmt <= stage0_fmt;
-            stage1_supported <= stage0_supported && !zero_operand(stage0_lhs, stage0_fmt) &&
-                                !zero_operand(stage0_rhs, stage0_fmt);
+            stage1_supported <= stage0_supported;
+            stage1_zero <= zero_operand(stage0_lhs, stage0_fmt) ||
+                           zero_operand(stage0_rhs, stage0_fmt);
             stage1_exp_r <= exp_for(stage0_lhs, stage0_fmt) +
                             exp_for(stage0_rhs, stage0_fmt) -
                             bias_for(stage0_fmt);
@@ -85,19 +92,23 @@ module float_mul #(
             stage2_sign <= stage1_sign;
             stage2_fmt <= stage1_fmt;
             stage2_supported <= stage1_supported;
+            stage2_zero <= stage1_zero;
             stage2_exp_r <= stage1_exp_r;
             stage2_product <= stage1_lhs_mant * stage1_rhs_mant;
 
             stage3_sign <= stage2_sign;
             stage3_fmt <= stage2_fmt;
             stage3_supported <= stage2_supported;
+            stage3_zero <= stage2_zero;
             stage3_exp_r <= normalized_exp(stage2_exp_r, stage2_product, stage2_fmt);
             stage3_fraction <= normalized_fraction(stage2_product, stage2_fmt);
 
             stage4_supported <= stage3_supported;
             stage4_result <= stage3_supported
-                ? pack_float(stage3_sign, stage3_exp_r, stage3_fraction,
-                             exp_bits_for(stage3_fmt), mant_bits_for(stage3_fmt))
+                ? (stage3_zero
+                   ? zero_float(stage3_sign, stage3_fmt)
+                   : pack_float(stage3_sign, stage3_exp_r, stage3_fraction,
+                                exp_bits_for(stage3_fmt), mant_bits_for(stage3_fmt)))
                 : 32'b0;
 
             supported <= stage4_supported;
@@ -192,6 +203,16 @@ module float_mul #(
         begin
             zero_operand = (exp_for(value, value_fmt) == 0) &&
                            ((value & ((32'h1 << mant_bits_for(value_fmt)) - 1)) == 0);
+        end
+    endfunction
+
+    function [31:0] zero_float;
+        input sign;
+        input [2:0] value_fmt;
+        integer total_bits;
+        begin
+            total_bits = 1 + exp_bits_for(value_fmt) + mant_bits_for(value_fmt);
+            zero_float = {31'b0, sign} << (total_bits - 1);
         end
     endfunction
 

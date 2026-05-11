@@ -69,3 +69,21 @@ artifacts:
         op: matmul
         dtype: fp32
         entry: matmul_fp32
+
+  - file: div.bin
+    kernels:
+      - name: reciprocal.fp32
+        op: reciprocal
+        dtype: fp32
+        entry: reciprocal_fp32
+      - name: div.fp32
+        op: div
+        dtype: fp32
+        entry: div_fp32
+
+  - file: sqrt.bin
+    kernels:
+      - name: sqrt.fp32
+        op: sqrt
+        dtype: fp32
+        entry: sqrt_fp32

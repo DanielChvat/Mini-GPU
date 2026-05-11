@@ -6,24 +6,24 @@
     },
     {
       "name": "relu_i16",
-      "pc": 24
+      "pc": 26
     },
     {
       "name": "relu_i8",
-      "pc": 56
+      "pc": 60
     },
     {
       "name": "relu_fp32",
-      "pc": 88
+      "pc": 94
     },
     {
       "name": "relu_fp16",
-      "pc": 112
+      "pc": 120
     },
     {
       "name": "relu_fp8_e4m3fn",
-      "pc": 144
+      "pc": 154
     }
   ],
-  "instruction_words": 176
+  "instruction_words": 188
 }

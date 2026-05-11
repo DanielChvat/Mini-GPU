@@ -6,8 +6,8 @@
     },
     {
       "name": "matmul_fp32",
-      "pc": 44
+      "pc": 48
     }
   ],
-  "instruction_words": 88
+  "instruction_words": 96
 }

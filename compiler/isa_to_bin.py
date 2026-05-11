@@ -119,12 +119,13 @@ class AssemblerState:
         """Assign stable IDs to ARG_*, SHARED_*, and other LDC symbols."""
         if is_int(name):
             return parse_int(name)
+        symbol = name.split(":", 1)[1] if ":" in name else name
         if name in self.constants:
             return self.constants[name]
-        if name.startswith("ARG_"):
+        if symbol.startswith("ARG_"):
             value = self.next_arg_id
             self.next_arg_id += 1
-        elif name.startswith("SHARED_"):
+        elif symbol.startswith("SHARED_"):
             value = self.next_shared_id
             self.next_shared_id += 1
         else:
@@ -144,6 +145,8 @@ def parse_program(asm_text: str) -> tuple[list[str], AssemblerState]:
     state = AssemblerState()
     instructions: list[str] = []
     scope = "__global__"
+    arg_ids: dict[str, int] = {}
+    shared_ids: dict[str, int] = {}
 
     for raw_line in asm_text.splitlines():
         line = clean_line(raw_line)
@@ -152,11 +155,15 @@ def parse_program(asm_text: str) -> tuple[list[str], AssemblerState]:
         if line.startswith(".kernel"):
             parts = line.split(None, 1)
             scope = parts[1].strip() if len(parts) == 2 else "__global__"
+            state.next_arg_id = 0
+            state.next_shared_id = 32
+            arg_ids = {}
+            shared_ids = {}
             continue
         if line.endswith(":"):
             state.labels[scoped_label(scope, line[:-1])] = len(instructions)
             continue
-        instructions.append(scope_branch_label(scope, line))
+        instructions.append(scope_instruction_symbols(scope, line, arg_ids, shared_ids))
 
     return instructions, state
 
@@ -166,8 +173,13 @@ def scoped_label(scope: str, label: str) -> str:
     return f"{scope}:{label}"
 
 
-def scope_branch_label(scope: str, line: str) -> str:
-    """Resolve local branch targets inside the current kernel scope."""
+def scope_instruction_symbols(
+    scope: str,
+    line: str,
+    arg_ids: dict[str, int],
+    shared_ids: dict[str, int],
+) -> str:
+    """Resolve local labels and kernel-local constants inside the current scope."""
     op, fmt, operands = split_instruction(line)
     if fmt is not None:
         op_text = f"{op}.{fmt}"
@@ -178,6 +190,16 @@ def scope_branch_label(scope: str, line: str) -> str:
         return f"{op_text} {scoped_label(scope, operands[0])}"
     if op in {"BZ", "BNZ"} and len(operands) == 2 and not is_int(operands[1]):
         return f"{op_text} {operands[0]}, {scoped_label(scope, operands[1])}"
+    if op == "LDC" and len(operands) == 2 and not is_int(operands[1]):
+        symbol = operands[1]
+        if symbol.startswith("ARG_"):
+            if symbol not in arg_ids:
+                arg_ids[symbol] = len(arg_ids)
+            return f"{op_text} {operands[0]}, {arg_ids[symbol]}"
+        if symbol.startswith("SHARED_"):
+            if symbol not in shared_ids:
+                shared_ids[symbol] = 32 + len(shared_ids)
+            return f"{op_text} {operands[0]}, {shared_ids[symbol]}"
     return line
 
 

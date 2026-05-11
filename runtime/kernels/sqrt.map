@@ -1,0 +1,9 @@
+{
+  "symbols": [
+    {
+      "name": "sqrt_fp32",
+      "pc": 0
+    }
+  ],
+  "instruction_words": 60
+}

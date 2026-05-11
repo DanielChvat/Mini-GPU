@@ -58,6 +58,17 @@ void launch_matmul(
     std::uint32_t k,
     const LaunchConfig *launch_config = nullptr);
 
+/* Resolve and launch a row-major linear layer kernel. */
+void launch_linear(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t out_features,
+    std::uint32_t in_features,
+    const LaunchConfig *launch_config = nullptr);
+
 /* Return the Mini-GPU kernel dtype name for a C++ scalar type. */
 template <typename T>
 std::string_view dtype_name();

@@ -31,7 +31,19 @@ def matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return torch.ops.minigpu.matmul(a, b)
 
 
+def linear(a: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor | None = None) -> torch.Tensor:
+    """Call the Mini-GPU linear custom op."""
+    init()
+    return torch.ops.minigpu.linear(a, weight, bias)
+
+
 def relu(a: torch.Tensor) -> torch.Tensor:
     """Call the Mini-GPU ReLU custom op stub."""
     init()
     return torch.ops.minigpu.relu(a)
+
+
+def sqrt(a: torch.Tensor) -> torch.Tensor:
+    """Call the Mini-GPU sqrt custom op."""
+    init()
+    return torch.ops.minigpu.sqrt(a)

@@ -92,8 +92,17 @@ at::Tensor vector_add(const at::Tensor &a, const at::Tensor &b);
 /* Elementwise multiply operation for Mini-GPU tensors. */
 at::Tensor mul_tensor(const at::Tensor &a, const at::Tensor &b);
 
+/* Elementwise division operation for Mini-GPU tensors. */
+at::Tensor div_tensor(const at::Tensor &a, const at::Tensor &b);
+
 /* Matrix multiply operation for Mini-GPU tensors. */
 at::Tensor mm(const at::Tensor &a, const at::Tensor &b);
+
+/* Linear layer operation for Mini-GPU tensors. */
+at::Tensor linear(
+    const at::Tensor &input,
+    const at::Tensor &weight,
+    const ::std::optional<at::Tensor> &bias);
 
 /* ReLU operation for Mini-GPU tensors. */
 at::Tensor relu(const at::Tensor &a);

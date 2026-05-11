@@ -89,7 +89,7 @@ class RegisterAllocator:
 
     def release_after_use(self, value: str) -> None:
         """Free value registers after their final textual use."""
-        if not value.startswith("%t"):
+        if not is_temp_value(value):
             return
 
         self.remaining_uses[value] -= 1
@@ -116,6 +116,11 @@ def split_operands(text: str | None) -> list[str]:
     if not text:
         return []
     return [part.strip() for part in text.split(",")]
+
+
+def is_temp_value(value: str) -> bool:
+    """Return true for compiler-generated temporaries like %t12."""
+    return len(value) > 2 and value[0:2] == "%t" and value[2:].isdigit()
 
 
 def value_operands(lines: list[str]) -> Counter[str]:
@@ -252,7 +257,7 @@ def lower_assignment(
     if op == "const":
         if len(operands) != 1:
             raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")
-        asm.append(f"  MOVI {rd}, {operands[0]}")
+        emit_load_immediate(rd, operands[0], asm)
         return
 
     if op in THREAD_OPS:
@@ -278,7 +283,7 @@ def lower_assignment(
     if base_op == "const":
         if len(operands) != 1:
             raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")
-        asm.append(f"  MOVI {rd}, {operands[0]}")
+        emit_load_immediate(rd, operands[0], asm)
         return
 
     if base_op in THREAD_OPS:
@@ -345,8 +350,41 @@ def operand_reg(
         return allocator.use(operand), None
 
     scratch = allocator.acquire_scratch()
-    asm.append(f"  MOVI {scratch}, {operand}")
+    emit_load_immediate(scratch, operand, asm)
     return scratch, scratch
+
+
+def parse_int_literal(value: str) -> int:
+    """Parse decimal/hex integer literal spellings from IR."""
+    text = value.strip()
+    text = re.sub(r"[uUlL]+$", "", text)
+    return int(text, 0)
+
+
+def fits_imm14(value: int) -> bool:
+    """Return true when a value fits the signed MOVI immediate."""
+    return -(1 << 13) <= value < (1 << 13)
+
+
+def emit_load_immediate(reg: str, value: str, asm: list[str]) -> None:
+    """Load a small or full 32-bit integer literal into a register."""
+    parsed = parse_int_literal(value)
+    if fits_imm14(parsed):
+        asm.append(f"  MOVI {reg}, {parsed}")
+        return
+
+    word = parsed & 0xffffffff
+    bytes_be = [
+        (word >> 24) & 0xff,
+        (word >> 16) & 0xff,
+        (word >> 8) & 0xff,
+        word & 0xff,
+    ]
+    asm.append(f"  MOVI {reg}, {bytes_be[0]}")
+    for byte in bytes_be[1:]:
+        asm.append(f"  SHLI {reg}, {reg}, 8")
+        if byte:
+            asm.append(f"  ORI {reg}, {reg}, {byte}")
 
 
 def release_operand(

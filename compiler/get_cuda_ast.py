@@ -56,6 +56,8 @@ extern __device__ const dim3 blockIdx;
 extern __device__ const dim3 blockDim;
 extern __device__ const dim3 gridDim;
 extern __device__ void __syncthreads();
+extern __device__ uint32_t minigpu_as_u32(float value);
+extern __device__ float minigpu_as_f32(uint32_t value);
 
 #endif
 """

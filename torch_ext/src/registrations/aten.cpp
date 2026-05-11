@@ -10,8 +10,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("as_strided", TORCH_FN(minigpu::torch_backend::as_strided));
     m.impl("_reshape_alias", TORCH_FN(minigpu::torch_backend::reshape_alias));
     m.impl("add.Tensor", TORCH_FN(minigpu::torch_backend::add_tensor));
+    m.impl("div.Tensor", TORCH_FN(minigpu::torch_backend::div_tensor));
     m.impl("mul.Tensor", TORCH_FN(minigpu::torch_backend::mul_tensor));
     m.impl("mm", TORCH_FN(minigpu::torch_backend::mm));
+    m.impl("linear", TORCH_FN(minigpu::torch_backend::linear));
     m.impl("relu", TORCH_FN(minigpu::torch_backend::relu));
     m.impl("exp", TORCH_FN(minigpu::torch_backend::exp));
     m.impl("log", TORCH_FN(minigpu::torch_backend::log));

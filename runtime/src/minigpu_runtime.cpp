@@ -512,7 +512,9 @@ void Context::register_kernel(PrecompiledKernel kernel) {
             registered = std::move(kernel);
             std::ostringstream log;
             log << "register_kernel name=" << registered.name
-                << " bytes=" << registered.program_size;
+                << " bytes=" << registered.program_size
+                << " program_addr=0x" << std::hex << registered.program_addr
+                << " base_pc=0x" << registered.base_pc;
             log_event(log.str());
             return;
         }
@@ -521,7 +523,9 @@ void Context::register_kernel(PrecompiledKernel kernel) {
     kernels_.push_back(std::move(kernel));
     std::ostringstream log;
     log << "register_kernel name=" << kernels_.back().name
-        << " bytes=" << kernels_.back().program_size;
+        << " bytes=" << kernels_.back().program_size
+        << " program_addr=0x" << std::hex << kernels_.back().program_addr
+        << " base_pc=0x" << kernels_.back().base_pc;
     log_event(log.str());
 }
 

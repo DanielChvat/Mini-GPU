@@ -397,4 +397,31 @@ void launch_matmul(
         launch_config);
 }
 
+/* Resolve and launch a row-major linear layer kernel. */
+void launch_linear(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t out_features,
+    std::uint32_t in_features,
+    const LaunchConfig *launch_config) {
+    if (input.dtype != weight.dtype || input.dtype != out.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("linear.") + std::string(input.dtype),
+        {
+            KernelArg::device_ptr(input.addr),
+            KernelArg::device_ptr(weight.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(total),
+            KernelArg::u32(out_features),
+            KernelArg::u32(in_features),
+        },
+        launch_config);
+}
+
 } // namespace minigpu::kernels

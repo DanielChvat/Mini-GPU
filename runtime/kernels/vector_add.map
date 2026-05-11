@@ -6,24 +6,24 @@
     },
     {
       "name": "vector_add_i16",
-      "pc": 20
+      "pc": 22
     },
     {
       "name": "vector_add_i8",
-      "pc": 52
+      "pc": 56
     },
     {
       "name": "vector_add_fp32",
-      "pc": 84
+      "pc": 90
     },
     {
       "name": "vector_add_fp16",
-      "pc": 104
+      "pc": 112
     },
     {
       "name": "vector_add_fp8_e4m3fn",
-      "pc": 136
+      "pc": 146
     }
   ],
-  "instruction_words": 168
+  "instruction_words": 180
 }
