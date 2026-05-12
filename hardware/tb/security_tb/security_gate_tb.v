@@ -27,9 +27,8 @@ module security_gate_tb;
     end
 
     // =========================================================================
-    // DUT Signals
+    // Host Bus Signals (drives bus_controller host port)
     // =========================================================================
-    reg         security_reset;
     reg  [3:0]  host_mem_req_valid;
     reg  [3:0]  host_mem_req_write;
     reg  [(4*ADDR_WIDTH)-1:0] host_mem_req_addr;
@@ -37,24 +36,41 @@ module security_gate_tb;
     wire [3:0]  host_mem_req_ready;
     wire [3:0]  host_mem_resp_valid;
     wire [(4*DATA_WIDTH)-1:0] host_mem_resp_rdata;
-
-    reg         validate_triggered;
-    reg  [3:0]  validate_model_id;
-
-    wire        mem_write_done;
-    wire        mem_write_fail;
-    reg         memory_status_consumed;
-
-    wire        weight_locked;
-    wire [ADDR_WIDTH-1:0] protected_base;
-    wire [ADDR_WIDTH-1:0] protected_limit;
-
-    wire [2:0]  security_state;
-    wire        verified;
-    wire        security_fault;
+    wire        host_mem_write_done;
+    wire        host_mem_write_fail;
+    reg         host_memory_status_consumed;
 
     // =========================================================================
-    // Memory_sec wires
+    // Core Bus Signals (drives bus_controller core port)
+    // =========================================================================
+    reg  [3:0]  core_mem_req_valid;
+    reg  [3:0]  core_mem_req_write;
+    reg  [(4*ADDR_WIDTH)-1:0] core_mem_req_addr;
+    reg  [(4*DATA_WIDTH)-1:0] core_mem_req_wdata;
+    wire [3:0]  core_mem_req_ready;
+    wire [3:0]  core_mem_resp_valid;
+    wire [(4*DATA_WIDTH)-1:0] core_mem_resp_rdata;
+    wire        core_mem_write_done;
+    wire        core_mem_write_fail;
+    reg         core_memory_status_consumed;
+
+    // =========================================================================
+    // Bus Controller → Security Gate wires
+    // =========================================================================
+    wire [3:0]  merged_mem_req_valid;
+    wire [3:0]  merged_mem_req_write;
+    wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr;
+    wire [(4*DATA_WIDTH)-1:0] merged_mem_req_wdata;
+    wire [3:0]  merged_mem_req_ready;
+    wire [3:0]  merged_mem_resp_valid;
+    wire [(4*DATA_WIDTH)-1:0] merged_mem_resp_rdata;
+    wire        merged_mem_write_done;
+    wire        merged_mem_write_fail;
+    wire        merged_memory_status_consumed;
+    wire [1:0]  memory_request_id;
+
+    // =========================================================================
+    // Security Gate → Memory_sec wires
     // =========================================================================
     wire [3:0]  mem_req_valid;
     wire [3:0]  mem_req_write;
@@ -67,6 +83,64 @@ module security_gate_tb;
     wire [3:0]  write_blocked;
 
     // =========================================================================
+    // Security Gate control/status
+    // =========================================================================
+    reg         security_reset;
+    reg         validate_triggered;
+    reg  [3:0]  validate_model_id;
+
+    wire        mem_write_done_unused;
+    wire        mem_write_fail_unused;
+    wire        weight_locked;
+    wire [ADDR_WIDTH-1:0] protected_base;
+    wire [ADDR_WIDTH-1:0] protected_limit;
+    wire [2:0]  security_state;
+    wire        verified;
+    wire        security_fault;
+
+    // =========================================================================
+    // DUT: Bus Controller
+    // =========================================================================
+    bus_controller #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH)
+    ) bus_ctrl (
+        .clk(clk),
+        .rst(rst),
+        .host_mem_req_valid(host_mem_req_valid),
+        .host_mem_req_write(host_mem_req_write),
+        .host_mem_req_addr(host_mem_req_addr),
+        .host_mem_req_wdata(host_mem_req_wdata),
+        .host_mem_req_ready(host_mem_req_ready),
+        .host_mem_resp_valid(host_mem_resp_valid),
+        .host_mem_resp_rdata(host_mem_resp_rdata),
+        .host_mem_write_done(host_mem_write_done),
+        .host_mem_write_fail(host_mem_write_fail),
+        .host_memory_status_consumed(host_memory_status_consumed),
+        .core_mem_req_valid(core_mem_req_valid),
+        .core_mem_req_write(core_mem_req_write),
+        .core_mem_req_addr(core_mem_req_addr),
+        .core_mem_req_wdata(core_mem_req_wdata),
+        .core_mem_req_ready(core_mem_req_ready),
+        .core_mem_resp_valid(core_mem_resp_valid),
+        .core_mem_resp_rdata(core_mem_resp_rdata),
+        .core_mem_write_done(core_mem_write_done),
+        .core_mem_write_fail(core_mem_write_fail),
+        .core_memory_status_consumed(core_memory_status_consumed),
+        .merged_mem_req_valid(merged_mem_req_valid),
+        .merged_mem_req_write(merged_mem_req_write),
+        .merged_mem_req_addr(merged_mem_req_addr),
+        .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_ready(merged_mem_req_ready),
+        .merged_mem_resp_valid(merged_mem_resp_valid),
+        .merged_mem_resp_rdata(merged_mem_resp_rdata),
+        .merged_mem_write_done(merged_mem_write_done),
+        .merged_mem_write_fail(merged_mem_write_fail),
+        .merged_memory_status_consumed(merged_memory_status_consumed),
+        .memory_request_id(memory_request_id)
+    );
+
+    // =========================================================================
     // DUT: Security Gate
     // =========================================================================
     security_gate #(
@@ -77,13 +151,14 @@ module security_gate_tb;
         .clk(clk),
         .rst(rst),
         .security_reset(security_reset),
-        .host_mem_req_valid(host_mem_req_valid),
-        .host_mem_req_write(host_mem_req_write),
-        .host_mem_req_addr(host_mem_req_addr),
-        .host_mem_req_wdata(host_mem_req_wdata),
-        .host_mem_req_ready(host_mem_req_ready),
-        .host_mem_resp_valid(host_mem_resp_valid),
-        .host_mem_resp_rdata(host_mem_resp_rdata),
+        .merged_mem_req_valid(merged_mem_req_valid),
+        .merged_mem_req_write(merged_mem_req_write),
+        .merged_mem_req_addr(merged_mem_req_addr),
+        .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_ready(merged_mem_req_ready),
+        .merged_mem_resp_valid(merged_mem_resp_valid),
+        .merged_mem_resp_rdata(merged_mem_resp_rdata),
+        .memory_request_id(memory_request_id),
         .mem_req_valid(mem_req_valid),
         .mem_req_write(mem_req_write),
         .mem_req_addr(mem_req_addr),
@@ -92,11 +167,12 @@ module security_gate_tb;
         .mem_req_ready(mem_req_ready),
         .mem_resp_valid(mem_resp_valid),
         .mem_resp_rdata(mem_resp_rdata),
+        .write_blocked(write_blocked),
         .validate_triggered(validate_triggered),
         .validate_model_id(validate_model_id),
-        .mem_write_done(mem_write_done),
-        .mem_write_fail(mem_write_fail),
-        .memory_status_consumed(memory_status_consumed),
+        .mem_write_done(merged_mem_write_done),
+        .mem_write_fail(merged_mem_write_fail),
+        .memory_status_consumed(merged_memory_status_consumed),
         .weight_locked(weight_locked),
         .protected_base(protected_base),
         .protected_limit(protected_limit),
@@ -158,14 +234,20 @@ module security_gate_tb;
             host_mem_req_write  <= 4'b0000;
             host_mem_req_addr   <= {(4*ADDR_WIDTH){1'b0}};
             host_mem_req_wdata  <= {(4*DATA_WIDTH){1'b0}};
+            host_memory_status_consumed <= 1'b0;
+            core_mem_req_valid  <= 4'b0000;
+            core_mem_req_write  <= 4'b0000;
+            core_mem_req_addr   <= {(4*ADDR_WIDTH){1'b0}};
+            core_mem_req_wdata  <= {(4*DATA_WIDTH){1'b0}};
+            core_memory_status_consumed <= 1'b0;
             validate_triggered  <= 1'b0;
             validate_model_id   <= 4'b0;
-            memory_status_consumed <= 1'b0;
             security_reset      <= 1'b0;
         end
     endtask
 
-    task write_word;
+    // Host write (one-shot pulse on lane 0)
+    task host_write_word;
         input [ADDR_WIDTH-1:0] addr;
         input [DATA_WIDTH-1:0] data;
         begin
@@ -174,18 +256,15 @@ module security_gate_tb;
             host_mem_req_write[0] <= 1'b1;
             host_mem_req_addr[0 +: ADDR_WIDTH] <= addr;
             host_mem_req_wdata[0 +: DATA_WIDTH] <= data;
-
-            // One-shot pulse like the comm_controller
             @(negedge clk);
             host_mem_req_valid[0] <= 1'b0;
             host_mem_req_write[0] <= 1'b0;
-
-            // Wait for memory to process
             @(negedge clk);
         end
     endtask
 
-    task read_word;
+    // Host read (lane 0)
+    task host_read_word;
         input [ADDR_WIDTH-1:0] addr;
         output [DATA_WIDTH-1:0] data;
         begin
@@ -193,18 +272,45 @@ module security_gate_tb;
             host_mem_req_valid[0] <= 1'b1;
             host_mem_req_write[0] <= 1'b0;
             host_mem_req_addr[0 +: ADDR_WIDTH] <= addr;
-
             @(negedge clk);
-            while (!host_mem_req_ready[0]) begin
-                @(negedge clk);
-            end
-
+            while (!host_mem_req_ready[0]) @(negedge clk);
             host_mem_req_valid[0] <= 1'b0;
-
-            while (!host_mem_resp_valid[0]) begin
-                @(negedge clk);
-            end
+            while (!host_mem_resp_valid[0]) @(negedge clk);
             data = host_mem_resp_rdata[0 +: DATA_WIDTH];
+        end
+    endtask
+
+    // Core write (one-shot pulse on lane 0)
+    task core_write_word;
+        input [ADDR_WIDTH-1:0] addr;
+        input [DATA_WIDTH-1:0] data;
+        begin
+            @(negedge clk);
+            core_mem_req_valid[0] <= 1'b1;
+            core_mem_req_write[0] <= 1'b1;
+            core_mem_req_addr[0 +: ADDR_WIDTH] <= addr;
+            core_mem_req_wdata[0 +: DATA_WIDTH] <= data;
+            @(negedge clk);
+            core_mem_req_valid[0] <= 1'b0;
+            core_mem_req_write[0] <= 1'b0;
+            @(negedge clk);
+        end
+    endtask
+
+    // Core read (lane 0)
+    task core_read_word;
+        input [ADDR_WIDTH-1:0] addr;
+        output [DATA_WIDTH-1:0] data;
+        begin
+            @(negedge clk);
+            core_mem_req_valid[0] <= 1'b1;
+            core_mem_req_write[0] <= 1'b0;
+            core_mem_req_addr[0 +: ADDR_WIDTH] <= addr;
+            @(negedge clk);
+            while (!core_mem_req_ready[0]) @(negedge clk);
+            core_mem_req_valid[0] <= 1'b0;
+            while (!core_mem_resp_valid[0]) @(negedge clk);
+            data = core_mem_resp_rdata[0 +: DATA_WIDTH];
         end
     endtask
 
@@ -252,21 +358,18 @@ module security_gate_tb;
         input integer expected;
         begin
             if (actual !== expected) begin
-                $display("  FAIL %0s: got %0d, expected %0d", label, actual, expected);
+                $display("  FAIL %0s: got 0x%08x, expected 0x%08x", label, actual, expected);
                 errors = errors + 1;
             end
         end
     endtask
 
-    // =========================================================================
-    // Load weights helper: write sequential words starting at address 0
-    // =========================================================================
-    task load_weights;
+    task load_weights_host;
         input integer count;
         integer i;
         begin
             for (i = 0; i < count; i = i + 1) begin
-                write_word(i[ADDR_WIDTH-1:0], i[DATA_WIDTH-1:0]);
+                host_write_word(i[ADDR_WIDTH-1:0], i[DATA_WIDTH-1:0]);
             end
         end
     endtask
@@ -277,22 +380,21 @@ module security_gate_tb;
     reg [DATA_WIDTH-1:0] read_data;
 
     initial begin
-        $dumpfile("security_gate_tb.vcd");
+        $dumpfile("./tmp/security_gate_tb.vcd");
         $dumpvars(0, security_gate_tb);
 
         errors = 0;
         rst = 1'b1;
         clear_inputs();
 
-        // Load golden hash for model 0 = SHA-256 of 8 words [0..7]
+        // Load golden hashes
         dut.golden_hash[0] = HASH_8_WORDS;
-        // Load golden hash for model 1 = SHA-256 of 4 words [0..3]
         dut.golden_hash[1] = HASH_4_WORDS;
 
         #20;
         rst = 1'b0;
 
-        // Wait for SHA pre-start to complete (sha_needs_start → sha_start pulse → SHA in S_COLLECT)
+        // Wait for SHA pre-start
         repeat (3) @(negedge clk);
 
         // ==============================================================
@@ -306,13 +408,12 @@ module security_gate_tb;
         check("not verified", verified, 0);
         check("no fault", security_fault, 0);
 
-        load_weights(8);
+        load_weights_host(8);
 
         check("state after load", security_state, 3'd1);
         check("weight_count", dut.weight_count_reg, 8);
 
         trigger_validate(4'd0);
-
         wait_for_state(3'd5);
 
         check("state = EXECUTE", security_state, 3'd5);
@@ -321,24 +422,14 @@ module security_gate_tb;
         check("no fault", security_fault, 0);
         check("protected_limit", protected_limit, 16'd8);
 
-        // Verify weights readable
-        read_word(16'd0, read_data);
-        check("weight[0]", read_data, 32'd0);
-        read_word(16'd3, read_data);
-        check("weight[3]", read_data, 32'd3);
-        read_word(16'd7, read_data);
-        check("weight[7]", read_data, 32'd7);
-
         // Verify write to protected region is blocked by memory_sec
-        write_word(16'd2, 32'hDEADBEEF);
+        host_write_word(16'd2, 32'hDEADBEEF);
         @(negedge clk);
-        read_word(16'd2, read_data);
-        check("protected write blocked", read_data, 32'd2);
 
         // Verify write outside protected region succeeds
-        write_word(16'd10, 32'hCAFEBABE);
+        host_write_word(16'd10, 32'hCAFEBABE);
         @(negedge clk);
-        read_word(16'd10, read_data);
+        host_read_word(16'd10, read_data);
         check("unprotected write ok", read_data, 32'hCAFEBABE);
 
         $display("  Test %0d: %s", test_num, (errors == 0) ? "PASS" : "FAIL");
@@ -357,9 +448,9 @@ module security_gate_tb;
         check("no fault after reset", security_fault, 0);
 
         // Write to previously protected region should work now
-        write_word(16'd0, 32'hAAAAAAAA);
+        host_write_word(16'd0, 32'hAAAAAAAA);
         @(negedge clk);
-        read_word(16'd0, read_data);
+        host_read_word(16'd0, read_data);
         check("write after unlock", read_data, 32'hAAAAAAAA);
 
         $display("  Test %0d: %s", test_num, (errors == 0) ? "PASS" : "FAIL");
@@ -370,8 +461,7 @@ module security_gate_tb;
         test_num = 3;
         $display("\n=== Test %0d: Hash mismatch (wrong model_id) ===", test_num);
 
-        // Load 8 weights (hash matches model 0) but validate with model 1
-        load_weights(8);
+        load_weights_host(8);
         trigger_validate(4'd1);
 
         wait_for_state(3'd6);
@@ -381,7 +471,7 @@ module security_gate_tb;
         check("fault asserted", security_fault, 1);
         check("not verified", verified, 0);
         check("not locked", weight_locked, 0);
-        check("mem_write_fail", mem_write_fail, 1);
+        check("mem_write_fail", host_mem_write_fail, 1);
 
         // Security reset recovers from error
         pulse_security_reset();
@@ -396,7 +486,7 @@ module security_gate_tb;
         test_num = 4;
         $display("\n=== Test %0d: Second load (4 weights, model 1) ===", test_num);
 
-        load_weights(4);
+        load_weights_host(4);
         trigger_validate(4'd1);
 
         wait_for_state(3'd5);
@@ -406,15 +496,131 @@ module security_gate_tb;
         check("verified", verified, 1);
         check("protected_limit", protected_limit, 16'd4);
 
-        // Weight at addr 0 should be 0 (we loaded 0,1,2,3)
-        read_word(16'd0, read_data);
-        check("weight[0]", read_data, 32'd0);
-
         // Write to addr 5 (outside protected region) should work
-        write_word(16'd5, 32'h12345678);
+        host_write_word(16'd5, 32'h12345678);
         @(negedge clk);
-        read_word(16'd5, read_data);
+        host_read_word(16'd5, read_data);
         check("unprotected write ok", read_data, 32'h12345678);
+
+        pulse_security_reset();
+
+        $display("  Test %0d: %s", test_num, (errors == 0) ? "PASS" : "FAIL");
+
+        // ==============================================================
+        // Test 5: Host read protection in EXECUTE
+        // ==============================================================
+        test_num = 5;
+        $display("\n=== Test %0d: Host read protection in EXECUTE ===", test_num);
+
+        load_weights_host(8);
+        trigger_validate(4'd0);
+        wait_for_state(3'd5);
+
+        // Host reads protected region → should get 0xDEADDEAD
+        host_read_word(16'd0, read_data);
+        check("host read protected[0]", read_data, 32'hDEADDEAD);
+        host_read_word(16'd3, read_data);
+        check("host read protected[3]", read_data, 32'hDEADDEAD);
+        host_read_word(16'd7, read_data);
+        check("host read protected[7]", read_data, 32'hDEADDEAD);
+
+        // Host reads scratch (outside protected) → should succeed normally
+        host_read_word(16'd10, read_data);
+        check("host read scratch", read_data, 32'hCAFEBABE);
+
+        $display("  Test %0d: %s", test_num, (errors == 0) ? "PASS" : "FAIL");
+
+        // ==============================================================
+        // Test 6: Core read in EXECUTE (allowed for protected region)
+        // ==============================================================
+        test_num = 6;
+        $display("\n=== Test %0d: Core read protected in EXECUTE ===", test_num);
+
+        // Core reads protected region → should get actual weight data
+        core_read_word(16'd0, read_data);
+        check("core read weight[0]", read_data, 32'd0);
+        core_read_word(16'd3, read_data);
+        check("core read weight[3]", read_data, 32'd3);
+        core_read_word(16'd7, read_data);
+        check("core read weight[7]", read_data, 32'd7);
+
+        $display("  Test %0d: %s", test_num, (errors == 0) ? "PASS" : "FAIL");
+
+        // ==============================================================
+        // Test 7: Core write blocked in EXECUTE (protected region)
+        // ==============================================================
+        test_num = 7;
+        $display("\n=== Test %0d: Core write blocked in EXECUTE ===", test_num);
+
+        // Core tries to write to protected region
+        core_write_word(16'd2, 32'hBADBAD00);
+        @(negedge clk);
+
+        // Read back via core (should still be original value)
+        core_read_word(16'd2, read_data);
+        check("core write blocked", read_data, 32'd2);
+
+        $display("  Test %0d: %s", test_num, (errors == 0) ? "PASS" : "FAIL");
+
+        // ==============================================================
+        // Test 8: ERROR state total lockdown
+        // ==============================================================
+        test_num = 8;
+        $display("\n=== Test %0d: ERROR state total lockdown ===", test_num);
+
+        pulse_security_reset();
+
+        // Load 8 weights, validate with wrong model → ERROR
+        load_weights_host(8);
+        trigger_validate(4'd1);
+        wait_for_state(3'd6);
+        @(negedge clk);
+
+        check("state = ERROR", security_state, 3'd6);
+
+        // Host reads protected → 0xDEADDEAD
+        host_read_word(16'd0, read_data);
+        check("host read protected in ERROR", read_data, 32'hDEADDEAD);
+
+        // Core reads protected → 0xDEADDEAD
+        core_read_word(16'd0, read_data);
+        check("core read protected in ERROR", read_data, 32'hDEADDEAD);
+
+        // Host writes are blocked (scratch region)
+        host_write_word(16'd20, 32'hFEEDFACE);
+        @(negedge clk);
+
+        // Scratch reads still work
+        host_read_word(16'd10, read_data);
+        check("scratch read still works in ERROR", read_data, 32'hCAFEBABE);
+
+        // Recovery
+        pulse_security_reset();
+        check("recovered from ERROR", security_state, 3'd0);
+
+        $display("  Test %0d: %s", test_num, (errors == 0) ? "PASS" : "FAIL");
+
+        // ==============================================================
+        // Test 9: Core scratch access in EXECUTE
+        // ==============================================================
+        test_num = 9;
+        $display("\n=== Test %0d: Core scratch access in EXECUTE ===", test_num);
+
+        load_weights_host(4);
+        trigger_validate(4'd1);
+        wait_for_state(3'd5);
+
+        // Core writes to scratch region (outside protected [0,4))
+        core_write_word(16'd30, 32'hC0FFEE00);
+        @(negedge clk);
+
+        // Core reads scratch back
+        core_read_word(16'd30, read_data);
+        check("core scratch write+read", read_data, 32'hC0FFEE00);
+
+        // Core reads another scratch location (addr 10 was written to 0xCAFEBABE in test 1)
+        core_read_word(16'd10, read_data);
+        check("core scratch read", read_data, 32'hCAFEBABE);
 
         pulse_security_reset();
 

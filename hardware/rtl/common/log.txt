@@ -73,6 +73,7 @@
 
 - 5/8 
     - communication now runs on top of the UART protocol 
+        - reason is because the FPGA communication chip only accepts UART protocol transmissions
     - a change is required on the rx
         - during the WAIT_WRITE state, it needs to be able to recieve a signal that indicates that the write failed 
         - when the write fail occurs, it needs to be able to transmit a NACK

@@ -10,14 +10,17 @@ module security_gate #(
     input  wire        rst,
     input  wire        security_reset,
 
-    // Host memory bus IN (from comm_controller)
-    input  wire [3:0]  host_mem_req_valid,
-    input  wire [3:0]  host_mem_req_write,
-    input  wire [(4*ADDR_WIDTH)-1:0] host_mem_req_addr,
-    input  wire [(4*DATA_WIDTH)-1:0] host_mem_req_wdata,
-    output wire [3:0]  host_mem_req_ready,
-    output wire [3:0]  host_mem_resp_valid,
-    output wire [(4*DATA_WIDTH)-1:0] host_mem_resp_rdata,
+    // Merged memory bus IN (from bus_controller)
+    input  wire [3:0]  merged_mem_req_valid,
+    input  wire [3:0]  merged_mem_req_write,
+    input  wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr,
+    input  wire [(4*DATA_WIDTH)-1:0] merged_mem_req_wdata,
+    output wire [3:0]  merged_mem_req_ready,
+    output wire [3:0]  merged_mem_resp_valid,
+    output wire [(4*DATA_WIDTH)-1:0] merged_mem_resp_rdata,
+
+    // Request origin from bus_controller
+    input  wire [1:0]  memory_request_id,
 
     // Memory interface OUT (to memory_sec)
     output wire [3:0]  mem_req_valid,
@@ -28,12 +31,13 @@ module security_gate #(
     input  wire [3:0]  mem_req_ready,
     input  wire [3:0]  mem_resp_valid,
     input  wire [(4*DATA_WIDTH)-1:0] mem_resp_rdata,
+    input  wire [3:0]  write_blocked,
 
-    // Validate interface (from comm_controller)
+    // Validate interface (from comm_controller, direct)
     input  wire        validate_triggered,
     input  wire [3:0]  validate_model_id,
 
-    // Write status (to comm_controller)
+    // Write status (to bus_controller for demux)
     output reg         mem_write_done,
     output reg         mem_write_fail,
     input  wire        memory_status_consumed,
@@ -60,6 +64,12 @@ module security_gate #(
     localparam S_EXECUTE  = 3'd5;
     localparam S_ERROR    = 3'd6;
 
+    // Request ID constants (must match bus_controller)
+    localparam REQ_HOST  = 2'd0;
+    localparam REQ_CORE  = 2'd1;
+    localparam REQ_SEC   = 2'd2;
+    localparam REQ_DEBUG = 2'd3;
+
     // =========================================================================
     // Internal Registers
     // =========================================================================
@@ -70,10 +80,8 @@ module security_gate #(
     reg [ADDR_WIDTH-1:0]   limit_reg;
     reg                    verified_reg;
     reg                    fault_reg;
-
-    // SHA pre-start: pulse sha_start on first cycle after reset so SHA is
-    // in S_COLLECT (ready=1) before the first write arrives.
     reg                    sha_needs_start;
+    reg                    write_blocked_latch;
 
     // =========================================================================
     // Golden Hash Storage
@@ -117,26 +125,79 @@ module security_gate #(
     // =========================================================================
     // Lane-0 Decode
     // =========================================================================
-    wire lane0_write = host_mem_req_valid[0] && host_mem_req_write[0];
+    wire lane0_write = merged_mem_req_valid[0] && merged_mem_req_write[0];
 
     // =========================================================================
-    // Data Path: Default Pass-Through with State Overrides
+    // Protected Region Read Detection (per lane)
     // =========================================================================
-    reg        block_lane0_write;
+    wire [3:0] lane_is_read;
+    wire [3:0] lane_in_protected;
+    wire [3:0] block_read;
 
-    assign mem_req_valid  = block_lane0_write ?
-        {host_mem_req_valid[3:1], host_mem_req_valid[0] & ~host_mem_req_write[0]} :
-        host_mem_req_valid;
-    assign mem_req_write  = host_mem_req_write;
-    assign mem_req_addr   = host_mem_req_addr;
-    assign mem_req_wdata  = host_mem_req_wdata;
+    genvar gi;
+    generate
+        for (gi = 0; gi < 4; gi = gi + 1) begin : read_check
+            wire [ADDR_WIDTH-1:0] lane_addr = merged_mem_req_addr[gi*ADDR_WIDTH +: ADDR_WIDTH];
+
+            assign lane_is_read[gi] = merged_mem_req_valid[gi] && !merged_mem_req_write[gi];
+
+            // In LOCK/EXECUTE: region is [0, limit_reg) with locked_reg=1
+            // In ERROR: region is [0, weight_count_reg) even though locked_reg=0
+            assign lane_in_protected[gi] =
+                (locked_reg && (lane_addr < limit_reg)) ||
+                (state_reg == S_ERROR && (lane_addr < weight_count_reg));
+
+            // Block host reads to protected region in LOCK/EXECUTE/ERROR
+            // Block core reads to protected region only in ERROR
+            assign block_read[gi] = lane_is_read[gi] && lane_in_protected[gi] && (
+                ((memory_request_id == REQ_HOST) &&
+                 (state_reg == S_LOCK || state_reg == S_EXECUTE || state_reg == S_ERROR)) ||
+                ((memory_request_id == REQ_CORE) &&
+                 (state_reg == S_ERROR))
+            );
+        end
+    endgenerate
+
+    // =========================================================================
+    // Data Path: Merged bus → memory_sec with read interception
+    // Write protection is handled by memory_sec (locked + protected region).
+    // =========================================================================
+
+    // Suppress blocked reads from reaching memory; writes pass through to memory_sec
+    assign mem_req_valid = {
+        block_read[3] ? 1'b0 : merged_mem_req_valid[3],
+        block_read[2] ? 1'b0 : merged_mem_req_valid[2],
+        block_read[1] ? 1'b0 : merged_mem_req_valid[1],
+        block_read[0] ? 1'b0 : merged_mem_req_valid[0]
+    };
+
+    assign mem_req_write  = merged_mem_req_write;
+    assign mem_req_addr   = merged_mem_req_addr;
+    assign mem_req_wdata  = merged_mem_req_wdata;
     assign mem_req_wmask  = {4{4'b1111}};
 
-    assign host_mem_req_ready[3:1] = mem_req_ready[3:1];
-    assign host_mem_req_ready[0]   = block_lane0_write ? 1'b1 : mem_req_ready[0];
+    // Intercepted reads appear instantly ready; everything else from memory
+    assign merged_mem_req_ready = {
+        block_read[3] ? 1'b1 : mem_req_ready[3],
+        block_read[2] ? 1'b1 : mem_req_ready[2],
+        block_read[1] ? 1'b1 : mem_req_ready[1],
+        block_read[0] ? 1'b1 : mem_req_ready[0]
+    };
 
-    assign host_mem_resp_valid = mem_resp_valid;
-    assign host_mem_resp_rdata = mem_resp_rdata;
+    // Response: intercepted reads return 0xDEADDEAD, otherwise pass through from memory
+    assign merged_mem_resp_valid[0] = block_read[0] ? 1'b1 : mem_resp_valid[0];
+    assign merged_mem_resp_valid[1] = block_read[1] ? 1'b1 : mem_resp_valid[1];
+    assign merged_mem_resp_valid[2] = block_read[2] ? 1'b1 : mem_resp_valid[2];
+    assign merged_mem_resp_valid[3] = block_read[3] ? 1'b1 : mem_resp_valid[3];
+
+    assign merged_mem_resp_rdata[0*DATA_WIDTH +: DATA_WIDTH] =
+        block_read[0] ? 32'hDEADDEAD : mem_resp_rdata[0*DATA_WIDTH +: DATA_WIDTH];
+    assign merged_mem_resp_rdata[1*DATA_WIDTH +: DATA_WIDTH] =
+        block_read[1] ? 32'hDEADDEAD : mem_resp_rdata[1*DATA_WIDTH +: DATA_WIDTH];
+    assign merged_mem_resp_rdata[2*DATA_WIDTH +: DATA_WIDTH] =
+        block_read[2] ? 32'hDEADDEAD : mem_resp_rdata[2*DATA_WIDTH +: DATA_WIDTH];
+    assign merged_mem_resp_rdata[3*DATA_WIDTH +: DATA_WIDTH] =
+        block_read[3] ? 32'hDEADDEAD : mem_resp_rdata[3*DATA_WIDTH +: DATA_WIDTH];
 
     // =========================================================================
     // Output Assignments
@@ -161,92 +222,90 @@ module security_gate #(
             verified_reg     <= 1'b0;
             fault_reg        <= 1'b0;
             sha_needs_start  <= 1'b1;
-            sha_start        <= 1'b0;
-            sha_word_valid   <= 1'b0;
-            sha_word_data    <= 32'b0;
-            sha_finish       <= 1'b0;
-            mem_write_done   <= 1'b0;
-            mem_write_fail   <= 1'b0;
-            block_lane0_write <= 1'b0;
+            sha_start           <= 1'b0;
+            sha_word_valid      <= 1'b0;
+            sha_word_data       <= 32'b0;
+            sha_finish          <= 1'b0;
+            mem_write_done      <= 1'b0;
+            mem_write_fail      <= 1'b0;
+            write_blocked_latch <= 1'b0;
         end else if (security_reset) begin
-            state_reg        <= S_IDLE;
-            weight_count_reg <= {ADDR_WIDTH{1'b0}};
-            model_id_reg     <= 4'd0;
-            locked_reg       <= 1'b0;
-            limit_reg        <= {ADDR_WIDTH{1'b0}};
-            verified_reg     <= 1'b0;
-            fault_reg        <= 1'b0;
-            sha_needs_start  <= 1'b1;
-            sha_start        <= 1'b0;
-            sha_word_valid   <= 1'b0;
-            sha_word_data    <= 32'b0;
-            sha_finish       <= 1'b0;
-            mem_write_done   <= 1'b0;
-            mem_write_fail   <= 1'b0;
-            block_lane0_write <= 1'b0;
+            state_reg           <= S_IDLE;
+            weight_count_reg    <= {ADDR_WIDTH{1'b0}};
+            model_id_reg        <= 4'd0;
+            locked_reg          <= 1'b0;
+            limit_reg           <= {ADDR_WIDTH{1'b0}};
+            verified_reg        <= 1'b0;
+            fault_reg           <= 1'b0;
+            sha_needs_start     <= 1'b1;
+            sha_start           <= 1'b0;
+            sha_word_valid      <= 1'b0;
+            sha_word_data       <= 32'b0;
+            sha_finish          <= 1'b0;
+            mem_write_done      <= 1'b0;
+            mem_write_fail      <= 1'b0;
+            write_blocked_latch <= 1'b0;
         end else begin
 
             // Defaults
             sha_start      <= 1'b0;
             sha_word_valid <= 1'b0;
             sha_finish     <= 1'b0;
-            mem_write_done <= 1'b0;
-            mem_write_fail <= 1'b0;
-            block_lane0_write <= 1'b0;
 
-            // Pre-start SHA on first cycle after reset so it is in S_COLLECT
-            // (ready=1) before any write arrives. At UART speeds there are
-            // thousands of idle cycles between reset and the first write word.
+            // Pre-start SHA on first cycle after reset
             if (sha_needs_start) begin
                 sha_start       <= 1'b1;
                 sha_needs_start <= 1'b0;
             end
 
+            // Accumulate write-blocked events from memory_sec.
+            // Cleared when the comm_controller consumes the status.
+            if (|write_blocked) begin
+                write_blocked_latch <= 1'b1;
+            end
+            if (memory_status_consumed) begin
+                write_blocked_latch <= 1'b0;
+                mem_write_done      <= 1'b0;
+                mem_write_fail      <= 1'b0;
+            end
+
             case (state_reg)
 
-                // =============================================================
-                // S_IDLE: Wait for first weight write
-                // =============================================================
                 S_IDLE: begin
                     mem_write_done <= 1'b1;
+                    mem_write_fail <= 1'b0;
 
-                    if (lane0_write) begin
+                    if (lane0_write && (memory_request_id == REQ_HOST)) begin
                         sha_word_valid <= 1'b1;
-                        sha_word_data  <= host_mem_req_wdata[0 +: DATA_WIDTH];
+                        sha_word_data  <= merged_mem_req_wdata[0 +: DATA_WIDTH];
                         weight_count_reg <= {{(ADDR_WIDTH-1){1'b0}}, 1'b1};
                         state_reg   <= S_LOAD;
                     end
                 end
 
-                // =============================================================
-                // S_LOAD: Stream weights to memory + SHA-256
-                // =============================================================
                 S_LOAD: begin
                     mem_write_done <= 1'b1;
+                    mem_write_fail <= 1'b0;
 
                     if (validate_triggered) begin
                         model_id_reg <= validate_model_id;
                         sha_finish   <= 1'b1;
-                        block_lane0_write <= 1'b1;
                         state_reg    <= S_FINALIZE;
-                    end else if (lane0_write) begin
+                    end else if (lane0_write && (memory_request_id == REQ_HOST)) begin
                         sha_word_valid <= 1'b1;
-                        sha_word_data  <= host_mem_req_wdata[0 +: DATA_WIDTH];
+                        sha_word_data  <= merged_mem_req_wdata[0 +: DATA_WIDTH];
                         weight_count_reg <= weight_count_reg + {{(ADDR_WIDTH-1){1'b0}}, 1'b1};
                     end
 
                     if (sha_error) begin
                         fault_reg <= 1'b1;
-                        block_lane0_write <= 1'b1;
                         state_reg <= S_ERROR;
                     end
                 end
 
-                // =============================================================
-                // S_FINALIZE: Wait for SHA-256 digest
-                // =============================================================
                 S_FINALIZE: begin
-                    block_lane0_write <= 1'b1;
+                    mem_write_done <= 1'b0;
+                    mem_write_fail <= 1'b0;
 
                     if (sha_digest_valid) begin
                         state_reg <= S_VERIFY;
@@ -258,11 +317,9 @@ module security_gate #(
                     end
                 end
 
-                // =============================================================
-                // S_VERIFY: Compare digest against golden hash
-                // =============================================================
                 S_VERIFY: begin
-                    block_lane0_write <= 1'b1;
+                    mem_write_done <= 1'b0;
+                    mem_write_fail <= 1'b0;
 
                     if (sha_digest == golden_hash[model_id_reg]) begin
                         state_reg <= S_LOCK;
@@ -272,28 +329,22 @@ module security_gate #(
                     end
                 end
 
-                // =============================================================
-                // S_LOCK: Apply security policy
-                // =============================================================
                 S_LOCK: begin
-                    locked_reg   <= 1'b1;
-                    limit_reg    <= weight_count_reg;
-                    verified_reg <= 1'b1;
-                    state_reg    <= S_EXECUTE;
+                    mem_write_done <= 1'b0;
+                    mem_write_fail <= 1'b0;
+                    locked_reg     <= 1'b1;
+                    limit_reg      <= weight_count_reg;
+                    verified_reg   <= 1'b1;
+                    state_reg      <= S_EXECUTE;
                 end
 
-                // =============================================================
-                // S_EXECUTE: Normal operation with protected weights
-                // =============================================================
                 S_EXECUTE: begin
-                    mem_write_done <= 1'b1;
+                    mem_write_done <= !write_blocked_latch;
+                    mem_write_fail <= write_blocked_latch;
                 end
 
-                // =============================================================
-                // S_ERROR: Security violation
-                // =============================================================
                 S_ERROR: begin
-                    block_lane0_write <= 1'b1;
+                    mem_write_done <= 1'b0;
                     mem_write_fail <= 1'b1;
                 end
 

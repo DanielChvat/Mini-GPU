@@ -66,7 +66,29 @@ module security_gate_integration_tb();
     wire        memory_status_consumed;
 
     // =========================================================================
-    // Security Gate Signals
+    // Bus Controller → Security Gate wires
+    // =========================================================================
+    wire [3:0]  merged_mem_req_valid;
+    wire [3:0]  merged_mem_req_write;
+    wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr;
+    wire [(4*DATA_WIDTH)-1:0] merged_mem_req_wdata;
+    wire [3:0]  merged_mem_req_ready;
+    wire [3:0]  merged_mem_resp_valid;
+    wire [(4*DATA_WIDTH)-1:0] merged_mem_resp_rdata;
+    wire        merged_mem_write_done;
+    wire        merged_mem_write_fail;
+    wire        merged_memory_status_consumed;
+    wire [1:0]  memory_request_id;
+
+    // Core bus (tied off for this integration test)
+    wire [3:0]  core_mem_req_ready;
+    wire [3:0]  core_mem_resp_valid;
+    wire [(4*DATA_WIDTH)-1:0] core_mem_resp_rdata;
+    wire        core_mem_write_done;
+    wire        core_mem_write_fail;
+
+    // =========================================================================
+    // Security Gate → Memory_sec wires
     // =========================================================================
     wire [3:0]  sg_mem_req_valid;
     wire [3:0]  sg_mem_req_write;
@@ -133,6 +155,48 @@ module security_gate_integration_tb();
     );
 
     // =========================================================================
+    // Bus Controller
+    // =========================================================================
+    bus_controller #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH)
+    ) bus_ctrl (
+        .clk(clk),
+        .rst(rst),
+        .host_mem_req_valid(data_mem_req_valid),
+        .host_mem_req_write(data_mem_req_write),
+        .host_mem_req_addr(data_mem_req_addr),
+        .host_mem_req_wdata(data_mem_req_wdata),
+        .host_mem_req_ready(data_mem_req_ready),
+        .host_mem_resp_valid(data_mem_resp_valid),
+        .host_mem_resp_rdata(data_mem_resp_rdata),
+        .host_mem_write_done(mem_write_done),
+        .host_mem_write_fail(mem_write_fail),
+        .host_memory_status_consumed(memory_status_consumed),
+        .core_mem_req_valid(4'b0000),
+        .core_mem_req_write(4'b0000),
+        .core_mem_req_addr({(4*ADDR_WIDTH){1'b0}}),
+        .core_mem_req_wdata({(4*DATA_WIDTH){1'b0}}),
+        .core_mem_req_ready(core_mem_req_ready),
+        .core_mem_resp_valid(core_mem_resp_valid),
+        .core_mem_resp_rdata(core_mem_resp_rdata),
+        .core_mem_write_done(core_mem_write_done),
+        .core_mem_write_fail(core_mem_write_fail),
+        .core_memory_status_consumed(1'b0),
+        .merged_mem_req_valid(merged_mem_req_valid),
+        .merged_mem_req_write(merged_mem_req_write),
+        .merged_mem_req_addr(merged_mem_req_addr),
+        .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_ready(merged_mem_req_ready),
+        .merged_mem_resp_valid(merged_mem_resp_valid),
+        .merged_mem_resp_rdata(merged_mem_resp_rdata),
+        .merged_mem_write_done(merged_mem_write_done),
+        .merged_mem_write_fail(merged_mem_write_fail),
+        .merged_memory_status_consumed(merged_memory_status_consumed),
+        .memory_request_id(memory_request_id)
+    );
+
+    // =========================================================================
     // Security Gate
     // =========================================================================
     security_gate #(
@@ -143,13 +207,14 @@ module security_gate_integration_tb();
         .clk(clk),
         .rst(rst),
         .security_reset(security_reset_triggered),
-        .host_mem_req_valid(data_mem_req_valid),
-        .host_mem_req_write(data_mem_req_write),
-        .host_mem_req_addr(data_mem_req_addr),
-        .host_mem_req_wdata(data_mem_req_wdata),
-        .host_mem_req_ready(data_mem_req_ready),
-        .host_mem_resp_valid(data_mem_resp_valid),
-        .host_mem_resp_rdata(data_mem_resp_rdata),
+        .merged_mem_req_valid(merged_mem_req_valid),
+        .merged_mem_req_write(merged_mem_req_write),
+        .merged_mem_req_addr(merged_mem_req_addr),
+        .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_ready(merged_mem_req_ready),
+        .merged_mem_resp_valid(merged_mem_resp_valid),
+        .merged_mem_resp_rdata(merged_mem_resp_rdata),
+        .memory_request_id(memory_request_id),
         .mem_req_valid(sg_mem_req_valid),
         .mem_req_write(sg_mem_req_write),
         .mem_req_addr(sg_mem_req_addr),
@@ -158,11 +223,12 @@ module security_gate_integration_tb();
         .mem_req_ready(sg_mem_req_ready),
         .mem_resp_valid(sg_mem_resp_valid),
         .mem_resp_rdata(sg_mem_resp_rdata),
+        .write_blocked(write_blocked),
         .validate_triggered(validate_triggered),
         .validate_model_id(validate_model_id),
-        .mem_write_done(mem_write_done),
-        .mem_write_fail(mem_write_fail),
-        .memory_status_consumed(memory_status_consumed),
+        .mem_write_done(merged_mem_write_done),
+        .mem_write_fail(merged_mem_write_fail),
+        .memory_status_consumed(merged_memory_status_consumed),
         .weight_locked(weight_locked),
         .protected_base(protected_base),
         .protected_limit(protected_limit),
@@ -331,7 +397,7 @@ module security_gate_integration_tb();
     // Main Test Sequence
     // =========================================================================
     initial begin
-        $dumpfile("security_gate_integration_tb.vcd");
+        $dumpfile("./tmp/security_gate_integration_tb.vcd");
         $dumpvars(0, security_gate_integration_tb);
 
         clk = 0;
@@ -392,12 +458,12 @@ module security_gate_integration_tb();
         $display("  Test %0d: %s", testNum, (errors == 0) ? "PASS" : "FAIL");
 
         // ==============================================================
-        // Test 2: Read back weights from memory
+        // Test 2: Host read protected region returns 0xDEADDEAD
         // ==============================================================
         testNum = 2;
-        $display("\n=== Test %0d: Read weights back from memory ===", testNum);
+        $display("\n=== Test %0d: Host read protected region returns DEADDEAD ===", testNum);
 
-        // READ_DATA at address 0, 4 bytes (1 word)
+        // READ_DATA at address 0, 4 bytes (1 word) — protected, host blocked
         payload[0] = 8'h00; payload[1] = 8'h00; payload[2] = 8'h00; payload[3] = 8'h00;
         fork
             send_packet(COM_CMD_READ_DATA, 16'h0000, 16'd4);
@@ -407,19 +473,17 @@ module security_gate_integration_tb();
                     @(posedge clk);
                     timeout_count = timeout_count + 1;
                 end
-                // Check it's a READ_DATA response
                 if (comm.tx_cmd !== COM_CMD_READ_DATA) begin
                     $display("  TEST%0d FAIL: expected READ_DATA response, got %h", testNum, comm.tx_cmd);
                     errors = errors + 1;
                 end
-                // Wait for payload
                 timeout_count = 0;
                 while ((comm.tx_payload_valid !== 1'b1) && (timeout_count < 50000)) begin
                     @(posedge clk);
                     timeout_count = timeout_count + 1;
                 end
-                if (comm.tx_payload_data !== 32'h00000000) begin
-                    $display("  TEST%0d FAIL: weight[0] expected 0x00000000, got %h", testNum, comm.tx_payload_data);
+                if (comm.tx_payload_data !== 32'hDEADDEAD) begin
+                    $display("  TEST%0d FAIL: expected 0xDEADDEAD, got %h", testNum, comm.tx_payload_data);
                     errors = errors + 1;
                 end
             end
@@ -429,19 +493,19 @@ module security_gate_integration_tb();
         $display("  Test %0d: %s", testNum, (errors == 0) ? "PASS" : "FAIL");
 
         // ==============================================================
-        // Test 3: Write to protected region blocked in EXECUTE
+        // Test 3: Write to protected region blocked in EXECUTE → NAK
         // ==============================================================
         testNum = 3;
-        $display("\n=== Test %0d: Write to protected region blocked ===", testNum);
+        $display("\n=== Test %0d: Write to protected region blocked (NAK) ===", testNum);
 
         payload[0] = 8'hDE; payload[1] = 8'hAD; payload[2] = 8'hBE; payload[3] = 8'hEF;
         fork
             send_packet(COM_CMD_WRITE_DATA, 16'h0000, 16'd4);
-            expect_tx_done(COM_CMD_ACK, 16'h0000, 16'd0);
+            expect_tx_done(COM_CMD_NAK, 16'h0000, 16'd0);
         join
         wait_tx_idle();
 
-        // Read back - should still be original value (0x00000000), not 0xEFBEADDE
+        // Read back — host reads protected region, gets 0xDEADDEAD regardless
         payload[0] = 0; payload[1] = 0; payload[2] = 0; payload[3] = 0;
         fork
             send_packet(COM_CMD_READ_DATA, 16'h0000, 16'd4);
@@ -456,8 +520,8 @@ module security_gate_integration_tb();
                     @(posedge clk);
                     timeout_count = timeout_count + 1;
                 end
-                if (comm.tx_payload_data !== 32'h00000000) begin
-                    $display("  TEST%0d FAIL: protected write leaked! Got %h", testNum, comm.tx_payload_data);
+                if (comm.tx_payload_data !== 32'hDEADDEAD) begin
+                    $display("  TEST%0d FAIL: expected 0xDEADDEAD, got %h", testNum, comm.tx_payload_data);
                     errors = errors + 1;
                 end
             end
