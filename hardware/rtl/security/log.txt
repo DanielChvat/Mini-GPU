@@ -111,3 +111,44 @@ Main security gate design
         - this again can be added later, because it will make debugging more difficult, for now host can read from protected region 
     - add security codes to the NACK that is sent 
         - ie we can populate the address region of the header with codes that indicate what kind of error (hash mismatch, CRC fail, write attempt to lock region, SHA failure)
+    - another issue with the current design is that an attacker can still use scratch memory to perform computation, after sending a valid model
+        - one solution to fix this is to make it so that certain operation must take in one of the inputs from a protected region
+        - but how do I differenciate operations that require input from a protected region vs operations that don't require operations from a protected region 
+        - this would also require rewritting a good chunk of the implemntation of the operations so that it forces the use of protected regions
+        - potential solution: adding meta data to memory, but this would blow up the complexity
+
+
+- 5/9
+    - security gate implemented
+    - currently there is no way to know that a CRC failure occured
+        - this isn't an issue from the security side, but it does have the potential to cause bugs in the future, if the SW doesn't explicitly send the security reset signal
+        - this is an issue because the security gate won't go into ERROR state, forcing the host to activate the security reset
+        - although this isn't catastrophic, it is important to note that this is different from the original design specs
+        - we can choose to either implement/fix this or leave it 
+
+- 5/11
+    - This current security framework only works with the assumption that this GPU will be used for AI inference, and we will continue building on this security architecture
+    - in parallel we will start building a security framework for a GPU that supports AI training as well
+    - In the current implementation there are a couple things that we want to implement:
+        - make it so that the host can't read from the protected region, when the system is locked
+            - when the host attempts to read from the protected region, it will return 0xDEADDEADDEADDEAD when in LOCK, EXECUTE, ERROR states
+            - host can read from memory unrestricted when in IDLE and LOAD states
+        - support memory access for the chip
+            - when the chip accesses protected memory (in execute state), it can read from the region, but it can't write to the region
+            - read/write is fully accessibly to scratch memory region
+        - when in ERROR state, execution is disabled, protected region is inaccessible by anyone, writes blocked, only resets are allowed
+        - therefore, all memory requests in this system must go through the security gate
+        - to support the different memory access, we will create a very basic bus controller module
+            - this is honestly not neccesary, we're just doing this to help scalability 
+            - design specs:
+                - it will take in 2 memory bus interface and 2 set of memory status flags
+                - the output is 1 memory bus interface, 1 memory status flag set, and the id of where the memory request origniated from
+                - this will be connected to the security gate as it's input, so it will need to support these changes
+                - for each device, it will also take in a wire that goes up when a request is sent to memory
+                - the key feature is the use of memory_request_id
+                    - this will likely be the only register in this module
+                    - we will define it as REQ_HOST, REQ_CORE, REQ_SEC, REQ_DEBUG
+                    - in reality, we will only use REQ_HOST and REQ_CORE, but this is for future scalability
+                - the security gate will use the memory_request_id to enforce the different policies for each request
+                - this will be a very light weight module consisting of mux 
+        - there was a mistake in the implementation where the security gate didn't do the proper handshake with the communication_controller, this was fixed
