@@ -152,3 +152,6 @@ Main security gate design
                 - the security gate will use the memory_request_id to enforce the different policies for each request
                 - this will be a very light weight module consisting of mux 
         - there was a mistake in the implementation where the security gate didn't do the proper handshake with the communication_controller, this was fixed
+    - an issue with the current implementation is that the host can take over the bus while the core is waiting for a response
+        - we should probably make it so that the bus access can only change when memory status consumed, memory write fail, and memory write done are all 0 
+        - or another way to gurantee that transmission is complete
