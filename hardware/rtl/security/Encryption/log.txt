@@ -85,3 +85,13 @@ Threat model:
 
 - 5/13
     - implement the rosc entropy IP and its wrapper
+    - testbench needs to use a fake rosc.v implementation to simular randomness 
+    - implement the chacha CSPRNG
+        - will implement chacha20
+            - it will likely not use more LUTs, instead it will require more latency
+    - implement AES-CTR
+        - will use AES-128 instead of the AES-256 option
+        - the first 128 bits of the encryption key will be for the FPGA to use and the later 128 bits of the encryption key will be for the host
+        - important design note: caller must hold data_in stable from load assertion until data_valid goes high
+    - in head security module, we may incorporate packet number, but we have not decided on that yet
+
