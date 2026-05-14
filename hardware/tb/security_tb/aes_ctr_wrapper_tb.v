@@ -86,6 +86,9 @@ module aes_ctr_wrapper_tb;
     endtask
 
     initial begin
+        $dumpfile("./tmp/aes_ctr_wrapper_tb.vcd");
+        $dumpvars(0, aes_ctr_wrapper_tb);
+
         rst      = 1'b1;
         enable   = 1'b0;
         key      = KEY_A;
@@ -121,7 +124,9 @@ module aes_ctr_wrapper_tb;
 
         // ---- Test 3: Basic handshake ----
         enable = 1'b1;
-        @(posedge clk);
+        seed_key;
+        load_block(PT_A);
+        repeat (53) @(posedge clk);
         @(negedge clk);
 
         if (data_valid !== 1'b1) begin
