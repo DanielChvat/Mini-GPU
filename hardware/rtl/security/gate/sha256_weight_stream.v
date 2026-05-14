@@ -98,13 +98,11 @@ module sha256_weight_stream (
     //--------------------------------------------------------------------------
     reg [2:0] state_reg;               // Current FSM state
     reg [511:0] block_reg;             // Current partially assembled SHA-256 block
-    reg [511:0] submit_block_reg;      // Block currently being submitted to SHA core
     reg [3:0] word_index_reg;          // Current 32-bit word index within block (0–15)
-    reg [63:0] total_bits_reg;         // Total number of bits hashed (SHA padding requirement)
+    reg [31:0] total_bits_reg;         // Total number of bits hashed (SHA padding requirement)
     reg first_block_reg;               // Indicates whether next block uses SHA init (first vs continuation)
     reg submit_first_reg;              // Latched INIT/NEXT control for SHA core submission
     reg [1:0] after_core_reg;          // Determines next action after SHA core completes
-    reg [255:0] digest_reg;            // Final SHA-256 digest storage
     reg digest_valid_reg;              // Pulses high when digest becomes valid
     reg error_reg;                     // FSM/protocol violation indicator
 
@@ -144,7 +142,7 @@ module sha256_weight_stream (
     //--------------------------------------------------------------------------
     assign ready = (state_reg == S_COLLECT);    // Ready only while collecting words
     assign busy = (state_reg != S_IDLE);        // Busy whenever not idle
-    assign digest = digest_reg;                 // Final digest output
+    assign digest = core_digest;                // Core digest stays stable after completion
     assign digest_valid = digest_valid_reg;     // Digest valid pulse
     assign error = error_reg;                   // Error flag
 
@@ -159,7 +157,7 @@ module sha256_weight_stream (
         .init(core_init),                   // Start new hash
         .next(core_next),                   // Continue existing hash
         .mode(1'b1),                        // SHA-256 mode
-        .block(submit_block_reg),           // 512-bit message block
+        .block(block_reg),                  // 512-bit message block
         .ready(core_ready),                 // Core ready for new block
         .digest(core_digest),               // Current digest
         .digest_valid(core_digest_valid)    // Digest valid pulse
@@ -178,13 +176,11 @@ module sha256_weight_stream (
             //------------------------------------------------------------------
             state_reg <= S_IDLE;
             block_reg <= 512'b0;
-            submit_block_reg <= 512'b0;
             word_index_reg <= 4'd0;
-            total_bits_reg <= 64'd0;
+            total_bits_reg <= 32'd0;
             first_block_reg <= 1'b1;
             submit_first_reg <= 1'b1;
             after_core_reg <= AFTER_COLLECT;
-            digest_reg <= 256'b0;
             digest_valid_reg <= 1'b0;
             error_reg <= 1'b0;
         end else begin
@@ -197,18 +193,16 @@ module sha256_weight_stream (
                 state_reg <= S_COLLECT;
 
                 block_reg <= 512'b0;
-                submit_block_reg <= 512'b0;
 
                 word_index_reg <= 4'd0;
 
-                total_bits_reg <= 64'd0;
+                total_bits_reg <= 32'd0;
 
                 first_block_reg <= 1'b1;
                 submit_first_reg <= 1'b1;
 
                 after_core_reg <= AFTER_COLLECT;
 
-                digest_reg <= 256'b0;
                 digest_valid_reg <= 1'b0;
 
                 error_reg <= 1'b0;
@@ -259,21 +253,13 @@ module sha256_weight_stream (
                             // Track total message length
                             //----------------------------------------------------------
 
-                            total_bits_reg <= total_bits_reg + 64'd32;
+                            total_bits_reg <= total_bits_reg + 32'd32;
 
                             //----------------------------------------------------------
                             // Full 512-bit block complete
                             //----------------------------------------------------------
 
                             if (word_index_reg == 4'd15) begin
-
-                                // Submit completed block
-                                submit_block_reg <=
-                                    block_with_word(
-                                        block_reg,
-                                        word_index_reg,
-                                        word_data
-                                    );
 
                                 // Determine init vs next
                                 submit_first_reg <= first_block_reg;
@@ -283,11 +269,6 @@ module sha256_weight_stream (
 
                                 // Submit to SHA core
                                 state_reg <= S_SUBMIT;
-
-                                // Clear collector
-                                block_reg <= 512'b0;
-
-                                word_index_reg <= 4'd0;
 
                             end else begin
 
@@ -301,11 +282,11 @@ module sha256_weight_stream (
                             // Finalize SHA padding block
                             //----------------------------------------------------------
 
-                            submit_block_reg <=
+                            block_reg <=
                                 final_block(
                                     block_reg,
                                     word_index_reg,
-                                    total_bits_reg,
+                                    {32'b0, total_bits_reg},
                                     1'b0
                                 );
 
@@ -381,6 +362,8 @@ module sha256_weight_stream (
 
                             if (after_core_reg == AFTER_COLLECT) begin
 
+                                block_reg <= 512'b0;
+                                word_index_reg <= 4'd0;
                                 state_reg <= S_COLLECT;
 
                             //----------------------------------------------------------
@@ -389,11 +372,11 @@ module sha256_weight_stream (
 
                             end else if (after_core_reg == AFTER_SECOND_PAD) begin
 
-                                submit_block_reg <=
+                                block_reg <=
                                     final_block(
                                         512'b0,
                                         4'd0,
-                                        total_bits_reg,
+                                        {32'b0, total_bits_reg},
                                         1'b1
                                     );
 
@@ -408,8 +391,6 @@ module sha256_weight_stream (
                             //----------------------------------------------------------
 
                             end else begin
-
-                                digest_reg <= core_digest;
 
                                 digest_valid_reg <= 1'b1;
 
@@ -457,7 +438,24 @@ module sha256_weight_stream (
 
             tmp = in_block;
 
-            tmp[((15 - index) * 32) +: 32] = word;
+            case (index)
+                4'd0:  tmp[511:480] = word;
+                4'd1:  tmp[479:448] = word;
+                4'd2:  tmp[447:416] = word;
+                4'd3:  tmp[415:384] = word;
+                4'd4:  tmp[383:352] = word;
+                4'd5:  tmp[351:320] = word;
+                4'd6:  tmp[319:288] = word;
+                4'd7:  tmp[287:256] = word;
+                4'd8:  tmp[255:224] = word;
+                4'd9:  tmp[223:192] = word;
+                4'd10: tmp[191:160] = word;
+                4'd11: tmp[159:128] = word;
+                4'd12: tmp[127:96]  = word;
+                4'd13: tmp[95:64]   = word;
+                4'd14: tmp[63:32]   = word;
+                4'd15: tmp[31:0]    = word;
+            endcase
 
             block_with_word = tmp;
             

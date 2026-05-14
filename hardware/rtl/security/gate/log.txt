@@ -155,3 +155,24 @@ Main security gate design
     - an issue with the current implementation is that the host can take over the bus while the core is waiting for a response
         - we should probably make it so that the bus access can only change when memory status consumed, memory write fail, and memory write done are all 0 
         - or another way to gurantee that transmission is complete
+
+- 5/13
+    - we are very limited on the number of LUTs that are available
+    - the largest LUT eater in the current system is the SHA256 core
+    - our current goal is to reduce the area by removing parallelization
+    - some changes to help reduce LUT in SHA256 core
+        - removed support for SHA224 (little change)
+        - weight strean block index switched to basic case statements, instead of arithmetic based indexing (-4000 cells)
+        - removed memory round-index output mux (-400 cells)
+        - cycle count increases by about 10X, but this shouldn't be an issue considering we are already bottlenecked by the UART transmission
+        - reduced total cells from 10507 -> 6204 (41% reduction)
+    - for verification, I'm thinking of using Yosys:
+        - https://yosyshq.readthedocs.io/projects/yosys/en/0.46/getting_started/installation.html#targeted-architectures
+        - evaluate_sha256_size.sh script to help determine the number of LUTs used
+    - additional changes:
+        - sha256 wrapper -> -1000 cells
+            - removed submit_block_reg which held the final input block into the sha256, instead we submit the block directly without a middle man
+        - sha256 core -> -280 cells
+            - reduced number of adders in design when updating the digest
+            - instead of 8 parallel adds getting processed in 1 cycle, they share 1 adder across 8 cycles
+            - this is done by using a MUX
