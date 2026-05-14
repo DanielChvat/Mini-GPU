@@ -132,13 +132,14 @@ module sha256_w_mem(
   //----------------------------------------------------------------
   // select_w
   //
-  // Mux for the external read operation. This is where we exract
-  // the W variable.
+  // The first 16 rounds rotate the window, so w_mem[0] produces
+  // W0..W15 without a 16-way round-indexed mux. From round 16 onward,
+  // the freshly computed schedule word is consumed in the same cycle.
   //----------------------------------------------------------------
   always @*
     begin : select_w
       if (round < 16)
-        w_tmp = w_mem[round[3 : 0]];
+        w_tmp = w_mem[0];
       else
         w_tmp = w_new;
     end // select_w
@@ -210,6 +211,27 @@ module sha256_w_mem(
           w_mem13_new = block[95  :  64];
           w_mem14_new = block[63  :  32];
           w_mem15_new = block[31  :   0];
+          w_mem_we    = 1;
+        end
+
+      if (next && (round < 16))
+        begin
+          w_mem00_new = w_mem[01];
+          w_mem01_new = w_mem[02];
+          w_mem02_new = w_mem[03];
+          w_mem03_new = w_mem[04];
+          w_mem04_new = w_mem[05];
+          w_mem05_new = w_mem[06];
+          w_mem06_new = w_mem[07];
+          w_mem07_new = w_mem[08];
+          w_mem08_new = w_mem[09];
+          w_mem09_new = w_mem[10];
+          w_mem10_new = w_mem[11];
+          w_mem11_new = w_mem[12];
+          w_mem12_new = w_mem[13];
+          w_mem13_new = w_mem[14];
+          w_mem14_new = w_mem[15];
+          w_mem15_new = w_mem[00];
           w_mem_we    = 1;
         end
 

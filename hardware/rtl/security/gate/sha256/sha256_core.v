@@ -58,15 +58,6 @@ module sha256_core(
   //----------------------------------------------------------------
   // Internal constant and parameter definitions.
   //----------------------------------------------------------------
-  localparam SHA224_H0_0 = 32'hc1059ed8;
-  localparam SHA224_H0_1 = 32'h367cd507;
-  localparam SHA224_H0_2 = 32'h3070dd17;
-  localparam SHA224_H0_3 = 32'hf70e5939;
-  localparam SHA224_H0_4 = 32'hffc00b31;
-  localparam SHA224_H0_5 = 32'h68581511;
-  localparam SHA224_H0_6 = 32'h64f98fa7;
-  localparam SHA224_H0_7 = 32'hbefa4fa4;
-
   localparam SHA256_H0_0 = 32'h6a09e667;
   localparam SHA256_H0_1 = 32'hbb67ae85;
   localparam SHA256_H0_2 = 32'h3c6ef372;
@@ -282,29 +273,18 @@ module sha256_core(
 
       if (digest_init)
         begin
+          // SHA-224 selection is intentionally removed for area. The wrapper
+          // hardwires mode=1'b1, so this core implements SHA-256 only while
+          // preserving the original port list.
           H_we = 1;
-          if (mode)
-            begin
-              H0_new = SHA256_H0_0;
-              H1_new = SHA256_H0_1;
-              H2_new = SHA256_H0_2;
-              H3_new = SHA256_H0_3;
-              H4_new = SHA256_H0_4;
-              H5_new = SHA256_H0_5;
-              H6_new = SHA256_H0_6;
-              H7_new = SHA256_H0_7;
-            end
-          else
-            begin
-              H0_new = SHA224_H0_0;
-              H1_new = SHA224_H0_1;
-              H2_new = SHA224_H0_2;
-              H3_new = SHA224_H0_3;
-              H4_new = SHA224_H0_4;
-              H5_new = SHA224_H0_5;
-              H6_new = SHA224_H0_6;
-              H7_new = SHA224_H0_7;
-            end
+          H0_new = SHA256_H0_0;
+          H1_new = SHA256_H0_1;
+          H2_new = SHA256_H0_2;
+          H3_new = SHA256_H0_3;
+          H4_new = SHA256_H0_4;
+          H5_new = SHA256_H0_5;
+          H6_new = SHA256_H0_6;
+          H7_new = SHA256_H0_7;
         end
 
       if (digest_update)
@@ -385,28 +365,14 @@ module sha256_core(
           a_h_we = 1;
           if (first_block)
             begin
-              if (mode)
-                begin
-                  a_new  = SHA256_H0_0;
-                  b_new  = SHA256_H0_1;
-                  c_new  = SHA256_H0_2;
-                  d_new  = SHA256_H0_3;
-                  e_new  = SHA256_H0_4;
-                  f_new  = SHA256_H0_5;
-                  g_new  = SHA256_H0_6;
-                  h_new  = SHA256_H0_7;
-                end
-              else
-                begin
-                  a_new  = SHA224_H0_0;
-                  b_new  = SHA224_H0_1;
-                  c_new  = SHA224_H0_2;
-                  d_new  = SHA224_H0_3;
-                  e_new  = SHA224_H0_4;
-                  f_new  = SHA224_H0_5;
-                  g_new  = SHA224_H0_6;
-                  h_new  = SHA224_H0_7;
-                end
+              a_new  = SHA256_H0_0;
+              b_new  = SHA256_H0_1;
+              c_new  = SHA256_H0_2;
+              d_new  = SHA256_H0_3;
+              e_new  = SHA256_H0_4;
+              f_new  = SHA256_H0_5;
+              g_new  = SHA256_H0_6;
+              h_new  = SHA256_H0_7;
             end
           else
             begin
