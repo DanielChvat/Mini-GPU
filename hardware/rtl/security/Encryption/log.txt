@@ -40,7 +40,7 @@ Threat model:
     - benefits:
         - each session key is unique 
         - easy to implement, can just build off of the current SHA256 implementation
-        - because the root_key and/or its children are transfered through the transmission line, it will make it difficult for an attacker to obtain hints on what the root_key may be
+        - because the root_key and/or its children aren't transfered through the transmission line, it will make it difficult for an attacker to obtain hints on what the root_key may be
         - a matching root_key is used for symmetric authentication
 - for generating the nonce_fpga, we will use the CHACHA algorithm as a CSPRNG (cryptographically secure pseudorandom number generator)
     - will use a SHA256 to generate the key for the CHACHA algorithm (entropy conditioning), but this requires a strong entropy source

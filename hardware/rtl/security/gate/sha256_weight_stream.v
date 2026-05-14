@@ -189,7 +189,7 @@ module sha256_weight_stream (
             // Start New Hashing Session
             //------------------------------------------------------------------
 
-            if (start) begin
+            if (start && state_reg == S_IDLE) begin
                 state_reg <= S_COLLECT;
 
                 block_reg <= 512'b0;
@@ -208,7 +208,7 @@ module sha256_weight_stream (
                 error_reg <= 1'b0;
 
             end else begin
-
+                digest_valid_reg <= 1'b0;
                 case (state_reg)
 
                     //------------------------------------------------------------------
