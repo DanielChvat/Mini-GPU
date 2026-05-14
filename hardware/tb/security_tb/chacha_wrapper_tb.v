@@ -88,7 +88,11 @@ module chacha_wrapper_tb;
 
         // ---- Test 3: Basic generation + handshake ----
         enable = 1'b1;
+        seed = 1'b1;
         @(posedge clk);
+        seed = 1'b0;
+
+        repeat (23) @(posedge clk);
         @(negedge clk);
 
         if (data_valid !== 1'b1) begin

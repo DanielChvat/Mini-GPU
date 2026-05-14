@@ -89,9 +89,16 @@ Threat model:
     - implement the chacha CSPRNG
         - will implement chacha20
             - it will likely not use more LUTs, instead it will require more latency
+        - key is fresh everytime we generate the chacha key, therefore we can leave IV and CTR as constants 
+        - important design note:
+            - the input key must be stable when the core is active
     - implement AES-CTR
         - will use AES-128 instead of the AES-256 option
         - the first 128 bits of the encryption key will be for the FPGA to use and the later 128 bits of the encryption key will be for the host
+        - effectively killed both the aes_decipher_block and the aes_inv_sbox blocks, because they will not be used
+            - however, in the future I plan on optimizing the blocks for area and we will be removing the modules from the declaration all together
         - important design note: caller must hold data_in stable from load assertion until data_valid goes high
+            - the internal counter has no overflow protection, this must be addressed in the upper module
     - in head security module, we may incorporate packet number, but we have not decided on that yet
+    - most of the wrappers didn't implement the enable line correctly, where even when enable was low, the module was able to be seeded and send the ack values, this issue has been patched
 

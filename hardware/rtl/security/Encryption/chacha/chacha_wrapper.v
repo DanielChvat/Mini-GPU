@@ -14,6 +14,9 @@ module chacha_wrapper (
 
     wire reset_n = ~rst;
 
+    wire seed_i = seed & enable;
+    wire ack_i  = data_ack & enable;
+
     localparam         KEYLEN  = 1'b1;
     localparam [4:0]   ROUNDS  = 5'h14;
     localparam [63:0]  IV      = 64'h0;
@@ -46,7 +49,7 @@ module chacha_wrapper (
 
         case (state_reg)
             W_IDLE: begin
-                if (seed) begin
+                if (seed_i) begin
                     core_init  = 1'b1;
                     state_next = W_BUSY;
                 end
@@ -58,10 +61,10 @@ module chacha_wrapper (
             end
 
             W_VALID: begin
-                if (seed) begin
+                if (seed_i) begin
                     core_init  = 1'b1;
                     state_next = W_BUSY;
-                end else if (data_ack && enable) begin
+                end else if (ack_i) begin
                     core_next  = 1'b1;
                     state_next = W_BUSY;
                 end

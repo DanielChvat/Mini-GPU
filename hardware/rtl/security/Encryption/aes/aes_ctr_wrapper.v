@@ -17,6 +17,10 @@ module aes_ctr_wrapper (
 
     wire reset_n = ~rst;
 
+    wire seed_i = seed & enable;
+    wire load_i = load & enable;
+    wire ack_i  = data_ack & enable;
+
     localparam KEYLEN = 1'b0;
     localparam ENCDEC = 1'b1;
 
@@ -44,7 +48,7 @@ module aes_ctr_wrapper (
             ctr_reg       <= 32'd0;
         end else begin
             state_reg <= state_next;
-            if (seed) begin
+            if (seed_i) begin
                 key_ready_reg <= 1'b0;
                 ctr_reg       <= 32'd0;
             end else begin
@@ -65,10 +69,10 @@ module aes_ctr_wrapper (
 
         case (state_reg)
             W_IDLE: begin
-                if (seed) begin
+                if (seed_i) begin
                     core_init  = 1'b1;
                     state_next = W_BUSY;
-                end else if (load && key_ready_reg) begin
+                end else if (load_i && key_ready_reg) begin
                     core_next  = 1'b1;
                     state_next = W_BUSY;
                 end
@@ -85,10 +89,10 @@ module aes_ctr_wrapper (
             end
 
             W_VALID: begin
-                if (seed) begin
+                if (seed_i) begin
                     core_init  = 1'b1;
                     state_next = W_BUSY;
-                end else if (data_ack && enable) begin
+                end else if (ack_i) begin
                     state_next = W_IDLE;
                 end
             end

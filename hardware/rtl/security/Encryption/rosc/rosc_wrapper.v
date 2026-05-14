@@ -13,6 +13,7 @@ module rosc_wrapper (
     wire reset_n = ~rst;
     wire [31:0] rosc_en_internal = {32{enable}};
     wire core_entropy_valid;
+    wire ack_i = entropy_ack & enable;
 
     localparam [31:0] ROSC_OPA = 32'haaaaaaaa;
     localparam [31:0] ROSC_OPB = 32'h55555555;
@@ -30,7 +31,7 @@ module rosc_wrapper (
         .rosc_outputs (),
         .entropy_data (entropy_data),
         .entropy_valid(core_entropy_valid),
-        .entropy_ack  (entropy_ack),
+        .entropy_ack  (ack_i),
         .debug        (),
         .debug_update (1'b0)
     );
