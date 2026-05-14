@@ -165,6 +165,14 @@ Main security gate design
         - weight strean block index switched to basic case statements, instead of arithmetic based indexing (-4000 cells)
         - removed memory round-index output mux (-400 cells)
         - cycle count increases by about 10X, but this shouldn't be an issue considering we are already bottlenecked by the UART transmission
+        - reduced total cells from 10507 -> 6204 (41% reduction)
     - for verification, I'm thinking of using Yosys:
         - https://yosyshq.readthedocs.io/projects/yosys/en/0.46/getting_started/installation.html#targeted-architectures
         - evaluate_sha256_size.sh script to help determine the number of LUTs used
+    - additional changes:
+        - sha256 wrapper -> -1000 cells
+            - removed submit_block_reg which held the final input block into the sha256, instead we submit the block directly without a middle man
+        - sha256 core -> -280 cells
+            - reduced number of adders in design when updating the digest
+            - instead of 8 parallel adds getting processed in 1 cycle, they share 1 adder across 8 cycles
+            - this is done by using a MUX

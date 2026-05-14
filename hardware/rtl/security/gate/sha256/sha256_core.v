@@ -72,6 +72,7 @@ module sha256_core(
   localparam CTRL_IDLE   = 0;
   localparam CTRL_ROUNDS = 1;
   localparam CTRL_DONE   = 2;
+  localparam CTRL_DIGEST = 3;
 
 
   //----------------------------------------------------------------
@@ -133,6 +134,7 @@ module sha256_core(
   //----------------------------------------------------------------
   reg digest_init;
   reg digest_update;
+  reg digest_serial;
 
   reg state_init;
   reg state_update;
@@ -148,8 +150,11 @@ module sha256_core(
 
   reg           w_init;
   reg           w_next;
-  reg [5 : 0]   w_round;
   wire [31 : 0] w_data;
+
+  reg [31 : 0]  h_mux_out;
+  reg [31 : 0]  s_mux_out;
+  wire [31 : 0] digest_serial_sum;
 
 
   //----------------------------------------------------------------
@@ -255,6 +260,29 @@ module sha256_core(
 
 
   //----------------------------------------------------------------
+  // digest_serial_mux
+  //
+  // 8:1 muxes to select H and state registers for serial digest
+  // update, plus a shared adder.
+  //----------------------------------------------------------------
+  always @*
+    begin : digest_serial_mux
+      case (t_ctr_reg[2 : 0])
+        3'd0: begin h_mux_out = H0_reg; s_mux_out = a_reg; end
+        3'd1: begin h_mux_out = H1_reg; s_mux_out = b_reg; end
+        3'd2: begin h_mux_out = H2_reg; s_mux_out = c_reg; end
+        3'd3: begin h_mux_out = H3_reg; s_mux_out = d_reg; end
+        3'd4: begin h_mux_out = H4_reg; s_mux_out = e_reg; end
+        3'd5: begin h_mux_out = H5_reg; s_mux_out = f_reg; end
+        3'd6: begin h_mux_out = H6_reg; s_mux_out = g_reg; end
+        3'd7: begin h_mux_out = H7_reg; s_mux_out = h_reg; end
+      endcase
+    end
+
+  assign digest_serial_sum = h_mux_out + s_mux_out;
+
+
+  //----------------------------------------------------------------
   // digest_logic
   //
   // The logic needed to init as well as update the digest.
@@ -287,17 +315,17 @@ module sha256_core(
           H7_new = SHA256_H0_7;
         end
 
-      if (digest_update)
+      if (digest_serial)
         begin
-          H0_new = H0_reg + a_reg;
-          H1_new = H1_reg + b_reg;
-          H2_new = H2_reg + c_reg;
-          H3_new = H3_reg + d_reg;
-          H4_new = H4_reg + e_reg;
-          H5_new = H5_reg + f_reg;
-          H6_new = H6_reg + g_reg;
-          H7_new = H7_reg + h_reg;
           H_we = 1;
+          H0_new = (t_ctr_reg[2 : 0] == 3'd0) ? digest_serial_sum : H0_reg;
+          H1_new = (t_ctr_reg[2 : 0] == 3'd1) ? digest_serial_sum : H1_reg;
+          H2_new = (t_ctr_reg[2 : 0] == 3'd2) ? digest_serial_sum : H2_reg;
+          H3_new = (t_ctr_reg[2 : 0] == 3'd3) ? digest_serial_sum : H3_reg;
+          H4_new = (t_ctr_reg[2 : 0] == 3'd4) ? digest_serial_sum : H4_reg;
+          H5_new = (t_ctr_reg[2 : 0] == 3'd5) ? digest_serial_sum : H5_reg;
+          H6_new = (t_ctr_reg[2 : 0] == 3'd6) ? digest_serial_sum : H6_reg;
+          H7_new = (t_ctr_reg[2 : 0] == 3'd7) ? digest_serial_sum : H7_reg;
         end
     end // digest_logic
 
@@ -436,6 +464,7 @@ module sha256_core(
     begin : sha256_ctrl_fsm
       digest_init      = 0;
       digest_update    = 0;
+      digest_serial    = 0;
 
       state_init       = 0;
       state_update     = 0;
@@ -495,6 +524,19 @@ module sha256_core(
 
             if (t_ctr_reg == SHA256_ROUNDS)
               begin
+                sha256_ctrl_new = CTRL_DIGEST;
+                sha256_ctrl_we  = 1;
+              end
+          end
+
+
+        CTRL_DIGEST:
+          begin
+            digest_serial = 1;
+            t_ctr_inc     = 1;
+
+            if (t_ctr_reg[2 : 0] == 3'd7)
+              begin
                 sha256_ctrl_new = CTRL_DONE;
                 sha256_ctrl_we  = 1;
               end
@@ -503,7 +545,6 @@ module sha256_core(
 
         CTRL_DONE:
           begin
-            digest_update    = 1;
             digest_valid_new = 1;
             digest_valid_we  = 1;
 
