@@ -92,5 +92,6 @@ Threat model:
     - implement AES-CTR
         - will use AES-128 instead of the AES-256 option
         - the first 128 bits of the encryption key will be for the FPGA to use and the later 128 bits of the encryption key will be for the host
+        - important design note: caller must hold data_in stable from load assertion until data_valid goes high
     - in head security module, we may incorporate packet number, but we have not decided on that yet
 
