@@ -81,11 +81,11 @@ Threat model:
         - it is very likely that we build a layer beneth the current packet managers or we add the security features into the packet managers
         - in terms of scalability and modularity, it would be best to add the base UART module
         - but at this point modifiying the current packet parser will be easier 
-        - to allow for backwards compatibility, we can add a backdoor kill switch for the encryption so that we can run programs without an issue
+        - to allow for backwards compatibility, we can add a debug mode for the encryption so that we can run programs without an issue
 
 - 5/13
     - implement the rosc entropy IP and its wrapper
-    - testbench needs to use a fake rosc.v implementation to simular randomness 
+        - testbench needs to use a fake rosc.v implementation to simular randomness 
     - implement the chacha CSPRNG
         - will implement chacha20
             - it will likely not use more LUTs, instead it will require more latency
@@ -102,3 +102,151 @@ Threat model:
     - in head security module, we may incorporate packet number, but we have not decided on that yet
     - most of the wrappers didn't implement the enable line correctly, where even when enable was low, the module was able to be seeded and send the ack values, this issue has been patched
 
+- 5/14
+    - add packet_counter in the packet, this will be used as an additional component for encryption to prevent replay attacks
+    - an important change we have to enforce in the architecture is to only decrypt after HMAC is verified
+
+
+Encryption Controller module design
+- every encrypted packet has a packet_counter
+- RX decryption only occurs after the HMAC is verified
+- only the payload will be encrypted, but the entire header (except the SOF) will be fed into the HMAC to ensure nothing was modified
+- will add another piece to the header, but this will only be used by the security module 
+    - packet_number: these values will be tracked by FPGA and host separately and do not need be synced, it is just there to avoid replay attacks
+        - this packet number will be fed into the HMAC generator and the AES encrypter
+        - this number is only kept tracked and incremented by the TX
+        - RX will not be expecting a particular number, it will just recieve any value and use it for it's decryption and HMAC verification
+- new packet format:
+    SOF             1 byte   0xAA
+    cmd             1 byte
+    addr            2 bytes
+    len             2 bytes
+    packet_counter  2 bytes
+    ciphertext      len bytes
+    hmac_tag        16 bytes
+- HMAC
+    - HMAC(HMAC_key, text) = SHA256({hmac_key_2, SHA256({hmac_key_1, text})})
+        - hmac_key_1 = hmac_key ^ ipad
+        - hmac_key_2 = hmac_key ^ opad
+        - text = {cmd, addr, len, packet_counter, ciphertext}
+    - will be using a 16 byte HMAC
+        - the upper 16 bytes from the SHA256 output will be used, and the remaining bytes will be ignored
+- AES-CTR with 128 bit key
+    - first 128 bits of encryption key = FPGA encryption key = HOST decryption key = aes_key_f2h = encryption_key[127:0]
+    - later 128 bits of encryption key = FPGA decryption key = HOST encryption key = aes_key_h2f = encryption_key[255:128]
+    - nonce = {80{1'b0}, packet_counter}
+- needs to enforce:
+    - session establishment
+    - nonce exchange
+    - key derivation
+    - host authentication
+    - FPGA authentication
+    - packet counter tracking 
+    - HMAC verification
+    - AES-CTR encryption/decryption
+    - plaintext release after authentication
+    - error lockout 
+- communication_controller will mostly remain uncahnged, it will just be some new wiring changes
+    - however, with the new architecture, because we aren't stream words as they arrive, the writes will be significantly faster 
+    - The security controller presents decrypted packets to communication_controller using the same cmd/addr/len/word_valid/packet_done style interface as serial_packet_rx
+    - The security controller accepts plaintext TX packets from communication_controller using the same tx_start/cmd/addr/len/payload_data/payload_valid/payload_advance style interface as serial_packet_tx
+- security based CMD will be implemented but those will be eaten before the communication_controller sees them
+    - new security layer commands (will be sent via plain-text)
+        localparam SEC_CMD_INIT       = 8'hF0;
+        localparam SEC_CMD_INIT_RSP   = 8'hF1;
+        localparam SEC_CMD_HOST_AUTH  = 8'hF2;
+        localparam SEC_CMD_FPGA_AUTH  = 8'hF3;
+        localparam SEC_CMD_SEC_NAK    = 8'hF4;
+    - new security layer command that will be checked after decrypted:
+        localparam SEC_CMD_SESSION_CLOSE    = 8'hF5;
+- authentication handshake:
+    SEC_CMD_INIT
+        Host -> FPGA
+        payload = nonce_host
+
+    SEC_CMD_INIT_RSP
+        FPGA -> Host
+        payload = nonce_fpga
+
+    SEC_CMD_HOST_AUTH
+        Host -> FPGA
+        payload = HMAC(hmac_key, {HOST_AUTH, nonce_host, nonce_fpga})
+        note: HOST_AUTH is some constant that is hardcoded
+
+    FPGA Verify authentication code => authenticated = 1
+
+    SEC_CMD_FPGA_AUTH
+        FPGA -> Host
+        payload = HMAC(hmac_key, {FPGA_AUTH, nonce_host, nonce_fpga})
+        note: FPGA_AUTH is some constant that is hardcoded
+
+    Host Verify authentication code => authenticated = 1
+- all normal communication commands will be rejected before authentication, only the security handshake commands will be accepted 
+- only payload will be encrypted, I recognize this weakens security, but will be easier to implement, and integrate into our current system
+- the security reset that is sent to the communication_controller will only be for the security gate and will not apply to this encryption module        
+- option of building different modules for TX and RX, but this takes up more resources (SHA256 core and AES)
+    - therefore, we will be using one cerntral security module that shares a singular SHA256 core for the HMAC calculations and a single AES core for encryption
+    - we will need a scheduler for the SHA256 core
+    - priority will be given in the following:
+        1. handshake / authentication
+        2. RX HMAC verification
+        3. TX HMAC generation
+- the security controller will internally contain the serial_packet_rx and serial_packet_tx modules
+    - will need to buffer RX ciphertext to wait for HMAC verification
+- security keys:
+     - entire flow for nonce generation: ROSC_ENTROPY -> SHA256 -> ChaCha CSPRNG
+        - note: be careful of synthesis optimization that might damage the ROSC entropy generator
+    - overall the system will have 4 keys:
+        - root_key (hard-coded key that both FPGA and HOST have)
+        - session_key = SHA256({root_key, nonce_host, nonce_fpga})
+        - encryption_key = SHA256({session_key, encryption_constant})
+            - will be split into FPGA->HOST key and HOST->FPGA key
+                - aes_key_f2h = encryption_key[127:0]
+                - aes_key_h2f = encryption_key[255:128]
+        - hmac_key = SHA256({session_key, hmac_constant})
+            - hmac_key will be used to derive the following inside the HMAC:
+                - hmac_key_1 = hmac_key ^ ipad
+                - hmac_key_2 = hmac_key ^ opad
+    - the encryption_constant, hmac constant, ipad, and opad values are open to the public
+- FSM: 
+    localparam S_RESET              = 6'd0;
+
+    // entropy / nonce generation
+    localparam S_ENTROPY_COLLECT    = 6'd1;
+    localparam S_ENTROPY_CONDITION  = 6'd2;
+    localparam S_CHACHA_SEED        = 6'd3;
+    localparam S_GEN_FPGA_NONCE     = 6'd4;
+
+    // handshake
+    localparam S_WAIT_INIT          = 6'd5;
+    localparam S_SEND_INIT_RSP      = 6'd6;
+    localparam S_DERIVE_SESSION     = 6'd7;
+    localparam S_DERIVE_KEYS        = 6'd8;
+    localparam S_WAIT_HOST_AUTH     = 6'd9;
+    localparam S_VERIFY_HOST_AUTH   = 6'd10;
+    localparam S_SEND_FPGA_AUTH     = 6'd11;
+
+    // authenticated idle
+    localparam S_SECURE_IDLE        = 6'd12;
+
+    // RX path
+    localparam S_RX_HEADER          = 6'd13;
+    localparam S_RX_CIPHERTEXT      = 6'd14;
+    localparam S_RX_TAG             = 6'd15;
+    localparam S_RX_HMAC            = 6'd16;
+    localparam S_RX_COMPARE         = 6'd17;
+    localparam S_RX_DECRYPT         = 6'd18;
+    localparam S_RX_RELEASE         = 6'd19;
+
+    // TX path
+    localparam S_TX_COLLECT         = 6'd20;
+    localparam S_TX_ENCRYPT         = 6'd21;
+    localparam S_TX_HMAC            = 6'd22;
+    localparam S_TX_SEND            = 6'd23;
+
+    localparam S_ERROR              = 6'd63;
+
+    - when in security idle state, prioritize incoming RX UART over TX from controller
+    - to recover from the error state, a new INIT will need to be sent
+        - when in error state, the gate will not send any packets to the top communication_controller module
+        
