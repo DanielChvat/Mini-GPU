@@ -117,6 +117,11 @@ module basys3_comm_top #(
     wire mem_write0 = data_mem_req_valid[0] && data_mem_req_write[0] && data_mem_req_ready[0];
     wire mem_read0 = data_mem_req_valid[0] && !data_mem_req_write[0] && data_mem_req_ready[0];
 
+    //== old policy enforcement ==//
+    // this prevents communication controller from writing to memory while GPU is busy, preventing conflicts between core and host 
+    wire [3:0] gated_data_mem_req_valid = gpu_busy ? 4'b0000 : data_mem_req_valid;
+    
+
     communication_controller #(
         .CLK_FREQ(CLK_FREQ),
         .BAUD_RATE(BAUD_RATE),
@@ -224,7 +229,7 @@ module basys3_comm_top #(
     ) memory_bus (
         .clk(CLK100MHZ),
         .rst(rst),
-        .host_mem_req_valid(data_mem_req_valid),
+        .host_mem_req_valid(gated_data_mem_req_valid),   // enforce old policy here by gating the valid signal with gpu_busy
         .host_mem_req_write(data_mem_req_write),
         .host_mem_req_addr(data_mem_req_addr),
         .host_mem_req_wdata(data_mem_req_wdata),
