@@ -34,17 +34,6 @@ module mini_gpu #(
     input  wire [WIDTH-1:0]             block_dim,
     input  wire [WIDTH-1:0]             grid_dim,
 
-    input  wire [3:0]                   host_mem_req_valid,
-    input  wire [3:0]                   host_mem_req_write,
-    input  wire [(4*ADDR_WIDTH)-1:0]    host_mem_req_addr,
-    input  wire [(4*WIDTH)-1:0]         host_mem_req_wdata,
-    output wire [3:0]                   host_mem_req_ready,
-    output wire [3:0]                   host_mem_resp_valid,
-    output wire [(4*WIDTH)-1:0]         host_mem_resp_rdata,
-    output wire                         host_mem_write_done,
-    output wire                         host_mem_write_fail,
-    input  wire                         host_memory_status_consumed,
-
     output wire [NUM_CORES-1:0]                         core_busy,
     output wire [NUM_CORES-1:0]                         core_done,
     output wire [NUM_CORES-1:0]                         core_error,
@@ -57,6 +46,16 @@ module mini_gpu #(
     output wire [(NUM_CORES*WARP_SIZE)-1:0]             core_last_writeback_mask,
     output wire [(NUM_CORES*4)-1:0]                     core_last_writeback_addr,
     output wire [(NUM_CORES*WARP_SIZE*WIDTH)-1:0]       core_last_writeback_data,
+
+    // External memory interface (to be connected to bus_controller in top module)
+    output wire [WARP_SIZE-1:0]                         mem_req_valid,
+    output wire [WARP_SIZE-1:0]                         mem_req_write,
+    output wire [(WARP_SIZE*ADDR_WIDTH)-1:0]            mem_req_addr,
+    output wire [(WARP_SIZE*WIDTH)-1:0]                 mem_req_wdata,
+    output wire [(WARP_SIZE*4)-1:0]                     mem_req_wmask,
+    input  wire [WARP_SIZE-1:0]                         mem_req_ready,
+    input  wire [WARP_SIZE-1:0]                         mem_resp_valid,
+    input  wire [(WARP_SIZE*WIDTH)-1:0]                 mem_resp_rdata,
 
     output wire                                         busy,
     output wire                                         done,
@@ -84,27 +83,9 @@ module mini_gpu #(
     reg [(WARP_SIZE*ADDR_WIDTH)-1:0] memory_req_addr;
     reg [(WARP_SIZE*WIDTH)-1:0] memory_req_wdata;
     reg [(WARP_SIZE*4)-1:0] memory_req_wmask;
-    wire [3:0] gated_host_mem_req_valid;
-    wire [3:0] merged_mem_req_valid;
-    wire [3:0] merged_mem_req_write;
-    wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr;
-    wire [(4*WIDTH)-1:0] merged_mem_req_wdata;
-    wire [(4*4)-1:0] merged_mem_req_wmask;
-    wire [3:0] merged_mem_req_ready;
-    wire [3:0] merged_mem_resp_valid;
-    wire [(4*WIDTH)-1:0] merged_mem_resp_rdata;
-    wire merged_mem_write_done;
-    wire merged_mem_write_fail;
-    wire merged_memory_status_consumed;
-    wire [1:0] memory_request_id;
-    wire core_mem_write_done_unused;
-    wire core_mem_write_fail_unused;
-    wire core_memory_status_consumed = 1'b0;
     wire [WARP_SIZE-1:0] core_selected_mem_req_ready;
     wire [WARP_SIZE-1:0] core_selected_mem_resp_valid;
     wire [(WARP_SIZE*WIDTH)-1:0] core_selected_mem_resp_rdata;
-
-    assign gated_host_mem_req_valid = busy ? 4'b0000 : host_mem_req_valid;
 
     integer arb_scan;
     integer arb_candidate;
@@ -162,67 +143,17 @@ module mini_gpu #(
         end
     end
 
-    bus_controller #(
-        .ADDR_WIDTH(ADDR_WIDTH),
-        .DATA_WIDTH(WIDTH)
-    ) memory_bus (
-        .clk(clk),
-        .rst(rst),
-        .host_mem_req_valid(gated_host_mem_req_valid),
-        .host_mem_req_write(host_mem_req_write),
-        .host_mem_req_addr(host_mem_req_addr),
-        .host_mem_req_wdata(host_mem_req_wdata),
-        .host_mem_req_wmask({4{4'b1111}}),
-        .host_mem_req_ready(host_mem_req_ready),
-        .host_mem_resp_valid(host_mem_resp_valid),
-        .host_mem_resp_rdata(host_mem_resp_rdata),
-        .host_mem_write_done(host_mem_write_done),
-        .host_mem_write_fail(host_mem_write_fail),
-        .host_memory_status_consumed(host_memory_status_consumed),
-        .core_mem_req_valid(memory_req_valid),
-        .core_mem_req_write(memory_req_write),
-        .core_mem_req_addr(memory_req_addr),
-        .core_mem_req_wdata(memory_req_wdata),
-        .core_mem_req_wmask(memory_req_wmask),
-        .core_mem_req_ready(core_selected_mem_req_ready),
-        .core_mem_resp_valid(core_selected_mem_resp_valid),
-        .core_mem_resp_rdata(core_selected_mem_resp_rdata),
-        .core_mem_write_done(core_mem_write_done_unused),
-        .core_mem_write_fail(core_mem_write_fail_unused),
-        .core_memory_status_consumed(core_memory_status_consumed),
-        .merged_mem_req_valid(merged_mem_req_valid),
-        .merged_mem_req_write(merged_mem_req_write),
-        .merged_mem_req_addr(merged_mem_req_addr),
-        .merged_mem_req_wdata(merged_mem_req_wdata),
-        .merged_mem_req_wmask(merged_mem_req_wmask),
-        .merged_mem_req_ready(merged_mem_req_ready),
-        .merged_mem_resp_valid(merged_mem_resp_valid),
-        .merged_mem_resp_rdata(merged_mem_resp_rdata),
-        .merged_mem_write_done(merged_mem_write_done),
-        .merged_mem_write_fail(merged_mem_write_fail),
-        .merged_memory_status_consumed(merged_memory_status_consumed),
-        .memory_request_id(memory_request_id)
-    );
+    // Export external memory interface
+    assign mem_req_valid  = memory_req_valid;
+    assign mem_req_write  = memory_req_write;
+    assign mem_req_addr   = memory_req_addr;
+    assign mem_req_wdata  = memory_req_wdata;
+    assign mem_req_wmask  = memory_req_wmask;
 
-    assign merged_mem_write_done = |(merged_mem_req_valid & merged_mem_req_write & merged_mem_req_ready);
-    assign merged_mem_write_fail = 1'b0;
-
-    memory #(
-        .ADDR_WIDTH(ADDR_WIDTH),
-        .DATA_WIDTH(WIDTH),
-        .BANK_DEPTH(MEMORY_BANK_DEPTH)
-    ) global_memory (
-        .clk(clk),
-        .rst(rst),
-        .req_valid(merged_mem_req_valid),
-        .req_write(merged_mem_req_write),
-        .req_addr(merged_mem_req_addr),
-        .req_wdata(merged_mem_req_wdata),
-        .req_wmask(merged_mem_req_wmask),
-        .req_ready(merged_mem_req_ready),
-        .resp_valid(merged_mem_resp_valid),
-        .resp_rdata(merged_mem_resp_rdata)
-    );
+    // Connect memory responses back from external bus_controller/memory
+    assign core_selected_mem_req_ready    = mem_req_ready;
+    assign core_selected_mem_resp_valid   = mem_resp_valid;
+    assign core_selected_mem_resp_rdata   = mem_resp_rdata;
 
     genvar core_id;
     generate
