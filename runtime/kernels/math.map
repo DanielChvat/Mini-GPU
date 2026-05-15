@@ -1,0 +1,33 @@
+{
+  "symbols": [
+    {
+      "name": "log_fp32",
+      "pc": 0
+    },
+    {
+      "name": "log2_fp32",
+      "pc": 233
+    },
+    {
+      "name": "log10_fp32",
+      "pc": 453
+    },
+    {
+      "name": "sin_fp32",
+      "pc": 686
+    },
+    {
+      "name": "cos_fp32",
+      "pc": 742
+    },
+    {
+      "name": "tan_fp32",
+      "pc": 798
+    },
+    {
+      "name": "pow_fp32",
+      "pc": 968
+    }
+  ],
+  "instruction_words": 1403
+}

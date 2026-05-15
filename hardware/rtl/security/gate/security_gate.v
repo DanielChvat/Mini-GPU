@@ -15,6 +15,7 @@ module security_gate #(
     input  wire [3:0]  merged_mem_req_write,
     input  wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr,
     input  wire [(4*DATA_WIDTH)-1:0] merged_mem_req_wdata,
+    input  wire [(4*4)-1:0] merged_mem_req_wmask,
     output wire [3:0]  merged_mem_req_ready,
     output wire [3:0]  merged_mem_resp_valid,
     output wire [(4*DATA_WIDTH)-1:0] merged_mem_resp_rdata,
@@ -174,7 +175,7 @@ module security_gate #(
     assign mem_req_write  = merged_mem_req_write;
     assign mem_req_addr   = merged_mem_req_addr;
     assign mem_req_wdata  = merged_mem_req_wdata;
-    assign mem_req_wmask  = {4{4'b1111}};
+    assign mem_req_wmask  = merged_mem_req_wmask;
 
     // Intercepted reads appear instantly ready; everything else from memory
     assign merged_mem_req_ready = {

@@ -1,29 +1,29 @@
 {
   "symbols": [
     {
-      "name": "vector_add",
+      "name": "vector_add_kernel_i32",
       "pc": 0
     },
     {
-      "name": "vector_add_i16",
-      "pc": 22
+      "name": "vector_add_kernel_i16",
+      "pc": 23
     },
     {
-      "name": "vector_add_i8",
-      "pc": 56
+      "name": "vector_add_kernel_i8",
+      "pc": 58
     },
     {
-      "name": "vector_add_fp32",
-      "pc": 90
+      "name": "vector_add_kernel_fp32",
+      "pc": 93
     },
     {
-      "name": "vector_add_fp16",
-      "pc": 112
+      "name": "vector_add_kernel_fp16",
+      "pc": 116
     },
     {
-      "name": "vector_add_fp8_e4m3fn",
-      "pc": 146
+      "name": "vector_add_kernel_fp8",
+      "pc": 139
     }
   ],
-  "instruction_words": 180
+  "instruction_words": 162
 }

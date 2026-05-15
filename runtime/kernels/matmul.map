@@ -1,13 +1,13 @@
 {
   "symbols": [
     {
-      "name": "matmul",
+      "name": "matmul_kernel_i32",
       "pc": 0
     },
     {
-      "name": "matmul_fp32",
-      "pc": 48
+      "name": "matmul_kernel_fp32",
+      "pc": 59
     }
   ],
-  "instruction_words": 96
+  "instruction_words": 118
 }

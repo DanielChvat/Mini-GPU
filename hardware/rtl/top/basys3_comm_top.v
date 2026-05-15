@@ -5,7 +5,7 @@ module basys3_comm_top #(
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,
     parameter MEMORY_BANK_DEPTH = 8192,
-    parameter PROG_ADDR_WIDTH = 8,
+    parameter PROG_ADDR_WIDTH = 12,
     parameter CONST_ADDR_WIDTH = 8,
     parameter WARP_SIZE = 4,
     parameter NUM_CORES = 1,
@@ -85,8 +85,8 @@ module basys3_comm_top #(
     reg [15:0] write_count = 16'b0;
     reg [15:0] read_count = 16'b0;
 
-    reg  mem_write_done = 1'b1;
-    reg  mem_write_fail = 1'b0;
+    wire mem_write_done;
+    wire mem_write_fail;
     wire memory_status_consumed;    
 
     wire mem_write0 = data_mem_req_valid[0] && data_mem_req_write[0] && data_mem_req_ready[0];
@@ -151,7 +151,7 @@ module basys3_comm_top #(
         .ENABLE_FLOAT_DIV(0),
         .FLOAT_FP32_ONLY(0),
         .USE_SHARED_FLOAT(1),
-        .SHARED_FLOAT_UNITS(2)
+        .SHARED_FLOAT_UNITS(1)
     ) gpu (
         .clk(CLK100MHZ),
         .rst(rst),
@@ -173,6 +173,9 @@ module basys3_comm_top #(
         .host_mem_req_ready(data_mem_req_ready),
         .host_mem_resp_valid(data_mem_resp_valid),
         .host_mem_resp_rdata(data_mem_resp_rdata),
+        .host_mem_write_done(mem_write_done),
+        .host_mem_write_fail(mem_write_fail),
+        .host_memory_status_consumed(memory_status_consumed),
         .core_busy(core_busy),
         .core_done(core_done),
         .core_error(core_error),

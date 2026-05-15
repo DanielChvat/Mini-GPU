@@ -72,6 +72,7 @@ module security_gate_integration_tb();
     wire [3:0]  merged_mem_req_write;
     wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr;
     wire [(4*DATA_WIDTH)-1:0] merged_mem_req_wdata;
+    wire [(4*4)-1:0] merged_mem_req_wmask;
     wire [3:0]  merged_mem_req_ready;
     wire [3:0]  merged_mem_resp_valid;
     wire [(4*DATA_WIDTH)-1:0] merged_mem_resp_rdata;
@@ -167,6 +168,7 @@ module security_gate_integration_tb();
         .host_mem_req_write(data_mem_req_write),
         .host_mem_req_addr(data_mem_req_addr),
         .host_mem_req_wdata(data_mem_req_wdata),
+        .host_mem_req_wmask({4{4'b1111}}),
         .host_mem_req_ready(data_mem_req_ready),
         .host_mem_resp_valid(data_mem_resp_valid),
         .host_mem_resp_rdata(data_mem_resp_rdata),
@@ -177,6 +179,7 @@ module security_gate_integration_tb();
         .core_mem_req_write(4'b0000),
         .core_mem_req_addr({(4*ADDR_WIDTH){1'b0}}),
         .core_mem_req_wdata({(4*DATA_WIDTH){1'b0}}),
+        .core_mem_req_wmask({(4*4){1'b0}}),
         .core_mem_req_ready(core_mem_req_ready),
         .core_mem_resp_valid(core_mem_resp_valid),
         .core_mem_resp_rdata(core_mem_resp_rdata),
@@ -187,6 +190,7 @@ module security_gate_integration_tb();
         .merged_mem_req_write(merged_mem_req_write),
         .merged_mem_req_addr(merged_mem_req_addr),
         .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_wmask(merged_mem_req_wmask),
         .merged_mem_req_ready(merged_mem_req_ready),
         .merged_mem_resp_valid(merged_mem_resp_valid),
         .merged_mem_resp_rdata(merged_mem_resp_rdata),
@@ -211,6 +215,7 @@ module security_gate_integration_tb();
         .merged_mem_req_write(merged_mem_req_write),
         .merged_mem_req_addr(merged_mem_req_addr),
         .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_wmask(merged_mem_req_wmask),
         .merged_mem_req_ready(merged_mem_req_ready),
         .merged_mem_resp_valid(merged_mem_resp_valid),
         .merged_mem_resp_rdata(merged_mem_resp_rdata),

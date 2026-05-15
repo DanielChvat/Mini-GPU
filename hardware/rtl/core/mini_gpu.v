@@ -6,7 +6,7 @@ module mini_gpu #(
     parameter NUM_CORES = 2,
     parameter NUM_WARPS_PER_CORE = 1,
     parameter WARP_ID_WIDTH = 1,
-    parameter PROG_ADDR_WIDTH = 8,
+    parameter PROG_ADDR_WIDTH = 12,
     parameter ADDR_WIDTH = 16,
     parameter CONST_ADDR_WIDTH = 8,
     parameter MEMORY_BANK_DEPTH = 8192,
@@ -41,6 +41,9 @@ module mini_gpu #(
     output wire [3:0]                   host_mem_req_ready,
     output wire [3:0]                   host_mem_resp_valid,
     output wire [(4*WIDTH)-1:0]         host_mem_resp_rdata,
+    output wire                         host_mem_write_done,
+    output wire                         host_mem_write_fail,
+    input  wire                         host_memory_status_consumed,
 
     output wire [NUM_CORES-1:0]                         core_busy,
     output wire [NUM_CORES-1:0]                         core_done,
@@ -81,33 +84,27 @@ module mini_gpu #(
     reg [(WARP_SIZE*ADDR_WIDTH)-1:0] memory_req_addr;
     reg [(WARP_SIZE*WIDTH)-1:0] memory_req_wdata;
     reg [(WARP_SIZE*4)-1:0] memory_req_wmask;
-    wire [3:0] memory_req_valid_bus;
-    wire [3:0] memory_req_write_bus;
-    wire [(4*ADDR_WIDTH)-1:0] memory_req_addr_bus;
-    wire [(4*WIDTH)-1:0] memory_req_wdata_bus;
-    wire [(4*4)-1:0] memory_req_wmask_bus;
-    wire [3:0] memory_req_ready_bus;
-    wire [3:0] memory_resp_valid_bus;
-    wire [(4*WIDTH)-1:0] memory_resp_rdata_bus;
+    wire [3:0] gated_host_mem_req_valid;
+    wire [3:0] merged_mem_req_valid;
+    wire [3:0] merged_mem_req_write;
+    wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr;
+    wire [(4*WIDTH)-1:0] merged_mem_req_wdata;
+    wire [(4*4)-1:0] merged_mem_req_wmask;
+    wire [3:0] merged_mem_req_ready;
+    wire [3:0] merged_mem_resp_valid;
+    wire [(4*WIDTH)-1:0] merged_mem_resp_rdata;
+    wire merged_mem_write_done;
+    wire merged_mem_write_fail;
+    wire merged_memory_status_consumed;
+    wire [1:0] memory_request_id;
+    wire core_mem_write_done_unused;
+    wire core_mem_write_fail_unused;
+    wire core_memory_status_consumed = 1'b0;
     wire [WARP_SIZE-1:0] core_selected_mem_req_ready;
     wire [WARP_SIZE-1:0] core_selected_mem_resp_valid;
     wire [(WARP_SIZE*WIDTH)-1:0] core_selected_mem_resp_rdata;
-    wire host_mem_active = |host_mem_req_valid && !busy;
 
-    assign memory_req_valid_bus = host_mem_active ? host_mem_req_valid : memory_req_valid;
-    assign memory_req_write_bus = host_mem_active ? host_mem_req_write : memory_req_write;
-    assign memory_req_addr_bus = host_mem_active ? host_mem_req_addr : memory_req_addr;
-    assign memory_req_wdata_bus = host_mem_active ? host_mem_req_wdata : memory_req_wdata;
-    assign memory_req_wmask_bus = host_mem_active ? {4{4'b1111}} : memory_req_wmask;
-    assign core_selected_mem_req_ready = host_mem_active ? {WARP_SIZE{1'b0}} :
-                                         memory_req_ready_bus[WARP_SIZE-1:0];
-    assign core_selected_mem_resp_valid = host_mem_active ? {WARP_SIZE{1'b0}} :
-                                          memory_resp_valid_bus[WARP_SIZE-1:0];
-    assign core_selected_mem_resp_rdata = host_mem_active ? {(WARP_SIZE*WIDTH){1'b0}} :
-                                          memory_resp_rdata_bus[(WARP_SIZE*WIDTH)-1:0];
-    assign host_mem_req_ready = host_mem_active ? memory_req_ready_bus : 4'b0000;
-    assign host_mem_resp_valid = host_mem_active ? memory_resp_valid_bus : 4'b0000;
-    assign host_mem_resp_rdata = host_mem_active ? memory_resp_rdata_bus : {(4*WIDTH){1'b0}};
+    assign gated_host_mem_req_valid = busy ? 4'b0000 : host_mem_req_valid;
 
     integer arb_scan;
     integer arb_candidate;
@@ -165,6 +162,51 @@ module mini_gpu #(
         end
     end
 
+    bus_controller #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(WIDTH)
+    ) memory_bus (
+        .clk(clk),
+        .rst(rst),
+        .host_mem_req_valid(gated_host_mem_req_valid),
+        .host_mem_req_write(host_mem_req_write),
+        .host_mem_req_addr(host_mem_req_addr),
+        .host_mem_req_wdata(host_mem_req_wdata),
+        .host_mem_req_wmask({4{4'b1111}}),
+        .host_mem_req_ready(host_mem_req_ready),
+        .host_mem_resp_valid(host_mem_resp_valid),
+        .host_mem_resp_rdata(host_mem_resp_rdata),
+        .host_mem_write_done(host_mem_write_done),
+        .host_mem_write_fail(host_mem_write_fail),
+        .host_memory_status_consumed(host_memory_status_consumed),
+        .core_mem_req_valid(memory_req_valid),
+        .core_mem_req_write(memory_req_write),
+        .core_mem_req_addr(memory_req_addr),
+        .core_mem_req_wdata(memory_req_wdata),
+        .core_mem_req_wmask(memory_req_wmask),
+        .core_mem_req_ready(core_selected_mem_req_ready),
+        .core_mem_resp_valid(core_selected_mem_resp_valid),
+        .core_mem_resp_rdata(core_selected_mem_resp_rdata),
+        .core_mem_write_done(core_mem_write_done_unused),
+        .core_mem_write_fail(core_mem_write_fail_unused),
+        .core_memory_status_consumed(core_memory_status_consumed),
+        .merged_mem_req_valid(merged_mem_req_valid),
+        .merged_mem_req_write(merged_mem_req_write),
+        .merged_mem_req_addr(merged_mem_req_addr),
+        .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_wmask(merged_mem_req_wmask),
+        .merged_mem_req_ready(merged_mem_req_ready),
+        .merged_mem_resp_valid(merged_mem_resp_valid),
+        .merged_mem_resp_rdata(merged_mem_resp_rdata),
+        .merged_mem_write_done(merged_mem_write_done),
+        .merged_mem_write_fail(merged_mem_write_fail),
+        .merged_memory_status_consumed(merged_memory_status_consumed),
+        .memory_request_id(memory_request_id)
+    );
+
+    assign merged_mem_write_done = |(merged_mem_req_valid & merged_mem_req_write & merged_mem_req_ready);
+    assign merged_mem_write_fail = 1'b0;
+
     memory #(
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(WIDTH),
@@ -172,14 +214,14 @@ module mini_gpu #(
     ) global_memory (
         .clk(clk),
         .rst(rst),
-        .req_valid(memory_req_valid_bus),
-        .req_write(memory_req_write_bus),
-        .req_addr(memory_req_addr_bus),
-        .req_wdata(memory_req_wdata_bus),
-        .req_wmask(memory_req_wmask_bus),
-        .req_ready(memory_req_ready_bus),
-        .resp_valid(memory_resp_valid_bus),
-        .resp_rdata(memory_resp_rdata_bus)
+        .req_valid(merged_mem_req_valid),
+        .req_write(merged_mem_req_write),
+        .req_addr(merged_mem_req_addr),
+        .req_wdata(merged_mem_req_wdata),
+        .req_wmask(merged_mem_req_wmask),
+        .req_ready(merged_mem_req_ready),
+        .resp_valid(merged_mem_resp_valid),
+        .resp_rdata(merged_mem_resp_rdata)
     );
 
     genvar core_id;

@@ -200,6 +200,7 @@ std::string replace_extension(const std::string &path, std::string_view extensio
 PrecompiledKernel parse_kernel_entry(
     const YAML::Node &entry,
     const std::string &artifact_path,
+    DeviceAddress artifact_program_addr,
     const std::vector<std::uint8_t> &program_bytes,
     const std::unordered_map<std::string, DeviceAddress> &symbols,
     const LaunchConfig &defaults) {
@@ -216,8 +217,12 @@ PrecompiledKernel parse_kernel_entry(
     }
 
     kernel.program_bytes = program_bytes;
-    kernel.program_addr = 0;
-    kernel.base_pc = symbol->second;
+    if ((artifact_program_addr % sizeof(std::uint32_t)) != 0u) {
+        throw Error(Status::BadArgument);
+    }
+
+    kernel.program_addr = artifact_program_addr;
+    kernel.base_pc = (artifact_program_addr / sizeof(std::uint32_t)) + symbol->second;
     kernel.default_grid_dim = yaml_u32(entry["grid_dim"], defaults.grid_dim);
     kernel.default_block_dim = yaml_u32(entry["block_dim"], defaults.block_dim);
     kernel.default_active_mask =
@@ -264,6 +269,8 @@ std::vector<PrecompiledKernel> parse_manifest(std::string_view manifest_path) {
 
         const std::string file = artifact["file"].as<std::string>();
         const std::string artifact_path = resolve_artifact_path(manifest_path, file);
+        const DeviceAddress artifact_program_addr =
+            yaml_u32(artifact["program_addr"], 0);
         const std::string map_file = artifact["map"]
             ? artifact["map"].as<std::string>()
             : replace_extension(file, ".map");
@@ -278,7 +285,8 @@ std::vector<PrecompiledKernel> parse_manifest(std::string_view manifest_path) {
 
         for (const YAML::Node &entry : kernel_nodes) {
             kernels.push_back(parse_kernel_entry(
-                entry, artifact_path, program_bytes, symbols, defaults));
+                entry, artifact_path, artifact_program_addr, program_bytes,
+                symbols, defaults));
         }
     }
 

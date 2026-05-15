@@ -23,20 +23,41 @@ module memory #(
     localparam BANK_ADDR_WIDTH = clog2(BANK_DEPTH);
     localparam NO_LANE = 3'd4;
 
-    wire [ADDR_WIDTH-1:0] lane_addr0 = req_addr[(0*ADDR_WIDTH) +: ADDR_WIDTH];
-    wire [ADDR_WIDTH-1:0] lane_addr1 = req_addr[(1*ADDR_WIDTH) +: ADDR_WIDTH];
-    wire [ADDR_WIDTH-1:0] lane_addr2 = req_addr[(2*ADDR_WIDTH) +: ADDR_WIDTH];
-    wire [ADDR_WIDTH-1:0] lane_addr3 = req_addr[(3*ADDR_WIDTH) +: ADDR_WIDTH];
+    wire [ADDR_WIDTH-1:0] req_lane_addr0 = req_addr[(0*ADDR_WIDTH) +: ADDR_WIDTH];
+    wire [ADDR_WIDTH-1:0] req_lane_addr1 = req_addr[(1*ADDR_WIDTH) +: ADDR_WIDTH];
+    wire [ADDR_WIDTH-1:0] req_lane_addr2 = req_addr[(2*ADDR_WIDTH) +: ADDR_WIDTH];
+    wire [ADDR_WIDTH-1:0] req_lane_addr3 = req_addr[(3*ADDR_WIDTH) +: ADDR_WIDTH];
 
-    wire [DATA_WIDTH-1:0] lane_wdata0 = req_wdata[(0*DATA_WIDTH) +: DATA_WIDTH];
-    wire [DATA_WIDTH-1:0] lane_wdata1 = req_wdata[(1*DATA_WIDTH) +: DATA_WIDTH];
-    wire [DATA_WIDTH-1:0] lane_wdata2 = req_wdata[(2*DATA_WIDTH) +: DATA_WIDTH];
-    wire [DATA_WIDTH-1:0] lane_wdata3 = req_wdata[(3*DATA_WIDTH) +: DATA_WIDTH];
+    wire [1:0] req_lane_bank0 = req_lane_addr0[1:0];
+    wire [1:0] req_lane_bank1 = req_lane_addr1[1:0];
+    wire [1:0] req_lane_bank2 = req_lane_addr2[1:0];
+    wire [1:0] req_lane_bank3 = req_lane_addr3[1:0];
 
-    wire [3:0] lane_wmask0 = req_wmask[(0*4) +: 4];
-    wire [3:0] lane_wmask1 = req_wmask[(1*4) +: 4];
-    wire [3:0] lane_wmask2 = req_wmask[(2*4) +: 4];
-    wire [3:0] lane_wmask3 = req_wmask[(3*4) +: 4];
+    wire [BANK_ADDR_WIDTH-1:0] req_lane_index0 = req_lane_addr0[BANK_BITS +: BANK_ADDR_WIDTH];
+    wire [BANK_ADDR_WIDTH-1:0] req_lane_index1 = req_lane_addr1[BANK_BITS +: BANK_ADDR_WIDTH];
+    wire [BANK_ADDR_WIDTH-1:0] req_lane_index2 = req_lane_addr2[BANK_BITS +: BANK_ADDR_WIDTH];
+    wire [BANK_ADDR_WIDTH-1:0] req_lane_index3 = req_lane_addr3[BANK_BITS +: BANK_ADDR_WIDTH];
+
+    reg [3:0] pipe_valid;
+    reg [3:0] pipe_write;
+    reg [(4*ADDR_WIDTH)-1:0] pipe_addr;
+    reg [(4*DATA_WIDTH)-1:0] pipe_wdata;
+    reg [(4*4)-1:0] pipe_wmask;
+
+    wire [ADDR_WIDTH-1:0] lane_addr0 = pipe_addr[(0*ADDR_WIDTH) +: ADDR_WIDTH];
+    wire [ADDR_WIDTH-1:0] lane_addr1 = pipe_addr[(1*ADDR_WIDTH) +: ADDR_WIDTH];
+    wire [ADDR_WIDTH-1:0] lane_addr2 = pipe_addr[(2*ADDR_WIDTH) +: ADDR_WIDTH];
+    wire [ADDR_WIDTH-1:0] lane_addr3 = pipe_addr[(3*ADDR_WIDTH) +: ADDR_WIDTH];
+
+    wire [DATA_WIDTH-1:0] lane_wdata0 = pipe_wdata[(0*DATA_WIDTH) +: DATA_WIDTH];
+    wire [DATA_WIDTH-1:0] lane_wdata1 = pipe_wdata[(1*DATA_WIDTH) +: DATA_WIDTH];
+    wire [DATA_WIDTH-1:0] lane_wdata2 = pipe_wdata[(2*DATA_WIDTH) +: DATA_WIDTH];
+    wire [DATA_WIDTH-1:0] lane_wdata3 = pipe_wdata[(3*DATA_WIDTH) +: DATA_WIDTH];
+
+    wire [3:0] lane_wmask0 = pipe_wmask[(0*4) +: 4];
+    wire [3:0] lane_wmask1 = pipe_wmask[(1*4) +: 4];
+    wire [3:0] lane_wmask2 = pipe_wmask[(2*4) +: 4];
+    wire [3:0] lane_wmask3 = pipe_wmask[(3*4) +: 4];
 
     wire [1:0] lane_bank0 = lane_addr0[1:0];
     wire [1:0] lane_bank1 = lane_addr1[1:0];
@@ -198,14 +219,19 @@ module memory #(
 
         clear_ports();
 
-        assign_lane_to_port(3'd0, lane_bank0, lane_index0, req_write[0], lane_wdata0, lane_wmask0, req_valid[0] && req_ready[0]);
-        assign_lane_to_port(3'd1, lane_bank1, lane_index1, req_write[1], lane_wdata1, lane_wmask1, req_valid[1] && req_ready[1]);
-        assign_lane_to_port(3'd2, lane_bank2, lane_index2, req_write[2], lane_wdata2, lane_wmask2, req_valid[2] && req_ready[2]);
-        assign_lane_to_port(3'd3, lane_bank3, lane_index3, req_write[3], lane_wdata3, lane_wmask3, req_valid[3] && req_ready[3]);
+        assign_lane_to_port(3'd0, lane_bank0, lane_index0, pipe_write[0], lane_wdata0, lane_wmask0, pipe_valid[0]);
+        assign_lane_to_port(3'd1, lane_bank1, lane_index1, pipe_write[1], lane_wdata1, lane_wmask1, pipe_valid[1]);
+        assign_lane_to_port(3'd2, lane_bank2, lane_index2, pipe_write[2], lane_wdata2, lane_wmask2, pipe_valid[2]);
+        assign_lane_to_port(3'd3, lane_bank3, lane_index3, pipe_write[3], lane_wdata3, lane_wmask3, pipe_valid[3]);
     end
 
     always @(posedge clk) begin
         if (rst) begin
+            pipe_valid <= 4'b0000;
+            pipe_write <= 4'b0000;
+            pipe_addr <= {(4*ADDR_WIDTH){1'b0}};
+            pipe_wdata <= {(4*DATA_WIDTH){1'b0}};
+            pipe_wmask <= {(4*4){1'b0}};
             b0_read_a_q <= 1'b0;
             b0_read_b_q <= 1'b0;
             b0_lane_a_q <= NO_LANE;
@@ -223,6 +249,11 @@ module memory #(
             b3_lane_a_q <= NO_LANE;
             b3_lane_b_q <= NO_LANE;
         end else begin
+            pipe_valid <= req_valid & req_ready;
+            pipe_write <= req_write;
+            pipe_addr <= req_addr;
+            pipe_wdata <= req_wdata;
+            pipe_wmask <= req_wmask;
             b0_read_a_q <= b0_en_a && !b0_we_a;
             b0_read_b_q <= b0_en_b && !b0_we_b;
             b0_lane_a_q <= b0_lane_a;
@@ -360,9 +391,9 @@ module memory #(
         begin
             case (lane_id)
                 2'd0: same_prior_count = 2'd0;
-                2'd1: same_prior_count = prior_port_count(2'd1, lane_bank1, lane_index1, req_write[1]);
-                2'd2: same_prior_count = prior_port_count(2'd2, lane_bank2, lane_index2, req_write[2]);
-                default: same_prior_count = prior_port_count(2'd3, lane_bank3, lane_index3, req_write[3]);
+                2'd1: same_prior_count = prior_port_count(2'd1, req_lane_bank1, req_lane_index1, req_write[1]);
+                2'd2: same_prior_count = prior_port_count(2'd2, req_lane_bank2, req_lane_index2, req_write[2]);
+                default: same_prior_count = prior_port_count(2'd3, req_lane_bank3, req_lane_index3, req_write[3]);
             endcase
         end
     endfunction
@@ -374,13 +405,13 @@ module memory #(
         input write;
         begin
             prior_port_count = 2'd0;
-            if (lane_id > 2'd0 && prior_uses_port(req_valid[0], req_write[0], lane_bank0, lane_index0, write, bank_id, bank_index)) begin
+            if (lane_id > 2'd0 && prior_uses_port(req_valid[0], req_write[0], req_lane_bank0, req_lane_index0, write, bank_id, bank_index)) begin
                 prior_port_count = prior_port_count + 2'd1;
             end
-            if (lane_id > 2'd1 && prior_uses_port(req_valid[1], req_write[1], lane_bank1, lane_index1, write, bank_id, bank_index)) begin
+            if (lane_id > 2'd1 && prior_uses_port(req_valid[1], req_write[1], req_lane_bank1, req_lane_index1, write, bank_id, bank_index)) begin
                 prior_port_count = prior_port_count + 2'd1;
             end
-            if (lane_id > 2'd2 && prior_uses_port(req_valid[2], req_write[2], lane_bank2, lane_index2, write, bank_id, bank_index)) begin
+            if (lane_id > 2'd2 && prior_uses_port(req_valid[2], req_write[2], req_lane_bank2, req_lane_index2, write, bank_id, bank_index)) begin
                 prior_port_count = prior_port_count + 2'd1;
             end
         end

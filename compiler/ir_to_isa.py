@@ -49,6 +49,11 @@ FLOAT_PREFIX_OPS = {
     "div": "FDIV",
 }
 
+CONVERT_OPS = {
+    "ftoi": "FTOI",
+    "itof": "ITOF",
+}
+
 COMPARE_OPS = {"lt", "le", "gt", "ge", "eq", "ne"}
 
 
@@ -62,34 +67,107 @@ class IsaLoweringError(Exception):
 class RegisterAllocator:
     remaining_uses: Counter[str]
     value_regs: dict[str, str] = field(default_factory=dict)
-    free_regs: list[str] = field(default_factory=lambda: [f"r{i}" for i in range(16)])
+    free_regs: list[str] = field(default_factory=lambda: [f"r{i}" for i in range(13)])
+    spilled_values: dict[str, int] = field(default_factory=dict)
+    value_depths: dict[str, int] = field(default_factory=dict)
+    persistent_values: set[str] = field(default_factory=set)
+    next_spill_slot: int = 0
+    spill_base_reg: str = "r15"
+    spill_addr_reg: str = "r14"
+    scratch_regs: list[str] = field(default_factory=lambda: ["r13"])
+    pinned_values: set[str] = field(default_factory=set)
+    pred_depth: int = 0
 
-    def define(self, value: str) -> str:
+    def define(self, value: str, asm: list[str]) -> str:
         """Assign a physical register to a newly defined IR value."""
+        if value.startswith("%slot"):
+            self.persistent_values.add(value)
+
         old_reg = self.value_regs.pop(value, None)
         if old_reg is not None:
             self.value_regs[value] = old_reg
             return old_reg
 
-        if not self.free_regs:
-            raise IsaLoweringError(
-                "ran out of physical registers while lowering IR; "
-                "the next step is spill support or better liveness analysis"
-            )
-
-        reg = self.free_regs.pop(0)
+        self.spilled_values.pop(value, None)
+        reg = self.acquire_value_reg(asm)
         self.value_regs[value] = reg
+        self.value_depths[value] = self.pred_depth
         return reg
 
-    def use(self, value: str) -> str:
-        """Return the register containing an existing IR value."""
-        if value not in self.value_regs:
-            raise IsaLoweringError(f"use of undefined IR value: {value}")
-        return self.value_regs[value]
+    def use(self, value: str, asm: list[str]) -> str:
+        """Return the register containing an existing IR value, reloading if spilled."""
+        if value in self.value_regs:
+            return self.value_regs[value]
+        if value in self.spilled_values:
+            reg = self.acquire_value_reg(asm)
+            self.emit_spill_load(reg, value, asm)
+            self.value_regs[value] = reg
+            self.value_depths[value] = self.pred_depth
+            return reg
+        raise IsaLoweringError(f"use of undefined IR value: {value}")
+
+    def acquire_value_reg(self, asm: list[str], exclude: set[str] | None = None) -> str:
+        """Get a value register, spilling an existing value if needed."""
+        exclude = (exclude or set()) | self.pinned_values
+        if not self.free_regs:
+            self.spill_one(asm, exclude)
+        if not self.free_regs:
+            raise IsaLoweringError("ran out of registers; no spill candidate was available")
+        return self.free_regs.pop(0)
+
+    def spill_one(self, asm: list[str], exclude: set[str] | None = None) -> None:
+        """Move one resident value to the compiler spill area."""
+        exclude = (exclude or set()) | self.pinned_values
+        candidate: str | None = None
+        for value in self.value_regs:
+            if value not in exclude and self.value_depths.get(value, 0) == self.pred_depth:
+                candidate = value
+                break
+        if candidate is None:
+            return
+        reg = self.value_regs.pop(candidate)
+        self.emit_spill_store(candidate, reg, asm)
+        self.free_regs.insert(0, reg)
+
+    def spill_slot(self, value: str) -> int:
+        """Return the spill slot assigned to an IR value."""
+        slot = self.spilled_values.get(value)
+        if slot is not None:
+            return slot
+        slot = self.next_spill_slot
+        self.next_spill_slot += 1
+        self.spilled_values[value] = slot
+        return slot
+
+    def emit_spill_base(self, asm: list[str]) -> None:
+        """Materialize the compiler-reserved shared spill base."""
+        asm.append(f"  LDC {self.spill_base_reg}, SHARED_SPILL_BASE")
+
+    def emit_spill_addr(self, slot: int, asm: list[str]) -> None:
+        """Materialize a per-lane spill address for one logical spill slot."""
+        self.emit_spill_base(asm)
+        asm.append(f"  LID {self.spill_addr_reg}")
+        if slot:
+            asm.append(f"  ADDI {self.spill_addr_reg}, {self.spill_addr_reg}, {slot * 4}")
+        asm.append(f"  ADD {self.spill_addr_reg}, {self.spill_base_reg}, {self.spill_addr_reg}")
+
+    def emit_spill_store(self, value: str, reg: str, asm: list[str]) -> None:
+        """Store one live register value into its spill slot."""
+        slot = self.spill_slot(value)
+        self.emit_spill_addr(slot, asm)
+        asm.append(f"  STS [{self.spill_addr_reg} + 0], {reg}")
+
+    def emit_spill_load(self, reg: str, value: str, asm: list[str]) -> None:
+        """Reload one spilled value from its spill slot."""
+        slot = self.spill_slot(value)
+        self.emit_spill_addr(slot, asm)
+        asm.append(f"  LDS {reg}, [{self.spill_addr_reg} + 0]")
 
     def release_after_use(self, value: str) -> None:
-        """Free value registers after their final textual use."""
-        if not is_temp_value(value):
+        """Free value registers or spill slots after their final textual use."""
+        if not value.startswith("%"):
+            return
+        if value in self.persistent_values:
             return
 
         self.remaining_uses[value] -= 1
@@ -99,16 +177,35 @@ class RegisterAllocator:
         reg = self.value_regs.pop(value, None)
         if reg is not None:
             self.free_regs.insert(0, reg)
+        self.spilled_values.pop(value, None)
+        self.value_depths.pop(value, None)
 
     def acquire_scratch(self) -> str:
         """Reserve a short-lived register for materialized immediates."""
-        if not self.free_regs:
-            raise IsaLoweringError("ran out of physical registers for immediate materialization")
-        return self.free_regs.pop(0)
+        if not self.scratch_regs:
+            raise IsaLoweringError("ran out of compiler scratch registers")
+        return self.scratch_regs.pop(0)
 
     def release_scratch(self, reg: str) -> None:
         """Return a scratch register to the free list."""
-        self.free_regs.insert(0, reg)
+        self.scratch_regs.insert(0, reg)
+
+    def pin(self, value: str) -> None:
+        """Prevent a value from being chosen as a spill victim."""
+        self.pinned_values.add(value)
+
+    def unpin(self, value: str) -> None:
+        """Allow a value to be spilled again."""
+        self.pinned_values.discard(value)
+
+    def enter_predicate(self) -> None:
+        """Track that following instructions execute under a narrower lane mask."""
+        self.pred_depth += 1
+
+    def exit_predicate(self) -> None:
+        """Track that following instructions execute under the restored lane mask."""
+        if self.pred_depth > 0:
+            self.pred_depth -= 1
 
 
 def split_operands(text: str | None) -> list[str]:
@@ -240,104 +337,119 @@ def lower_assignment(
     asm: list[str],
 ) -> None:
     """Lower one assigning IR instruction."""
-    rd = allocator.define(dst)
+    rd = allocator.define(dst, asm)
+    allocator.pin(dst)
 
-    if op == "arg":
-        if len(operands) != 1:
-            raise IsaLoweringError(f"arg expects one operand: {dst} = {op} {operands}")
-        asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
-        return
+    try:
+        if op == "arg":
+            if len(operands) != 1:
+                raise IsaLoweringError(f"arg expects one operand: {dst} = {op} {operands}")
+            allocator.persistent_values.add(dst)
+            asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
+            return
 
-    if op == "shared":
-        if len(operands) != 1:
-            raise IsaLoweringError(f"shared expects one operand: {dst} = {op} {operands}")
-        asm.append(f"  LDC {rd}, SHARED_{operands[0].upper()}")
-        return
+        if op == "shared":
+            if len(operands) != 1:
+                raise IsaLoweringError(f"shared expects one operand: {dst} = {op} {operands}")
+            asm.append(f"  LDC {rd}, SHARED_{operands[0].upper()}")
+            return
 
-    if op == "const":
-        if len(operands) != 1:
-            raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")
-        emit_load_immediate(rd, operands[0], asm)
-        return
+        if op == "const":
+            if len(operands) != 1:
+                raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")
+            emit_load_immediate(rd, operands[0], asm)
+            return
 
-    if op in THREAD_OPS:
-        if operands:
-            raise IsaLoweringError(f"{op} expects no operands")
-        asm.append(f"  {THREAD_OPS[op]} {rd}")
-        return
+        if op in THREAD_OPS:
+            if operands:
+                raise IsaLoweringError(f"{op} expects no operands")
+            asm.append(f"  {THREAD_OPS[op]} {rd}")
+            return
 
-    base_op, fmt = split_typed_op(op)
+        base_op, fmt = split_typed_op(op)
 
-    if base_op == "arg":
-        if len(operands) != 1:
-            raise IsaLoweringError(f"arg expects one operand: {dst} = {op} {operands}")
-        asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
-        return
+        if base_op == "arg":
+            if len(operands) != 1:
+                raise IsaLoweringError(f"arg expects one operand: {dst} = {op} {operands}")
+            allocator.persistent_values.add(dst)
+            asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
+            return
 
-    if base_op == "shared":
-        if len(operands) != 1:
-            raise IsaLoweringError(f"shared expects one operand: {dst} = {op} {operands}")
-        asm.append(f"  LDC {rd}, SHARED_{operands[0].upper()}")
-        return
+        if base_op == "shared":
+            if len(operands) != 1:
+                raise IsaLoweringError(f"shared expects one operand: {dst} = {op} {operands}")
+            asm.append(f"  LDC {rd}, SHARED_{operands[0].upper()}")
+            return
 
-    if base_op == "const":
-        if len(operands) != 1:
-            raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")
-        emit_load_immediate(rd, operands[0], asm)
-        return
+        if base_op == "const":
+            if len(operands) != 1:
+                raise IsaLoweringError(f"const expects one operand: {dst} = {op} {operands}")
+            emit_load_immediate(rd, operands[0], asm)
+            return
 
-    if base_op in THREAD_OPS:
-        if operands:
-            raise IsaLoweringError(f"{base_op} expects no operands")
-        asm.append(f"  {THREAD_OPS[base_op]} {rd}")
-        return
+        if base_op in THREAD_OPS:
+            if operands:
+                raise IsaLoweringError(f"{base_op} expects no operands")
+            asm.append(f"  {THREAD_OPS[base_op]} {rd}")
+            return
 
-    if base_op == "load_global":
-        if len(operands) != 1:
-            raise IsaLoweringError("load_global expects one address operand")
-        rs = allocator.use(operands[0])
-        suffix = f".{isa_format(fmt)}" if fmt is not None else ""
-        asm.append(f"  LDG{suffix} {rd}, [{rs} + 0]")
-        allocator.release_after_use(operands[0])
-        return
+        if base_op == "load_global":
+            if len(operands) != 1:
+                raise IsaLoweringError("load_global expects one address operand")
+            rs, scratch = operand_reg(operands[0], allocator, asm)
+            suffix = f".{isa_format(fmt)}" if fmt is not None else ""
+            asm.append(f"  LDG{suffix} {rd}, [{rs} + 0]")
+            release_operand(operands[0], scratch, allocator)
+            return
 
-    if base_op == "load_shared":
-        if len(operands) != 1:
-            raise IsaLoweringError("load_shared expects one address operand")
-        rs = allocator.use(operands[0])
-        suffix = f".{isa_format(fmt)}" if fmt is not None else ""
-        asm.append(f"  LDS{suffix} {rd}, [{rs} + 0]")
-        allocator.release_after_use(operands[0])
-        return
+        if base_op == "load_shared":
+            if len(operands) != 1:
+                raise IsaLoweringError("load_shared expects one address operand")
+            rs, scratch = operand_reg(operands[0], allocator, asm)
+            suffix = f".{isa_format(fmt)}" if fmt is not None else ""
+            asm.append(f"  LDS{suffix} {rd}, [{rs} + 0]")
+            release_operand(operands[0], scratch, allocator)
+            return
 
-    if base_op == "not":
-        if len(operands) != 1:
-            raise IsaLoweringError("not expects one operand")
-        rs = allocator.use(operands[0])
-        asm.append(f"  NOT {rd}, {rs}")
-        allocator.release_after_use(operands[0])
-        return
+        if base_op == "not":
+            if len(operands) != 1:
+                raise IsaLoweringError("not expects one operand")
+            rs, scratch = operand_reg(operands[0], allocator, asm)
+            asm.append(f"  NOT {rd}, {rs}")
+            release_operand(operands[0], scratch, allocator)
+            return
 
-    if base_op == "mov":
-        if len(operands) != 1:
-            raise IsaLoweringError("mov expects one operand")
-        rs = allocator.use(operands[0])
-        asm.append(f"  MOV {rd}, {rs}")
-        allocator.release_after_use(operands[0])
-        return
+        if base_op == "mov":
+            if len(operands) != 1:
+                raise IsaLoweringError("mov expects one operand")
+            rs, scratch = operand_reg(operands[0], allocator, asm)
+            asm.append(f"  MOV {rd}, {rs}")
+            release_operand(operands[0], scratch, allocator)
+            return
 
-    opcode = isa_value_opcode(base_op, fmt)
-    if opcode:
-        if len(operands) != 2:
-            raise IsaLoweringError(f"{op} expects two operands")
-        rs1, scratch1 = operand_reg(operands[0], allocator, asm)
-        rs2, scratch2 = operand_reg(operands[1], allocator, asm)
-        asm.append(f"  {opcode} {rd}, {rs1}, {rs2}")
-        release_operand(operands[0], scratch1, allocator)
-        release_operand(operands[1], scratch2, allocator)
-        return
+        if base_op in CONVERT_OPS:
+            if len(operands) != 1:
+                raise IsaLoweringError(f"{base_op} expects one operand")
+            rs, scratch = operand_reg(operands[0], allocator, asm)
+            suffix = f".{isa_format(fmt, 'fp32' if base_op == 'ftoi' else 'i32')}"
+            asm.append(f"  {CONVERT_OPS[base_op]}{suffix} {rd}, {rs}")
+            release_operand(operands[0], scratch, allocator)
+            return
 
-    raise IsaLoweringError(f"unsupported IR assignment op: {op}")
+        opcode = isa_value_opcode(base_op, fmt)
+        if opcode:
+            if len(operands) != 2:
+                raise IsaLoweringError(f"{op} expects two operands")
+            rs1, scratch1 = operand_reg(operands[0], allocator, asm)
+            rs2, scratch2 = operand_reg(operands[1], allocator, asm)
+            asm.append(f"  {opcode} {rd}, {rs1}, {rs2}")
+            release_operand(operands[0], scratch1, allocator)
+            release_operand(operands[1], scratch2, allocator)
+            return
+
+        raise IsaLoweringError(f"unsupported IR assignment op: {op}")
+    finally:
+        allocator.unpin(dst)
 
 
 def operand_reg(
@@ -347,7 +459,11 @@ def operand_reg(
 ) -> tuple[str, str | None]:
     """Return a register for a value operand or literal immediate."""
     if operand.startswith("%"):
-        return allocator.use(operand), None
+        if operand in allocator.spilled_values and operand not in allocator.value_regs:
+            scratch = allocator.acquire_scratch()
+            allocator.emit_spill_load(scratch, operand, asm)
+            return scratch, scratch
+        return allocator.use(operand, asm), None
 
     scratch = allocator.acquire_scratch()
     emit_load_immediate(scratch, operand, asm)
@@ -395,6 +511,7 @@ def release_operand(
     """Release a temporary or scratch operand after use."""
     if scratch is not None:
         allocator.release_scratch(scratch)
+        allocator.release_after_use(operand)
         return
     allocator.release_after_use(operand)
 
@@ -409,37 +526,39 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
     if base_op == "store_global":
         if len(operands) != 2:
             raise IsaLoweringError("store_global expects address and value operands")
-        addr = allocator.use(operands[0])
-        value = allocator.use(operands[1])
+        addr, scratch1 = operand_reg(operands[0], allocator, asm)
+        value, scratch2 = operand_reg(operands[1], allocator, asm)
         suffix = f".{isa_format(fmt)}" if fmt is not None else ""
         asm.append(f"  STG{suffix} [{addr} + 0], {value}")
-        allocator.release_after_use(operands[0])
-        allocator.release_after_use(operands[1])
+        release_operand(operands[0], scratch1, allocator)
+        release_operand(operands[1], scratch2, allocator)
         return
 
     if base_op == "store_shared":
         if len(operands) != 2:
             raise IsaLoweringError("store_shared expects address and value operands")
-        addr = allocator.use(operands[0])
-        value = allocator.use(operands[1])
+        addr, scratch1 = operand_reg(operands[0], allocator, asm)
+        value, scratch2 = operand_reg(operands[1], allocator, asm)
         suffix = f".{isa_format(fmt)}" if fmt is not None else ""
         asm.append(f"  STS{suffix} [{addr} + 0], {value}")
-        allocator.release_after_use(operands[0])
-        allocator.release_after_use(operands[1])
+        release_operand(operands[0], scratch1, allocator)
+        release_operand(operands[1], scratch2, allocator)
         return
 
     if op == "pred_begin":
         if len(operands) != 1:
             raise IsaLoweringError("pred_begin expects one condition operand")
-        cond = allocator.use(operands[0])
+        cond, scratch = operand_reg(operands[0], allocator, asm)
         asm.append("  PUSHM")
         asm.append(f"  PRED {cond}")
-        allocator.release_after_use(operands[0])
+        release_operand(operands[0], scratch, allocator)
+        allocator.enter_predicate()
         return
 
     if op == "pred_end":
         if operands:
             raise IsaLoweringError("pred_end expects no operands")
+        allocator.exit_predicate()
         asm.append("  POPM")
         return
 
@@ -452,17 +571,17 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
     if op == "branch_zero":
         if len(operands) != 2:
             raise IsaLoweringError("branch_zero expects condition and label operands")
-        cond = allocator.use(operands[0])
+        cond, scratch = operand_reg(operands[0], allocator, asm)
         asm.append(f"  BZ {cond}, {operands[1]}")
-        allocator.release_after_use(operands[0])
+        release_operand(operands[0], scratch, allocator)
         return
 
     if op == "branch_nzero":
         if len(operands) != 2:
             raise IsaLoweringError("branch_nzero expects condition and label operands")
-        cond = allocator.use(operands[0])
+        cond, scratch = operand_reg(operands[0], allocator, asm)
         asm.append(f"  BNZ {cond}, {operands[1]}")
-        allocator.release_after_use(operands[0])
+        release_operand(operands[0], scratch, allocator)
         return
 
     if op == "barrier":

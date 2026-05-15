@@ -6,71 +6,87 @@ defaults:
 
 artifacts:
   - file: vector_add.bin
+    program_addr: 0x0000
     kernels:
       - name: vector_add.i32
         op: vector_add
         dtype: i32
-        entry: vector_add
+        entry: vector_add_kernel_i32
       - name: vector_add.i16
         op: vector_add
         dtype: i16
-        entry: vector_add_i16
+        entry: vector_add_kernel_i16
       - name: vector_add.i8
         op: vector_add
         dtype: i8
-        entry: vector_add_i8
+        entry: vector_add_kernel_i8
       - name: vector_add.fp32
         op: vector_add
         dtype: fp32
-        entry: vector_add_fp32
+        entry: vector_add_kernel_fp32
       - name: vector_add.fp16
         op: vector_add
         dtype: fp16
-        entry: vector_add_fp16
+        entry: vector_add_kernel_fp16
       - name: vector_add.fp8_e4m3fn
         op: vector_add
         dtype: fp8_e4m3fn
-        entry: vector_add_fp8_e4m3fn
-
-  - file: relu.bin
-    kernels:
-      - name: relu.i32
-        op: relu
-        dtype: i32
-        entry: relu
-      - name: relu.i16
-        op: relu
-        dtype: i16
-        entry: relu_i16
-      - name: relu.i8
-        op: relu
-        dtype: i8
-        entry: relu_i8
-      - name: relu.fp32
-        op: relu
-        dtype: fp32
-        entry: relu_fp32
-      - name: relu.fp16
-        op: relu
-        dtype: fp16
-        entry: relu_fp16
-      - name: relu.fp8_e4m3fn
-        op: relu
-        dtype: fp8_e4m3fn
-        entry: relu_fp8_e4m3fn
+        entry: vector_add_kernel_fp8
 
   - file: matmul.bin
+    program_addr: 0x0288
     kernels:
       - name: matmul.i32
         op: matmul
         dtype: i32
-        entry: matmul
+        entry: matmul_kernel_i32
       - name: matmul.fp32
         op: matmul
         dtype: fp32
-        entry: matmul_fp32
+        entry: matmul_kernel_fp32
+
+  - file: linear.bin
+    program_addr: 0x0460
+    kernels:
+      - name: linear.i32
+        op: linear
+        dtype: i32
+        entry: linear_kernel_i32
+      - name: linear.fp32
+        op: linear
+        dtype: fp32
+        entry: linear_kernel_fp32
+
+  - file: mul.bin
+    program_addr: 0x0628
+    kernels:
+      - name: mul.i32
+        op: mul
+        dtype: i32
+        entry: mul_kernel_i32
+      - name: mul.i16
+        op: mul
+        dtype: i16
+        entry: mul_kernel_i16
+      - name: mul.i8
+        op: mul
+        dtype: i8
+        entry: mul_kernel_i8
+      - name: mul.fp32
+        op: mul
+        dtype: fp32
+        entry: mul_kernel_fp32
+      - name: mul.fp16
+        op: mul
+        dtype: fp16
+        entry: mul_kernel_fp16
+      - name: mul.fp8_e4m3fn
+        op: mul
+        dtype: fp8_e4m3fn
+        entry: mul_kernel_fp8
 
   - file: div.bin
+    program_addr: 0x08b0
     kernels:
       - name: reciprocal.fp32
         op: reciprocal
@@ -82,8 +98,81 @@ artifacts:
         entry: div_fp32
 
   - file: sqrt.bin
+    program_addr: 0x0b1c
     kernels:
       - name: sqrt.fp32
         op: sqrt
         dtype: fp32
         entry: sqrt_fp32
+
+  - file: math.bin
+    program_addr: 0x0c38
+    kernels:
+      - name: log.fp32
+        op: log
+        dtype: fp32
+        entry: log_fp32
+      - name: log2.fp32
+        op: log2
+        dtype: fp32
+        entry: log2_fp32
+      - name: log10.fp32
+        op: log10
+        dtype: fp32
+        entry: log10_fp32
+      - name: sin.fp32
+        op: sin
+        dtype: fp32
+        entry: sin_fp32
+      - name: cos.fp32
+        op: cos
+        dtype: fp32
+        entry: cos_fp32
+      - name: tan.fp32
+        op: tan
+        dtype: fp32
+        entry: tan_fp32
+      - name: pow.fp32
+        op: pow
+        dtype: fp32
+        entry: pow_fp32
+
+  - file: activation.bin
+    program_addr: 0x2224
+    kernels:
+      - name: relu.i32
+        op: relu
+        dtype: i32
+        entry: relu_kernel_i32
+      - name: relu.i16
+        op: relu
+        dtype: i16
+        entry: relu_kernel_i16
+      - name: relu.i8
+        op: relu
+        dtype: i8
+        entry: relu_kernel_i8
+      - name: relu.fp32
+        op: relu
+        dtype: fp32
+        entry: relu_kernel_fp32
+      - name: relu.fp16
+        op: relu
+        dtype: fp16
+        entry: relu_kernel_fp16
+      - name: relu.fp8_e4m3fn
+        op: relu
+        dtype: fp8_e4m3fn
+        entry: relu_kernel_fp8
+      - name: exp.fp32
+        op: exp
+        dtype: fp32
+        entry: exp_fp32
+      - name: sigmoid.fp32
+        op: sigmoid
+        dtype: fp32
+        entry: sigmoid_fp32
+      - name: tanh.fp32
+        op: tanh
+        dtype: fp32
+        entry: tanh_fp32

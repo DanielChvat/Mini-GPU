@@ -48,6 +48,8 @@ OPCODES = {
     "LDS": 0x22,
     "STS": 0x23,
     "FDIV": 0x24,
+    "FTOI": 0x25,
+    "ITOF": 0x26,
     "TID": 0x28,
     "TIDX": 0x29,
     "BID": 0x2A,
@@ -95,6 +97,7 @@ RRR_OPS = {
 }
 
 FRR_OPS = {"FADD", "FSUB", "FMUL", "FDIV"}
+UNARY_TYPED_OPS = {"FTOI", "ITOF"}
 RRI_OPS = {"ADDI", "SUBI", "MULI", "ANDI", "ORI", "XORI", "SHLI", "SHRI"}
 THREAD_OPS = {"TID", "TIDX", "BID", "BDIM", "GDIM", "LID", "WID"}
 ZERO_OPS = {"NOP", "PUSHM", "POPM", "BAR", "EXIT"}
@@ -224,7 +227,7 @@ def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
     op, fmt, operands = split_instruction(line)
     if op not in OPCODES:
         raise EncodeError(f"unknown opcode: {op}")
-    if fmt is not None and op not in RRR_OPS and op not in FRR_OPS and op not in {"LDG", "LDS", "STG", "STS"}:
+    if fmt is not None and op not in RRR_OPS and op not in FRR_OPS and op not in UNARY_TYPED_OPS and op not in {"LDG", "LDS", "STG", "STS"}:
         raise EncodeError(f"{op} does not accept a data-format suffix")
 
     if op in ZERO_OPS:
@@ -250,6 +253,10 @@ def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
     if op in FRR_OPS:
         expect_count(op, operands, 3)
         return pack(op, rd=reg(operands[0]), rs1=reg(operands[1]), rs2=reg(operands[2]), imm=format_id(fmt, "FP32"))
+
+    if op in UNARY_TYPED_OPS:
+        expect_count(op, operands, 2)
+        return pack(op, rd=reg(operands[0]), rs1=reg(operands[1]), imm=format_id(fmt, "FP32" if op == "FTOI" else "I32"))
 
     if op == "MOV":
         expect_count(op, operands, 2)

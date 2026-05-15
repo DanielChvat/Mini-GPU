@@ -33,6 +33,7 @@ module security_gate_tb;
     reg  [3:0]  host_mem_req_write;
     reg  [(4*ADDR_WIDTH)-1:0] host_mem_req_addr;
     reg  [(4*DATA_WIDTH)-1:0] host_mem_req_wdata;
+    reg  [(4*4)-1:0] host_mem_req_wmask;
     wire [3:0]  host_mem_req_ready;
     wire [3:0]  host_mem_resp_valid;
     wire [(4*DATA_WIDTH)-1:0] host_mem_resp_rdata;
@@ -47,6 +48,7 @@ module security_gate_tb;
     reg  [3:0]  core_mem_req_write;
     reg  [(4*ADDR_WIDTH)-1:0] core_mem_req_addr;
     reg  [(4*DATA_WIDTH)-1:0] core_mem_req_wdata;
+    reg  [(4*4)-1:0] core_mem_req_wmask;
     wire [3:0]  core_mem_req_ready;
     wire [3:0]  core_mem_resp_valid;
     wire [(4*DATA_WIDTH)-1:0] core_mem_resp_rdata;
@@ -61,6 +63,7 @@ module security_gate_tb;
     wire [3:0]  merged_mem_req_write;
     wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr;
     wire [(4*DATA_WIDTH)-1:0] merged_mem_req_wdata;
+    wire [(4*4)-1:0] merged_mem_req_wmask;
     wire [3:0]  merged_mem_req_ready;
     wire [3:0]  merged_mem_resp_valid;
     wire [(4*DATA_WIDTH)-1:0] merged_mem_resp_rdata;
@@ -111,6 +114,7 @@ module security_gate_tb;
         .host_mem_req_write(host_mem_req_write),
         .host_mem_req_addr(host_mem_req_addr),
         .host_mem_req_wdata(host_mem_req_wdata),
+        .host_mem_req_wmask(host_mem_req_wmask),
         .host_mem_req_ready(host_mem_req_ready),
         .host_mem_resp_valid(host_mem_resp_valid),
         .host_mem_resp_rdata(host_mem_resp_rdata),
@@ -121,6 +125,7 @@ module security_gate_tb;
         .core_mem_req_write(core_mem_req_write),
         .core_mem_req_addr(core_mem_req_addr),
         .core_mem_req_wdata(core_mem_req_wdata),
+        .core_mem_req_wmask(core_mem_req_wmask),
         .core_mem_req_ready(core_mem_req_ready),
         .core_mem_resp_valid(core_mem_resp_valid),
         .core_mem_resp_rdata(core_mem_resp_rdata),
@@ -131,6 +136,7 @@ module security_gate_tb;
         .merged_mem_req_write(merged_mem_req_write),
         .merged_mem_req_addr(merged_mem_req_addr),
         .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_wmask(merged_mem_req_wmask),
         .merged_mem_req_ready(merged_mem_req_ready),
         .merged_mem_resp_valid(merged_mem_resp_valid),
         .merged_mem_resp_rdata(merged_mem_resp_rdata),
@@ -155,6 +161,7 @@ module security_gate_tb;
         .merged_mem_req_write(merged_mem_req_write),
         .merged_mem_req_addr(merged_mem_req_addr),
         .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_wmask(merged_mem_req_wmask),
         .merged_mem_req_ready(merged_mem_req_ready),
         .merged_mem_resp_valid(merged_mem_resp_valid),
         .merged_mem_resp_rdata(merged_mem_resp_rdata),
@@ -234,11 +241,13 @@ module security_gate_tb;
             host_mem_req_write  <= 4'b0000;
             host_mem_req_addr   <= {(4*ADDR_WIDTH){1'b0}};
             host_mem_req_wdata  <= {(4*DATA_WIDTH){1'b0}};
+            host_mem_req_wmask  <= {4{4'b1111}};
             host_memory_status_consumed <= 1'b0;
             core_mem_req_valid  <= 4'b0000;
             core_mem_req_write  <= 4'b0000;
             core_mem_req_addr   <= {(4*ADDR_WIDTH){1'b0}};
             core_mem_req_wdata  <= {(4*DATA_WIDTH){1'b0}};
+            core_mem_req_wmask  <= {4{4'b1111}};
             core_memory_status_consumed <= 1'b0;
             validate_triggered  <= 1'b0;
             validate_model_id   <= 4'b0;

@@ -10,6 +10,7 @@ add_files -norecurse [list \
     [file join $repo_root hardware/rtl/common/communication_controller.v] \
     [file join $repo_root hardware/rtl/common/serial_packet_rx.v] \
     [file join $repo_root hardware/rtl/common/serial_packet_tx.v] \
+    [file join $repo_root hardware/rtl/common/bus_controller.v] \
     [file join $repo_root hardware/rtl/core/mini_gpu.v] \
     [file join $repo_root hardware/rtl/core/mini_gpu_core.v] \
     [file join $repo_root hardware/rtl/core/sm.v] \
@@ -27,6 +28,7 @@ add_files -norecurse [list \
     [file join $repo_root hardware/rtl/lane/float/shared_fpu.v] \
     [file join $repo_root hardware/rtl/memory/memory.v] \
     [file join $repo_root hardware/rtl/memory/memory_bank.v] \
+    [file join $repo_root hardware/rtl/memory/program_memory.v] \
 ]
 set_property file_type SystemVerilog [get_files *.v]
 

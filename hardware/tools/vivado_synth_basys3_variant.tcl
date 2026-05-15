@@ -28,6 +28,7 @@ set_property include_dirs [file join $repo_root hardware/rtl/include] [current_f
 
 add_files -norecurse [list \
     [file join $repo_root hardware/rtl/top/basys3_mini_gpu_top.v] \
+    [file join $repo_root hardware/rtl/common/bus_controller.v] \
     [file join $repo_root hardware/rtl/core/mini_gpu.v] \
     [file join $repo_root hardware/rtl/core/mini_gpu_core.v] \
     [file join $repo_root hardware/rtl/core/sm.v] \
@@ -45,6 +46,7 @@ add_files -norecurse [list \
     [file join $repo_root hardware/rtl/lane/float/shared_fpu.v] \
     [file join $repo_root hardware/rtl/memory/memory.v] \
     [file join $repo_root hardware/rtl/memory/memory_bank.v] \
+    [file join $repo_root hardware/rtl/memory/program_memory.v] \
 ]
 set_property file_type SystemVerilog [get_files *.v]
 

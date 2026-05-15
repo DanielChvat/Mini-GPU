@@ -7,7 +7,8 @@ module shared_fpu #(
     parameter ENABLE_FLOAT_MUL = 1,
     parameter ENABLE_FLOAT_DIV = 1,
     parameter FLOAT_FP32_ONLY = 0,
-    parameter LATENCY = 4
+    parameter LATENCY = 32,
+    parameter TAG_WIDTH = 1
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -16,17 +17,20 @@ module shared_fpu #(
     input  wire [2:0]  fmt,
     input  wire [31:0] lhs,
     input  wire [31:0] rhs,
+    input  wire [TAG_WIDTH-1:0] tag_in,
     output reg  [31:0] result,
     output reg         supported,
     output reg         divide_by_zero,
+    output reg  [TAG_WIDTH-1:0] tag_out,
     output reg         busy,
     output reg         done
 );
-    reg [5:0] opcode_r;
-    reg [2:0] fmt_r;
-    reg [31:0] lhs_r;
-    reg [31:0] rhs_r;
-    reg [7:0] cycles_left;
+    localparam ADD_SUB_LATENCY = 30;
+    localparam MUL_LATENCY = 6;
+    localparam ADD_SUB_DELAY = (LATENCY > ADD_SUB_LATENCY) ? (LATENCY - ADD_SUB_LATENCY) : 0;
+    localparam MUL_DELAY = (LATENCY > MUL_LATENCY) ? (LATENCY - MUL_LATENCY) : 0;
+    localparam ADD_SUB_DELAY_SLOTS = (ADD_SUB_DELAY == 0) ? 1 : ADD_SUB_DELAY;
+    localparam MUL_DELAY_SLOTS = (MUL_DELAY == 0) ? 1 : MUL_DELAY;
 
     wire [31:0] add_sub_result;
     wire [31:0] mul_result;
@@ -36,6 +40,27 @@ module shared_fpu #(
     wire div_supported;
     wire div_zero;
 
+    reg [LATENCY-1:0] valid_pipe;
+    reg [(LATENCY*6)-1:0] opcode_pipe;
+    reg [(LATENCY*TAG_WIDTH)-1:0] tag_pipe;
+    reg [(ADD_SUB_DELAY_SLOTS*32)-1:0] add_sub_result_delay;
+    reg [ADD_SUB_DELAY_SLOTS-1:0] add_sub_supported_delay;
+    reg [(MUL_DELAY_SLOTS*32)-1:0] mul_result_delay;
+    reg [MUL_DELAY_SLOTS-1:0] mul_supported_delay;
+
+    wire [31:0] aligned_add_sub_result = (ADD_SUB_DELAY == 0)
+        ? add_sub_result
+        : add_sub_result_delay[((ADD_SUB_DELAY-1)*32) +: 32];
+    wire aligned_add_sub_supported = (ADD_SUB_DELAY == 0)
+        ? add_sub_supported
+        : add_sub_supported_delay[ADD_SUB_DELAY-1];
+    wire [31:0] aligned_mul_result = (MUL_DELAY == 0)
+        ? mul_result
+        : mul_result_delay[((MUL_DELAY-1)*32) +: 32];
+    wire aligned_mul_supported = (MUL_DELAY == 0)
+        ? mul_supported
+        : mul_supported_delay[MUL_DELAY-1];
+
     generate
         if (ENABLE_FLOAT_ADD) begin : gen_add_sub
             float_add_sub #(
@@ -43,10 +68,10 @@ module shared_fpu #(
             ) add_sub_unit (
                 .clk(clk),
                 .rst(rst),
-                .fmt(start ? fmt : fmt_r),
-                .subtract(start ? (opcode == `MGPU_OP_FSUB) : (opcode_r == `MGPU_OP_FSUB)),
-                .lhs(start ? lhs : lhs_r),
-                .rhs(start ? rhs : rhs_r),
+                .fmt(fmt),
+                .subtract(opcode == `MGPU_OP_FSUB),
+                .lhs(lhs),
+                .rhs(rhs),
                 .result(add_sub_result),
                 .supported(add_sub_supported)
             );
@@ -61,9 +86,9 @@ module shared_fpu #(
             ) mul_unit (
                 .clk(clk),
                 .rst(rst),
-                .fmt(start ? fmt : fmt_r),
-                .lhs(start ? lhs : lhs_r),
-                .rhs(start ? rhs : rhs_r),
+                .fmt(fmt),
+                .lhs(lhs),
+                .rhs(rhs),
                 .result(mul_result),
                 .supported(mul_supported)
             );
@@ -76,9 +101,9 @@ module shared_fpu #(
             float_div #(
                 .FP32_ONLY(FLOAT_FP32_ONLY)
             ) div_unit (
-                .fmt(fmt_r),
-                .lhs(lhs_r),
-                .rhs(rhs_r),
+                .fmt(fmt),
+                .lhs(lhs),
+                .rhs(rhs),
                 .result(div_result),
                 .supported(div_supported),
                 .divide_by_zero(div_zero)
@@ -90,60 +115,73 @@ module shared_fpu #(
         end
     endgenerate
 
+    integer delay_index;
+
     always @(posedge clk) begin
         if (rst) begin
             result <= 32'b0;
             supported <= 1'b0;
             divide_by_zero <= 1'b0;
+            tag_out <= {TAG_WIDTH{1'b0}};
             busy <= 1'b0;
             done <= 1'b0;
-            opcode_r <= 6'b0;
-            fmt_r <= 3'b0;
-            lhs_r <= 32'b0;
-            rhs_r <= 32'b0;
-            cycles_left <= 8'b0;
+            valid_pipe <= {LATENCY{1'b0}};
+            opcode_pipe <= {(LATENCY*6){1'b0}};
+            tag_pipe <= {(LATENCY*TAG_WIDTH){1'b0}};
+            add_sub_result_delay <= {(ADD_SUB_DELAY_SLOTS*32){1'b0}};
+            add_sub_supported_delay <= {ADD_SUB_DELAY_SLOTS{1'b0}};
+            mul_result_delay <= {(MUL_DELAY_SLOTS*32){1'b0}};
+            mul_supported_delay <= {MUL_DELAY_SLOTS{1'b0}};
         end else begin
-            done <= 1'b0;
+            valid_pipe <= {valid_pipe[LATENCY-2:0], start};
+            opcode_pipe <= {opcode_pipe[((LATENCY-1)*6)-1:0], opcode};
+            tag_pipe <= {tag_pipe[((LATENCY-1)*TAG_WIDTH)-1:0], tag_in};
 
-            if (start && !busy) begin
-                opcode_r <= opcode;
-                fmt_r <= fmt;
-                lhs_r <= lhs;
-                rhs_r <= rhs;
-                cycles_left <= LATENCY[7:0];
-                busy <= 1'b1;
-            end else if (busy) begin
-                if (cycles_left <= 8'd1) begin
-                    busy <= 1'b0;
-                    done <= 1'b1;
-                    divide_by_zero <= 1'b0;
-                    result <= 32'b0;
-                    supported <= 1'b0;
-
-                    case (opcode_r)
-                        `MGPU_OP_FADD,
-                        `MGPU_OP_FSUB: begin
-                            result <= add_sub_result;
-                            supported <= add_sub_supported;
-                        end
-                        `MGPU_OP_FMUL: begin
-                            result <= mul_result;
-                            supported <= mul_supported;
-                        end
-                        `MGPU_OP_FDIV: begin
-                            result <= div_result;
-                            supported <= div_supported;
-                            divide_by_zero <= div_zero;
-                        end
-                        default: begin
-                            result <= 32'b0;
-                            supported <= 1'b0;
-                        end
-                    endcase
-                end else begin
-                    cycles_left <= cycles_left - 8'd1;
+            if (ADD_SUB_DELAY != 0) begin
+                add_sub_result_delay[31:0] <= add_sub_result;
+                add_sub_supported_delay[0] <= add_sub_supported;
+                for (delay_index = 1; delay_index < ADD_SUB_DELAY; delay_index = delay_index + 1) begin
+                    add_sub_result_delay[(delay_index*32) +: 32] <= add_sub_result_delay[((delay_index-1)*32) +: 32];
+                    add_sub_supported_delay[delay_index] <= add_sub_supported_delay[delay_index-1];
                 end
             end
+
+            if (MUL_DELAY != 0) begin
+                mul_result_delay[31:0] <= mul_result;
+                mul_supported_delay[0] <= mul_supported;
+                for (delay_index = 1; delay_index < MUL_DELAY; delay_index = delay_index + 1) begin
+                    mul_result_delay[(delay_index*32) +: 32] <= mul_result_delay[((delay_index-1)*32) +: 32];
+                    mul_supported_delay[delay_index] <= mul_supported_delay[delay_index-1];
+                end
+            end
+
+            busy <= 1'b0;
+            done <= valid_pipe[LATENCY-1];
+            tag_out <= tag_pipe[((LATENCY-1)*TAG_WIDTH) +: TAG_WIDTH];
+            divide_by_zero <= 1'b0;
+            result <= 32'b0;
+            supported <= 1'b0;
+
+            case (opcode_pipe[((LATENCY-1)*6) +: 6])
+                `MGPU_OP_FADD,
+                `MGPU_OP_FSUB: begin
+                    result <= aligned_add_sub_result;
+                    supported <= aligned_add_sub_supported;
+                end
+                `MGPU_OP_FMUL: begin
+                    result <= aligned_mul_result;
+                    supported <= aligned_mul_supported;
+                end
+                `MGPU_OP_FDIV: begin
+                    result <= div_result;
+                    supported <= div_supported;
+                    divide_by_zero <= div_zero;
+                end
+                default: begin
+                    result <= 32'b0;
+                    supported <= 1'b0;
+                end
+            endcase
         end
     end
 endmodule

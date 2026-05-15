@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,55 +15,26 @@ from pathlib import Path
 from typing import Any
 
 
-CUDA_PRELUDE = """\
-#ifndef MINIGPU_CUDA_PRELUDE_H
-#define MINIGPU_CUDA_PRELUDE_H
-
-#ifndef __global__
-#define __global__ __attribute__((global))
-#endif
-
-#ifndef __device__
-#define __device__ __attribute__((device))
-#endif
-
-#ifndef __host__
-#define __host__ __attribute__((host))
-#endif
-
-#ifndef __shared__
-#define __shared__ __attribute__((shared))
-#endif
-
-struct dim3 {
-  unsigned int x, y, z;
-};
-
-typedef signed char int8_t;
-typedef short int16_t;
-typedef int int32_t;
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned int uint32_t;
-typedef unsigned short half;
-typedef unsigned short __half;
-typedef unsigned char fp8;
-typedef unsigned char fp8_e4m3;
-typedef unsigned char fp8_e4m3fn;
-typedef unsigned char __nv_fp8_e4m3;
-
-extern __device__ const dim3 threadIdx;
-extern __device__ const dim3 blockIdx;
-extern __device__ const dim3 blockDim;
-extern __device__ const dim3 gridDim;
-extern __device__ void __syncthreads();
-extern __device__ uint32_t minigpu_as_u32(float value);
-extern __device__ float minigpu_as_f32(uint32_t value);
-
-#endif
-"""
-
 DEFAULT_GPU_ARCH = "sm_50"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MINIGPU_KERNEL_HEADER = REPO_ROOT / "runtime" / "kernels" / "include" / "minigpu_kernel.h"
+KERNEL_DTYPE_TYPES = {
+    "i32": "int",
+    "i16": "int16_t",
+    "i8": "int8_t",
+    "fp32": "float",
+    "fp16": "half",
+    "fp8": "fp8_e4m3fn",
+}
+TEMPLATE_KERNEL_RE = re.compile(
+    r"template\s*<\s*(?:typename|class)\s+([A-Za-z_]\w*)\s*>\s*"
+    r"__global__\s+void\s+([A-Za-z_]\w*)\s*\((.*?)\)",
+    re.DOTALL,
+)
+EXPLICIT_TEMPLATE_RE = re.compile(
+    r"template\s+__global__\s+void\s+([A-Za-z_]\w*)\s*<",
+    re.DOTALL,
+)
 
 
 def detect_clang(clang_exe: str | None = None) -> str:
@@ -123,6 +95,102 @@ def detect_toolchain(
     )
 
 
+def kernel_dtypes(dtype_text: str | None = None) -> list[str]:
+    """Return the dtype suffixes selected for templated kernel instantiation."""
+    if not dtype_text or dtype_text == "all":
+        return list(KERNEL_DTYPE_TYPES)
+
+    requested = {part.strip().lower() for part in dtype_text.split(",") if part.strip()}
+    if "all" in requested:
+        return list(KERNEL_DTYPE_TYPES)
+
+    unknown = sorted(requested - set(KERNEL_DTYPE_TYPES))
+    if unknown:
+        raise RuntimeError(f"unknown Mini-GPU kernel dtype(s): {', '.join(unknown)}")
+
+    return [dtype for dtype in KERNEL_DTYPE_TYPES if dtype in requested]
+
+
+def split_parameters(params: str) -> list[str]:
+    """Split a simple C parameter list while respecting template angle brackets."""
+    if not params.strip() or params.strip() == "void":
+        return []
+
+    split: list[str] = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(params):
+        if char == "<":
+            depth += 1
+        elif char == ">" and depth:
+            depth -= 1
+        elif char == "," and depth == 0:
+            split.append(params[start:index].strip())
+            start = index + 1
+    split.append(params[start:].strip())
+    return [param for param in split if param]
+
+
+def parameter_type(param: str) -> str:
+    """Strip a parameter name, leaving the type spelling for explicit instantiation."""
+    clean = re.sub(r"\s*=\s*.*$", "", param.strip())
+    clean = re.sub(r"\s+", " ", clean)
+    clean = re.sub(r"([*&])\s*[A-Za-z_]\w*$", r"\1", clean).strip()
+    clean = re.sub(r"\s+[A-Za-z_]\w*$", "", clean).strip()
+    return clean
+
+
+def instantiate_template_kernel(
+    *,
+    template_param: str,
+    kernel_name: str,
+    params: str,
+    dtype: str,
+) -> str:
+    """Build one explicit `template __global__` instantiation."""
+    concrete_type = KERNEL_DTYPE_TYPES[dtype]
+    param_types = []
+    for param in split_parameters(params):
+        param_types.append(
+            re.sub(rf"\b{re.escape(template_param)}\b", concrete_type, parameter_type(param))
+        )
+    return f"template __global__ void {kernel_name}<{concrete_type}>({', '.join(param_types)});"
+
+
+def template_instantiation_footer(source_text: str, dtype_text: str | None = None) -> str:
+    """Generate explicit instantiations for source-level templated kernels."""
+    explicit = set(EXPLICIT_TEMPLATE_RE.findall(source_text))
+    lines: list[str] = []
+    for match in TEMPLATE_KERNEL_RE.finditer(source_text):
+        template_param, kernel_name, params = match.groups()
+        if kernel_name in explicit:
+            continue
+        for dtype in kernel_dtypes(dtype_text):
+            lines.append(
+                instantiate_template_kernel(
+                    template_param=template_param,
+                    kernel_name=kernel_name,
+                    params=params,
+                    dtype=dtype,
+                )
+            )
+    if not lines:
+        return ""
+    return "\n\n// Generated by minigpucc from --kernel-dtypes.\n" + "\n".join(lines) + "\n"
+
+
+def materialize_kernel_source(source: Path, dtype_text: str | None, temp_dir: Path) -> Path:
+    """Write the compiler-facing source with generated template instantiations."""
+    source_text = source.read_text(encoding="utf-8")
+    footer = template_instantiation_footer(source_text, dtype_text)
+    if not footer:
+        return source
+
+    prepared = temp_dir / source.name
+    prepared.write_text(source_text.rstrip() + footer, encoding="utf-8")
+    return prepared
+
+
 def parse_json_documents(text: str) -> list[dict[str, Any]]:
     """Decode Clang's one-or-more JSON AST documents."""
     decoder = json.JSONDecoder()
@@ -151,7 +219,7 @@ def parse_json_documents(text: str) -> list[dict[str, Any]]:
 
 def run_clang(
     source: Path,
-    prelude: Path,
+    prelude: Path = MINIGPU_KERNEL_HEADER,
     *,
     clang_exe: str | None = None,
     cuda_path: str | None = None,
@@ -172,6 +240,8 @@ def run_clang(
         f"--cuda-gpu-arch={gpu_arch}",
         "-nocudainc",
         "-nocudalib",
+        "-I",
+        str(prelude.parent),
         "-include",
         str(prelude),
         "-Xclang",
@@ -225,6 +295,63 @@ def has_cuda_global_attr(node: dict[str, Any]) -> bool:
     return any(child.get("kind") == "CUDAGlobalAttr" for child in node.get("inner", []))
 
 
+def type_text(node: dict[str, Any]) -> str:
+    """Return Clang's textual qualified type for a node."""
+    type_info = node.get("type")
+    if isinstance(type_info, dict):
+        return str(type_info.get("qualType", ""))
+    return ""
+
+
+def format_from_qual_type(text: str) -> str | None:
+    """Map a C/CUDA type spelling to a Mini-GPU dtype suffix."""
+    clean = text.replace("const ", "").replace("*", "").strip()
+    aliases = {
+        "int": "i32",
+        "int32_t": "i32",
+        "short": "i16",
+        "int16_t": "i16",
+        "unsigned short": "fp16",
+        "signed char": "i8",
+        "int8_t": "i8",
+        "unsigned char": "fp8",
+        "float": "fp32",
+        "half": "fp16",
+        "__half": "fp16",
+        "fp8": "fp8",
+        "fp8_e4m3": "fp8",
+        "fp8_e4m3fn": "fp8",
+        "__nv_fp8_e4m3": "fp8",
+    }
+    return aliases.get(clean)
+
+
+def template_suffix(node: dict[str, Any]) -> str:
+    """Return a stable dtype suffix for an explicitly instantiated kernel template."""
+    suffixes: list[str] = []
+    for child in node.get("inner", []):
+        if child.get("kind") != "TemplateArgument":
+            continue
+        fmt = format_from_qual_type(type_text(child))
+        if fmt:
+            suffixes.append(fmt)
+    return "_" + "_".join(suffixes) if suffixes else ""
+
+
+def kernel_export_name(node: dict[str, Any]) -> str:
+    """Return the manifest-visible kernel name."""
+    return str(node.get("name", "<anonymous>")) + template_suffix(node)
+
+
+def walk_nodes(node: Any):
+    """Yield every dictionary node in a Clang AST tree."""
+    if not isinstance(node, dict):
+        return
+    yield node
+    for child in node.get("inner", []):
+        yield from walk_nodes(child)
+
+
 def strip_implicit_nodes(node: Any) -> Any:
     """Remove Clang implicit nodes from compact AST output."""
     if isinstance(node, list):
@@ -251,13 +378,17 @@ def strip_implicit_nodes(node: Any) -> Any:
 def find_kernels(ast: dict[str, Any], source: Path, keep_implicit: bool) -> list[dict[str, Any]]:
     """Collect source-level CUDA kernels from one translation unit."""
     kernels: list[dict[str, Any]] = []
-    for node in ast.get("inner", []):
+    for node in walk_nodes(ast):
         if (
             node.get("kind") == "FunctionDecl"
             and is_from_source(node, source)
             and has_cuda_global_attr(node)
+            and not is_device_stub(node)
+            and node.get("mangledName")
         ):
-            kernels.append(node if keep_implicit else strip_implicit_nodes(node))
+            kernel = node if keep_implicit else strip_implicit_nodes(node)
+            kernel["minigpuKernelName"] = kernel_export_name(node)
+            kernels.append(kernel)
     return kernels
 
 
@@ -283,9 +414,10 @@ def build_output(
         for kernel in find_kernels(ast, source, keep_implicit):
             loc = kernel.get("loc", {})
             kernel_id = (
-                f"{kernel.get('name', '<anonymous>')}:"
+                f"{kernel.get('minigpuKernelName', kernel.get('name', '<anonymous>'))}:"
                 f"{loc.get('line', '?')}:"
                 f"{loc.get('col', '?')}"
+                f":{kernel.get('mangledName', '')}"
             )
             existing = kernels_by_id.get(kernel_id)
             if existing is not None and not is_device_stub(existing) and is_device_stub(kernel):
@@ -309,24 +441,24 @@ def get_cuda_ast(
     gpu_arch: str | None = None,
     full: bool = False,
     keep_implicit: bool = False,
+    kernel_dtypes: str | None = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Parse a CUDA-like source file and return AST JSON data."""
     source = source.resolve()
     if not source.exists():
         raise FileNotFoundError(source)
 
-    with tempfile.TemporaryDirectory(prefix="minigpu-ast-") as temp_dir:
-        prelude = Path(temp_dir) / "cuda_prelude.h"
-        prelude.write_text(CUDA_PRELUDE, encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="minigpucc-") as tmp:
+        prepared_source = materialize_kernel_source(source, kernel_dtypes, Path(tmp))
         asts = run_clang(
-            source,
-            prelude,
+            prepared_source,
+            MINIGPU_KERNEL_HEADER,
             clang_exe=clang_exe,
             cuda_path=cuda_path,
             gpu_arch=gpu_arch,
         )
 
-    return build_output(asts, source, full=full, keep_implicit=keep_implicit)
+        return build_output(asts, prepared_source, full=full, keep_implicit=keep_implicit)
 
 
 def parse_args() -> argparse.Namespace:
@@ -338,6 +470,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gpu-arch", default="auto", help=f"CUDA parse arch (default: {DEFAULT_GPU_ARCH})")
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--keep-implicit", action="store_true")
+    parser.add_argument(
+        "--kernel-dtypes",
+        default="all",
+        help="Comma-separated dtype instantiations for templated kernels, e.g. fp32,i32 (default: all)",
+    )
     return parser.parse_args()
 
 
@@ -350,6 +487,7 @@ def main() -> int:
         gpu_arch=args.gpu_arch,
         full=args.full,
         keep_implicit=args.keep_implicit,
+        kernel_dtypes=args.kernel_dtypes,
     )
     encoded = json.dumps(output, indent=2)
 

@@ -258,9 +258,6 @@ at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking) {
     if (self.sizes() != src.sizes()) {
         throw std::runtime_error("Mini-GPU copy_ requires matching tensor shapes");
     }
-    if (self.scalar_type() != src.scalar_type()) {
-        throw std::runtime_error("Mini-GPU copy_ does not support dtype conversion yet");
-    }
 
     const auto nbytes = tensor_nbytes(self);
     if (nbytes == 0) {
@@ -269,7 +266,9 @@ at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking) {
 
     if (dst_is_minigpu && !src_is_minigpu) {
         require_contiguous(self, "destination");
-        auto cpu_src = src.contiguous();
+        auto cpu_src = src.scalar_type() == self.scalar_type()
+            ? src.contiguous()
+            : src.to(self.scalar_type()).contiguous();
         runtime_context().copy_to_device(
             MiniGpuDataPtr::decode(self.data_ptr()), cpu_src.data_ptr(), nbytes);
         return self;
@@ -277,27 +276,76 @@ at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking) {
 
     if (!dst_is_minigpu && src_is_minigpu) {
         require_contiguous(src, "source");
+        auto cpu_src = at::empty(src.sizes(), src.options().device(c10::DeviceType::CPU));
+        runtime_context().copy_from_device(
+            cpu_src.data_ptr(), MiniGpuDataPtr::decode(src.data_ptr()), tensor_nbytes(src));
+        auto converted = cpu_src.scalar_type() == self.scalar_type()
+            ? cpu_src
+            : cpu_src.to(self.scalar_type());
         if (self.is_contiguous()) {
-            runtime_context().copy_from_device(
-                self.data_ptr(), MiniGpuDataPtr::decode(src.data_ptr()), nbytes);
+            std::memcpy(self.data_ptr(), converted.contiguous().data_ptr(), nbytes);
             return self;
         }
 
-        auto tmp = at::empty_like(self, self.options().device(c10::DeviceType::CPU));
-        runtime_context().copy_from_device(
-            tmp.data_ptr(), MiniGpuDataPtr::decode(src.data_ptr()), nbytes);
-        self.copy_(tmp);
+        self.copy_(converted);
         return self;
     }
 
     require_contiguous(self, "destination");
     require_contiguous(src, "source");
-    std::vector<std::uint8_t> tmp(nbytes);
+    auto cpu_src = at::empty(src.sizes(), src.options().device(c10::DeviceType::CPU));
     runtime_context().copy_from_device(
-        tmp.data(), MiniGpuDataPtr::decode(src.data_ptr()), nbytes);
+        cpu_src.data_ptr(), MiniGpuDataPtr::decode(src.data_ptr()), tensor_nbytes(src));
+    auto converted = cpu_src.scalar_type() == self.scalar_type()
+        ? cpu_src
+        : cpu_src.to(self.scalar_type());
     runtime_context().copy_to_device(
-        MiniGpuDataPtr::decode(self.data_ptr()), tmp.data(), tmp.size());
+        MiniGpuDataPtr::decode(self.data_ptr()), converted.contiguous().data_ptr(), nbytes);
     return self;
+}
+
+at::Tensor to_copy(
+    const at::Tensor &self,
+    c10::optional<c10::ScalarType> dtype,
+    c10::optional<c10::Layout> layout,
+    c10::optional<c10::Device> device,
+    c10::optional<bool> pin_memory,
+    bool non_blocking,
+    c10::optional<c10::MemoryFormat> memory_format) {
+    const auto target_dtype = dtype.value_or(self.scalar_type());
+    const auto target_device = device.value_or(self.device());
+    const auto target_layout = layout.value_or(c10::Layout::Strided);
+
+    if (target_layout != c10::Layout::Strided) {
+        throw std::runtime_error("Mini-GPU _to_copy only supports strided tensors");
+    }
+    if (pin_memory.value_or(false)) {
+        throw std::runtime_error("Mini-GPU _to_copy does not support pinned memory");
+    }
+
+    if (target_device.type() == kMiniGpuDeviceType) {
+        auto out = empty(
+            self.sizes().vec(),
+            target_dtype,
+            target_layout,
+            target_device,
+            false,
+            memory_format);
+        out.copy_(self, non_blocking);
+        return out;
+    }
+
+    if (target_device.type() != c10::DeviceType::CPU) {
+        throw std::runtime_error("Mini-GPU _to_copy can only target CPU or Mini-GPU");
+    }
+
+    if (!is_minigpu_tensor(self)) {
+        return self.to(target_device, target_dtype, non_blocking, true, memory_format);
+    }
+
+    auto out = at::empty(self.sizes(), self.options().device(target_device).dtype(target_dtype));
+    out.copy_(self, non_blocking);
+    return out;
 }
 
 minigpu::DeviceAddress device_address(const at::Tensor &tensor) {

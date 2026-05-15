@@ -264,7 +264,16 @@ Context::Context(Config config)
         log_path_ = "/tmp/minigpu_runtime.log";
     }
 
-    blocks_.push_back(Block{memory_base_, memory_size_, true});
+    compiler_spill_size_ = align_up_size(
+        std::min(kCompilerSpillBytes, std::max<std::size_t>(4, memory_size_ / 8u)),
+        default_alignment_);
+    if (compiler_spill_size_ >= memory_size_) {
+        throw Error(Status::NoMemory);
+    }
+
+    const std::size_t managed_size = memory_size_ - compiler_spill_size_;
+    compiler_spill_base_ = memory_base_ + static_cast<DeviceAddress>(managed_size);
+    blocks_.push_back(Block{memory_base_, managed_size, true});
     log_event("context created");
 }
 
@@ -272,6 +281,8 @@ Context::Context(Config config)
 Context::Context(Context &&other) noexcept
     : memory_base_(std::exchange(other.memory_base_, 0)),
       memory_size_(std::exchange(other.memory_size_, 0)),
+      compiler_spill_base_(std::exchange(other.compiler_spill_base_, 0)),
+      compiler_spill_size_(std::exchange(other.compiler_spill_size_, 0)),
       default_alignment_(std::exchange(other.default_alignment_, 4)),
       transport_(std::move(other.transport_)),
       blocks_(std::move(other.blocks_)),
@@ -284,6 +295,8 @@ Context &Context::operator=(Context &&other) noexcept {
     if (this != &other) {
         memory_base_ = std::exchange(other.memory_base_, 0);
         memory_size_ = std::exchange(other.memory_size_, 0);
+        compiler_spill_base_ = std::exchange(other.compiler_spill_base_, 0);
+        compiler_spill_size_ = std::exchange(other.compiler_spill_size_, 0);
         default_alignment_ = std::exchange(other.default_alignment_, 4);
         transport_ = std::move(other.transport_);
         blocks_ = std::move(other.blocks_);
@@ -578,10 +591,14 @@ void Context::launch_kernel(
     const LaunchConfig &launch = launch_config ? *launch_config : defaults;
 
     std::vector<std::uint32_t> constants;
-    constants.reserve(args.size());
+    constants.reserve(std::max<std::size_t>(args.size(), 33u));
     for (const KernelArg &arg : args) {
         constants.push_back(arg.value);
     }
+    if (constants.size() < 33u) {
+        constants.resize(33u, 0u);
+    }
+    constants[32] = compiler_spill_base_ / 4u;
 
     Kernel kernel;
     if (!registered->program_bytes.empty()) {
@@ -609,9 +626,9 @@ void Context::launch_kernel(
     launch_kernel(kernel);
 }
 
-/* Return the configured size of the managed device-memory window. */
+/* Return bytes available to user allocations, excluding compiler spill scratch. */
 std::size_t Context::memory_size() const noexcept {
-    return memory_size_;
+    return memory_size_ - compiler_spill_size_;
 }
 
 /* Sum all free-list entries currently available for future allocations. */

@@ -226,7 +226,8 @@ Only the opcode field is used.
 | `0x1E` | `FSUB` | `0x1F` | `FMUL` |
 | `0x20` | `LDG` | `0x21` | `STG` |
 | `0x22` | `LDS` | `0x23` | `STS` |
-| `0x24` | `FDIV` | `0x28` | `TID` |
+| `0x24` | `FDIV` | `0x25` | `FTOI` |
+| `0x26` | `ITOF` | `0x28` | `TID` |
 | `0x29` | `TIDX` | `0x2A` | `BID` |
 | `0x2B` | `BDIM` | `0x2C` | `GDIM` |
 | `0x2D` | `LID` | `0x2E` | `WID` |
@@ -273,6 +274,8 @@ Only the opcode field is used.
 | `FSUB` | Floating Subtract | Computes typed floating-point `rd = rs1 - rs2`. |
 | `FMUL` | Floating Multiply | Computes typed floating-point `rd = rs1 * rs2`. |
 | `FDIV` | Floating Divide | Computes typed floating-point `rd = rs1 / rs2`. |
+| `FTOI` | Float to Integer | Converts FP32 `rs1` to signed I32 `rd`, truncating toward zero. |
+| `ITOF` | Integer to Float | Converts signed I32 `rs1` to FP32 `rd`. |
 | `LDG` | Load Global | Loads global memory `[rs1 + imm14]` into `rd`. |
 | `STG` | Store Global | Stores `rs2` to global memory `[rs1 + imm14]`. |
 | `LDS` | Load Shared | Loads shared memory `[rs1 + imm14]` into `rd`. |

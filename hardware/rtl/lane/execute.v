@@ -295,6 +295,8 @@ module execute #(
                 `MGPU_OP_BID:  result <= block_id_r;
                 `MGPU_OP_BDIM: result <= block_dim_r;
                 `MGPU_OP_GDIM: result <= grid_dim_r;
+                `MGPU_OP_FTOI: result <= fp32_to_i32(lhs_r);
+                `MGPU_OP_ITOF: result <= i32_to_fp32(lhs_r);
                 default: begin
                     supported <= 1'b0;
                     result <= {WIDTH{1'b0}};
@@ -360,7 +362,8 @@ module execute #(
                 `MGPU_OP_SGT,
                 `MGPU_OP_SGE,
                 `MGPU_OP_SEQ,
-                `MGPU_OP_SNE: is_typed_int_opcode = 1'b1;
+                `MGPU_OP_SNE,
+                `MGPU_OP_ITOF: is_typed_int_opcode = 1'b1;
                 default: is_typed_int_opcode = 1'b0;
             endcase
         end
@@ -424,6 +427,70 @@ module execute #(
                 3'd3: signed_compare_result = (a_ext >= b_ext) ? {{(WIDTH-1){1'b0}}, 1'b1} : {WIDTH{1'b0}};
                 default: signed_compare_result = {WIDTH{1'b0}};
             endcase
+        end
+    endfunction
+
+    function signed [WIDTH-1:0] fp32_to_i32;
+        input [WIDTH-1:0] value;
+        reg sign;
+        reg [7:0] exponent;
+        reg [23:0] mantissa;
+        reg signed [9:0] shift;
+        reg [55:0] magnitude;
+        begin
+            sign = value[31];
+            exponent = value[30:23];
+            mantissa = {1'b1, value[22:0]};
+
+            if (exponent == 8'b0) begin
+                fp32_to_i32 = {WIDTH{1'b0}};
+            end else if (exponent >= 8'd158) begin
+                fp32_to_i32 = sign ? 32'h80000000 : 32'h7fffffff;
+            end else if (exponent < 8'd127) begin
+                fp32_to_i32 = {WIDTH{1'b0}};
+            end else begin
+                shift = $signed({2'b0, exponent}) - 10'sd150;
+                if (shift >= 0) begin
+                    magnitude = {32'b0, mantissa} << shift[5:0];
+                end else begin
+                    magnitude = {32'b0, mantissa} >> (-shift[5:0]);
+                end
+                fp32_to_i32 = sign ? -$signed(magnitude[31:0]) : $signed(magnitude[31:0]);
+            end
+        end
+    endfunction
+
+    function [WIDTH-1:0] i32_to_fp32;
+        input signed [WIDTH-1:0] value;
+        reg sign;
+        reg [31:0] magnitude;
+        reg [31:0] normalized;
+        reg [7:0] exponent;
+        reg [22:0] fraction;
+        integer bit_index;
+        integer top_bit;
+        begin
+            if (value == 0) begin
+                i32_to_fp32 = 32'b0;
+            end else begin
+                sign = value[31];
+                magnitude = sign ? (~value + 32'd1) : value;
+                top_bit = 0;
+                for (bit_index = 0; bit_index < 32; bit_index = bit_index + 1) begin
+                    if (magnitude[bit_index]) begin
+                        top_bit = bit_index;
+                    end
+                end
+
+                exponent = top_bit[7:0] + 8'd127;
+                if (top_bit > 23) begin
+                    normalized = magnitude >> (top_bit - 23);
+                end else begin
+                    normalized = magnitude << (23 - top_bit);
+                end
+                fraction = normalized[22:0];
+                i32_to_fp32 = {sign, exponent, fraction};
+            end
         end
     endfunction
 endmodule

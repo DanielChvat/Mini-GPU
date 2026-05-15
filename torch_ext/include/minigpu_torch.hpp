@@ -80,6 +80,16 @@ at::Tensor reshape_alias(
 /* Copy data between CPU and Mini-GPU tensors. */
 at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking);
 
+/* Materialize a dtype/device converted copy for Tensor.to(), .float(), .half(), etc. */
+at::Tensor to_copy(
+    const at::Tensor &self,
+    c10::optional<c10::ScalarType> dtype,
+    c10::optional<c10::Layout> layout,
+    c10::optional<c10::Device> device,
+    c10::optional<bool> pin_memory,
+    bool non_blocking,
+    c10::optional<c10::MemoryFormat> memory_format);
+
 /* Return the runtime device address backing a Mini-GPU tensor. */
 minigpu::DeviceAddress device_address(const at::Tensor &tensor);
 
@@ -116,6 +126,9 @@ at::Tensor log(const at::Tensor &a);
 /* Base-2 logarithm operation for Mini-GPU tensors. */
 at::Tensor log2(const at::Tensor &a);
 
+/* Base-10 logarithm operation for Mini-GPU tensors. */
+at::Tensor log10(const at::Tensor &a);
+
 /* Square-root operation for Mini-GPU tensors. */
 at::Tensor sqrt(const at::Tensor &a);
 
@@ -127,6 +140,17 @@ at::Tensor pow_tensor_tensor(const at::Tensor &a, const at::Tensor &b);
 
 /* Scalar exponentiation operation for Mini-GPU tensors. */
 at::Tensor pow_tensor_scalar(const at::Tensor &a, const at::Scalar &b);
+
+/* Sigmoid operation for Mini-GPU tensors. */
+at::Tensor sigmoid(const at::Tensor &a);
+
+/* Tanh operation for Mini-GPU tensors. */
+at::Tensor tanh(const at::Tensor &a);
+
+/* Trigonometric operations for Mini-GPU tensors. */
+at::Tensor sin(const at::Tensor &a);
+at::Tensor cos(const at::Tensor &a);
+at::Tensor tan(const at::Tensor &a);
 
 } // namespace minigpu::torch_backend
 

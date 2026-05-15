@@ -5,7 +5,7 @@
 module mini_gpu_core #(
     parameter WIDTH = 32,
     parameter WARP_SIZE = 4,
-    parameter PROG_ADDR_WIDTH = 8,
+    parameter PROG_ADDR_WIDTH = 12,
     parameter ADDR_WIDTH = 16,
     parameter CONST_ADDR_WIDTH = 8,
     parameter NUM_WARPS = 1,
@@ -60,7 +60,6 @@ module mini_gpu_core #(
     output reg  [3:0]                   last_writeback_addr,
     output reg  [(WARP_SIZE*WIDTH)-1:0] last_writeback_data
 );
-    localparam PROG_DEPTH = (1 << PROG_ADDR_WIDTH);
     localparam CONST_DEPTH = (1 << CONST_ADDR_WIDTH);
     localparam WARP_COUNT = NUM_BLOCKS * NUM_WARPS;
     localparam TOTAL_LANES = WARP_COUNT * WARP_SIZE;
@@ -69,15 +68,17 @@ module mini_gpu_core #(
     localparam STATE_CLEAR = 3'd1;
     localparam STATE_SCHEDULE = 3'd2;
     localparam STATE_FETCH = 3'd3;
-    localparam STATE_ISSUE = 3'd4;
-    localparam STATE_WAIT_DONE = 3'd5;
-    localparam STATE_DONE = 3'd6;
+    localparam STATE_FETCH_WAIT = 3'd4;
+    localparam STATE_ISSUE = 3'd5;
+    localparam STATE_WAIT_DONE = 3'd6;
+    localparam STATE_DONE = 3'd7;
     localparam MASK_STACK_DEPTH = 4;
     localparam STACK_ENTRIES = WARP_COUNT * MASK_STACK_DEPTH;
 
     reg [2:0] state;
-    reg [31:0] instr_mem [0:PROG_DEPTH-1];
     reg [WIDTH-1:0] const_mem [0:CONST_DEPTH-1];
+    reg [PROG_ADDR_WIDTH-1:0] instr_read_addr;
+    wire [31:0] instr_read_data;
     reg [PROG_ADDR_WIDTH-1:0] warp_pc [0:WARP_COUNT-1];
     reg [WARP_SIZE-1:0] active_mask_r [0:WARP_COUNT-1];
     reg [WARP_SIZE-1:0] launch_mask_r [0:WARP_COUNT-1];
@@ -165,6 +166,18 @@ module mini_gpu_core #(
         (selected_idx / NUM_WARPS);
     wire [WARP_ID_WIDTH-1:0] selected_warp_id =
         (selected_idx % NUM_WARPS);
+
+    program_memory #(
+        .ADDR_WIDTH(PROG_ADDR_WIDTH),
+        .DATA_WIDTH(32)
+    ) program_store (
+        .clk(clk),
+        .write_en(prog_we),
+        .write_addr(prog_addr),
+        .write_data(prog_wdata),
+        .read_addr(instr_read_addr),
+        .read_data(instr_read_data)
+    );
 
     assign mem_req_valid =
         sm_mem_req_valid[(selected_idx*WARP_SIZE) +: WARP_SIZE];
@@ -263,10 +276,6 @@ module mini_gpu_core #(
     end
 
     always @(posedge clk) begin
-        if (prog_we) begin
-            instr_mem[prog_addr] <= prog_wdata;
-        end
-
         if (const_we) begin
             const_mem[const_addr] <= const_wdata;
         end
@@ -283,6 +292,7 @@ module mini_gpu_core #(
             unsupported <= 1'b0;
             divide_by_zero <= 1'b0;
             pc <= {PROG_ADDR_WIDTH{1'b0}};
+            instr_read_addr <= {PROG_ADDR_WIDTH{1'b0}};
             current_instr <= 32'b0;
             last_instr <= 32'b0;
             retired_count <= 16'b0;
@@ -338,6 +348,7 @@ module mini_gpu_core #(
                     end else if (sched_has_ready) begin
                         selected_idx <= sched_next_idx;
                         pc <= warp_pc[sched_next_idx];
+                        instr_read_addr <= warp_pc[sched_next_idx];
                         state <= STATE_FETCH;
                     end else begin
                         error <= 1'b1;
@@ -350,7 +361,13 @@ module mini_gpu_core #(
 
                 STATE_FETCH: begin
                     pc <= warp_pc[selected_idx];
-                    current_instr <= instr_mem[warp_pc[selected_idx]];
+                    instr_read_addr <= warp_pc[selected_idx];
+                    state <= STATE_FETCH_WAIT;
+                end
+
+                STATE_FETCH_WAIT: begin
+                    pc <= warp_pc[selected_idx];
+                    current_instr <= instr_read_data;
                     state <= STATE_ISSUE;
                 end
 

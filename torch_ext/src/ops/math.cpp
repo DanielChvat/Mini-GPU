@@ -17,6 +17,46 @@ namespace {
         std::string("Mini-GPU PyTorch op is a stub: ") + name);
 }
 
+std::size_t tensor_nbytes(const at::Tensor &tensor) {
+    return static_cast<std::size_t>(tensor.numel()) *
+           static_cast<std::size_t>(tensor.element_size());
+}
+
+void require_minigpu_contiguous(const at::Tensor &tensor, const char *op_name) {
+    if (tensor.device().type() != c10::DeviceType::PrivateUse1) {
+        throw std::runtime_error(std::string(op_name) + " requires a Mini-GPU tensor");
+    }
+    if (!tensor.is_contiguous()) {
+        throw std::runtime_error(std::string(op_name) + " requires a contiguous tensor");
+    }
+}
+
+at::Tensor to_cpu_tensor(const at::Tensor &tensor, const char *op_name) {
+    require_minigpu_contiguous(tensor, op_name);
+    auto cpu = at::empty(tensor.sizes(), tensor.options().device(c10::DeviceType::CPU));
+    runtime_context().copy_from_device(cpu.data_ptr(), device_address(tensor), tensor_nbytes(tensor));
+    return cpu;
+}
+
+at::Tensor to_minigpu_tensor(const at::Tensor &cpu, const at::TensorOptions &options) {
+    auto contiguous = cpu.contiguous();
+    auto out = at::empty(contiguous.sizes(), options.dtype(contiguous.scalar_type()));
+    runtime_context().copy_to_device(
+        device_address(out), contiguous.data_ptr(), tensor_nbytes(contiguous));
+    return out;
+}
+
+at::Tensor run_fp32_unary_kernel(
+    const at::Tensor &a,
+    const char *kernel_op,
+    const char *op_name) {
+    require_minigpu_contiguous(a, op_name);
+    if (a.scalar_type() != at::kFloat) {
+        throw std::runtime_error(std::string(op_name) + " on Mini-GPU currently supports fp32 only");
+    }
+    return detail::run_unary_kernel(a, kernel_op, op_name);
+}
+
 } // namespace
 
 template <typename T>
@@ -55,10 +95,7 @@ at::Tensor vector_add(const at::Tensor &a, const at::Tensor &b) {
 }
 
 at::Tensor mul_tensor(const at::Tensor &a, const at::Tensor &b) {
-    (void)a;
-    (void)b;
-
-    unimplemented_op("aten::mul.Tensor");
+    return detail::run_binary_kernel(a, b, "mul", "aten::mul.Tensor");
 }
 
 at::Tensor div_tensor(const at::Tensor &a, const at::Tensor &b) {
@@ -171,15 +208,19 @@ at::Tensor linear(
         throw std::runtime_error("aten::linear on Mini-GPU bias is not implemented yet");
     }
 
-    at::Tensor weight_t;
-    if (input.scalar_type() == at::kInt) {
-        weight_t = transpose_weight_to_device<std::int32_t>(weight);
-    } else {
-        weight_t = transpose_weight_to_device<float>(weight);
-    }
-
     at::Tensor input_2d = input.dim() == 1 ? input.view({1, input.size(0)}) : input;
-    at::Tensor out_2d = minigpu::torch_backend::mm(input_2d, weight_t);
+    auto out_2d = at::empty({input_2d.size(0), weight.size(0)}, input.options());
+    minigpu::kernels::launch_linear(
+        runtime_context(),
+        minigpu::kernels::TensorView{
+            device_address(input_2d), static_cast<std::size_t>(input_2d.numel()), dtype},
+        minigpu::kernels::TensorView{
+            device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+        minigpu::kernels::TensorView{
+            device_address(out_2d), static_cast<std::size_t>(out_2d.numel()), dtype},
+        static_cast<std::uint32_t>(out_2d.numel()),
+        static_cast<std::uint32_t>(weight.size(0)),
+        static_cast<std::uint32_t>(weight.size(1)));
     return input.dim() == 1 ? out_2d.view({weight.size(0)}) : out_2d;
 }
 
@@ -188,21 +229,19 @@ at::Tensor relu(const at::Tensor &a) {
 }
 
 at::Tensor exp(const at::Tensor &a) {
-    (void)a;
-
-    unimplemented_op("aten::exp");
+    return run_fp32_unary_kernel(a, "exp", "aten::exp");
 }
 
 at::Tensor log(const at::Tensor &a) {
-    (void)a;
-
-    unimplemented_op("aten::log");
+    return to_minigpu_tensor(at::log(to_cpu_tensor(a, "aten::log")), a.options());
 }
 
 at::Tensor log2(const at::Tensor &a) {
-    (void)a;
+    return to_minigpu_tensor(at::log2(to_cpu_tensor(a, "aten::log2")), a.options());
+}
 
-    unimplemented_op("aten::log2");
+at::Tensor log10(const at::Tensor &a) {
+    return to_minigpu_tensor(at::log10(to_cpu_tensor(a, "aten::log10")), a.options());
 }
 
 at::Tensor sqrt(const at::Tensor &a) {
@@ -252,17 +291,44 @@ at::Tensor reciprocal(const at::Tensor &a) {
 }
 
 at::Tensor pow_tensor_tensor(const at::Tensor &a, const at::Tensor &b) {
-    (void)a;
-    (void)b;
-
-    unimplemented_op("aten::pow.Tensor_Tensor");
+    require_minigpu_contiguous(a, "aten::pow.Tensor_Tensor");
+    require_minigpu_contiguous(b, "aten::pow.Tensor_Tensor");
+    if (a.sizes() != b.sizes()) {
+        throw std::runtime_error("aten::pow.Tensor_Tensor requires matching shapes");
+    }
+    if (a.scalar_type() != at::kFloat || b.scalar_type() != at::kFloat) {
+        throw std::runtime_error("aten::pow.Tensor_Tensor on Mini-GPU currently supports fp32 only");
+    }
+    return to_minigpu_tensor(
+        at::pow(to_cpu_tensor(a, "aten::pow.Tensor_Tensor"),
+                to_cpu_tensor(b, "aten::pow.Tensor_Tensor")),
+        a.options());
 }
 
 at::Tensor pow_tensor_scalar(const at::Tensor &a, const at::Scalar &b) {
-    (void)a;
-    (void)b;
+    return to_minigpu_tensor(
+        at::pow(to_cpu_tensor(a, "aten::pow.Tensor_Scalar"), b),
+        a.options());
+}
 
-    unimplemented_op("aten::pow.Tensor_Scalar");
+at::Tensor sigmoid(const at::Tensor &a) {
+    return run_fp32_unary_kernel(a, "sigmoid", "aten::sigmoid");
+}
+
+at::Tensor tanh(const at::Tensor &a) {
+    return run_fp32_unary_kernel(a, "tanh", "aten::tanh");
+}
+
+at::Tensor sin(const at::Tensor &a) {
+    return to_minigpu_tensor(at::sin(to_cpu_tensor(a, "aten::sin")), a.options());
+}
+
+at::Tensor cos(const at::Tensor &a) {
+    return to_minigpu_tensor(at::cos(to_cpu_tensor(a, "aten::cos")), a.options());
+}
+
+at::Tensor tan(const at::Tensor &a) {
+    return to_minigpu_tensor(at::tan(to_cpu_tensor(a, "aten::tan")), a.options());
 }
 
 } // namespace minigpu::torch_backend

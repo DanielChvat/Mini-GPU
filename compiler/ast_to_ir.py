@@ -281,13 +281,13 @@ class MiniGpuIrLowerer:
         if callee == "__syncthreads":
             state.emit("barrier")
             return None
-        if callee in {"minigpu_as_u32", "minigpu_as_f32"}:
+        if callee in {"minigpu_as_u32", "minigpu_as_f32", "__float_as_uint", "__uint_as_float"}:
             args = call_args(node)
             if len(args) != 1:
                 self.unsupported(node, f"call to {callee} with unexpected arity")
             value = self.lower_expr(args[0], state)
             result = state.temp()
-            state.value_types[result] = "i32" if callee == "minigpu_as_u32" else "fp32"
+            state.value_types[result] = "i32" if callee in {"minigpu_as_u32", "__float_as_uint"} else "fp32"
             state.emit(f"{result} = mov {value}")
             return result
         self.unsupported(node, f"call to {callee or '<unknown>'}")

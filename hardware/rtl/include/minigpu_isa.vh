@@ -39,6 +39,8 @@
 `define MGPU_OP_LDS    6'h22
 `define MGPU_OP_STS    6'h23
 `define MGPU_OP_FDIV   6'h24
+`define MGPU_OP_FTOI   6'h25
+`define MGPU_OP_ITOF   6'h26
 `define MGPU_OP_TID    6'h28
 `define MGPU_OP_TIDX   6'h29
 `define MGPU_OP_BID    6'h2a

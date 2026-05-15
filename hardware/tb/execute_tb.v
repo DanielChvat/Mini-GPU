@@ -109,6 +109,10 @@ module execute_tb;
         check_result(`MGPU_OP_MOD, 32'hfffffff6, 32'd3, `MGPU_FMT_I32, 32'hffffffff);
         check_result(`MGPU_OP_DIV, 32'hfff7, 32'd3, `MGPU_FMT_I16, 32'hfffffffd);
         check_result(`MGPU_OP_MOD, 32'h00f6, 32'd3, `MGPU_FMT_I8, 32'hffffffff);
+        check_result(`MGPU_OP_FTOI, 32'h3fc00000, 32'd0, `MGPU_FMT_FP32, 32'd1);
+        check_result(`MGPU_OP_FTOI, 32'hc0200000, 32'd0, `MGPU_FMT_FP32, 32'hfffffffe);
+        check_result(`MGPU_OP_ITOF, 32'd42, 32'd0, `MGPU_FMT_I32, 32'h42280000);
+        check_result(`MGPU_OP_ITOF, 32'hfffffffe, 32'd0, `MGPU_FMT_I32, 32'hc0000000);
 
         issue_and_wait(`MGPU_OP_DIV, 32'd1, 32'd0, `MGPU_FMT_I32);
         $display("EXE op=DIV lhs=1 rhs=0 -> result=0x%08h div0=%0d expected result=0 div0=1",

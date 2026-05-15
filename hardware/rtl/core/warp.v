@@ -60,8 +60,8 @@ module warp #(
     wire [SHARED_FLOAT_UNITS-1:0] shared_float_divide_by_zero;
     wire [SHARED_FLOAT_UNITS-1:0] shared_float_busy;
     wire [SHARED_FLOAT_UNITS-1:0] shared_float_done;
-    reg [(SHARED_FLOAT_UNITS*WARP_SIZE)-1:0] shared_float_lane;
     reg [(SHARED_FLOAT_UNITS*WARP_SIZE)-1:0] shared_float_lane_next;
+    wire [(SHARED_FLOAT_UNITS*WARP_SIZE)-1:0] shared_float_lane_done;
     reg [WARP_SIZE-1:0] float_req_ready_r;
     reg [WARP_SIZE-1:0] float_resp_valid_r;
 
@@ -127,7 +127,8 @@ module warp #(
                     .ENABLE_FLOAT_MUL(ENABLE_FLOAT_MUL),
                     .ENABLE_FLOAT_DIV(ENABLE_FLOAT_DIV),
                     .FLOAT_FP32_ONLY(FLOAT_FP32_ONLY),
-                    .LATENCY(32)
+                    .LATENCY(32),
+                    .TAG_WIDTH(WARP_SIZE)
                 ) shared_float_unit (
                     .clk(clk),
                     .rst(rst),
@@ -136,9 +137,11 @@ module warp #(
                     .fmt(shared_float_fmt[(fpu_slot*3) +: 3]),
                     .lhs(shared_float_lhs[(fpu_slot*WIDTH) +: 32]),
                     .rhs(shared_float_rhs[(fpu_slot*WIDTH) +: 32]),
+                    .tag_in(shared_float_lane_next[(fpu_slot*WARP_SIZE) +: WARP_SIZE]),
                     .result(shared_float_result[(fpu_slot*WIDTH) +: WIDTH]),
                     .supported(shared_float_supported[fpu_slot]),
                     .divide_by_zero(shared_float_divide_by_zero[fpu_slot]),
+                    .tag_out(shared_float_lane_done[(fpu_slot*WARP_SIZE) +: WARP_SIZE]),
                     .busy(shared_float_busy[fpu_slot]),
                     .done(shared_float_done[fpu_slot])
                 );
@@ -152,6 +155,7 @@ module warp #(
             assign shared_float_divide_by_zero = {SHARED_FLOAT_UNITS{1'b0}};
             assign shared_float_busy = {SHARED_FLOAT_UNITS{1'b0}};
             assign shared_float_done = {SHARED_FLOAT_UNITS{1'b0}};
+            assign shared_float_lane_done = {(SHARED_FLOAT_UNITS*WARP_SIZE){1'b0}};
             assign float_req_ready = {WARP_SIZE{1'b0}};
             assign float_resp_valid = {WARP_SIZE{1'b0}};
         end
@@ -159,7 +163,6 @@ module warp #(
 
     integer shared_lane_index;
     integer shared_slot_index;
-    integer seq_slot_index;
     integer resp_slot_index;
     integer resp_lane_index;
     reg [WARP_SIZE-1:0] granted_float_lanes;
@@ -209,7 +212,7 @@ module warp #(
             for (resp_slot_index = 0; resp_slot_index < SHARED_FLOAT_UNITS; resp_slot_index = resp_slot_index + 1) begin
                 if (shared_float_done[resp_slot_index]) begin
                     for (resp_lane_index = 0; resp_lane_index < WARP_SIZE; resp_lane_index = resp_lane_index + 1) begin
-                        if (shared_float_lane[(resp_slot_index*WARP_SIZE) + resp_lane_index]) begin
+                        if (shared_float_lane_done[(resp_slot_index*WARP_SIZE) + resp_lane_index]) begin
                             float_resp_valid_r[resp_lane_index] = 1'b1;
                             float_resp_result[(resp_lane_index*WIDTH) +: WIDTH] =
                                 shared_float_result[(resp_slot_index*WIDTH) +: WIDTH];
@@ -219,21 +222,6 @@ module warp #(
                                 shared_float_divide_by_zero[resp_slot_index];
                         end
                     end
-                end
-            end
-        end
-    end
-
-    always @(posedge clk) begin
-        if (rst) begin
-            shared_float_lane <= {(SHARED_FLOAT_UNITS*WARP_SIZE){1'b0}};
-        end else begin
-            for (seq_slot_index = 0; seq_slot_index < SHARED_FLOAT_UNITS; seq_slot_index = seq_slot_index + 1) begin
-                if (shared_float_start[seq_slot_index]) begin
-                    shared_float_lane[(seq_slot_index*WARP_SIZE) +: WARP_SIZE] <=
-                        shared_float_lane_next[(seq_slot_index*WARP_SIZE) +: WARP_SIZE];
-                end else if (shared_float_done[seq_slot_index]) begin
-                    shared_float_lane[(seq_slot_index*WARP_SIZE) +: WARP_SIZE] <= {WARP_SIZE{1'b0}};
                 end
             end
         end

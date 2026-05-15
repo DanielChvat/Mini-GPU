@@ -248,6 +248,8 @@ public:
     std::size_t memory_free() const noexcept;
 
 private:
+    static constexpr std::size_t kCompilerSpillBytes = 1024;
+
     /* One contiguous allocator entry in the managed device-memory range.
      * offset is an absolute device address, size is bytes, and free marks
      * whether this block can satisfy a future allocation. */
@@ -259,6 +261,8 @@ private:
 
     DeviceAddress memory_base_ = 0;
     std::size_t memory_size_ = 0;
+    DeviceAddress compiler_spill_base_ = 0;
+    std::size_t compiler_spill_size_ = 0;
     std::size_t default_alignment_ = 4;
     Transport transport_;
     std::vector<Block> blocks_;

@@ -12,6 +12,8 @@ iverilog -g2012 \
     hardware/rtl/common/serial_packet_tx.v \
     hardware/rtl/common/communication_controller.v \
     hardware/rtl/common/instruction_decode.v \
+    hardware/rtl/common/bus_controller.v \
+    hardware/rtl/memory/program_memory.v \
     hardware/rtl/memory/memory_bank.v \
     hardware/rtl/memory/memory.v \
     hardware/rtl/lane/int/div_mod_iterative.v \

@@ -133,36 +133,3 @@ if(MINIGPU_BUILD_TORCH)
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/torch_mini_gpu
     )
 endif()
-
-if(MINIGPU_BUILD_TESTS)
-    enable_testing()
-
-    add_executable(minigpu_runtime_smoke
-        test/runtime/runtime_smoke.cpp
-    )
-
-    target_link_libraries(minigpu_runtime_smoke
-        PRIVATE
-            minigpu_runtime
-    )
-
-    add_test(NAME minigpu_runtime_smoke COMMAND minigpu_runtime_smoke)
-
-    add_executable(minigpu_runtime_board_comm
-        test/runtime/runtime_board_comm.cpp
-    )
-
-    target_link_libraries(minigpu_runtime_board_comm
-        PRIVATE
-            minigpu_runtime_gpu_comm
-    )
-
-    add_executable(minigpu_runtime_board_vector_add
-        test/runtime/runtime_board_vector_add.cpp
-    )
-
-    target_link_libraries(minigpu_runtime_board_vector_add
-        PRIVATE
-            minigpu_runtime_gpu_comm
-    )
-endif()

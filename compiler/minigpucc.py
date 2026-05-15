@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mini-GPU compiler driver: CUDA subset -> AST -> IR -> ISA assembly."""
+"""Mini-GPU compiler driver: CUDA subset -> LLVM IR -> Mini-GPU ISA."""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ast_to_ir import ast_to_ir
+from emit_llvm_ir import emit_llvm_ir
 from get_cuda_ast import get_cuda_ast
 from isa_to_bin import isa_to_binary, isa_to_hex
 from ir_to_isa import ir_to_isa
+from llvm_to_ir import llvm_to_ir
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,8 +76,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clang", default="auto", help="Clang++ executable (default: auto)")
     parser.add_argument("--cuda-path", default="auto", help="CUDA toolkit path (default: auto)")
     parser.add_argument("--gpu-arch", default="auto", help="CUDA parse arch (default: sm_50)")
+    parser.add_argument(
+        "--kernel-dtypes",
+        default="all",
+        help="Comma-separated dtype instantiations for templated kernels, e.g. fp32,i32 (default: all)",
+    )
     parser.add_argument("--full-ast", action="store_true", help="Emit full Clang AST for --emit ast")
     parser.add_argument("--keep-implicit", action="store_true", help="Keep implicit Clang AST nodes")
+    parser.add_argument("--save-llvm", nargs="?", const=True, default=False, metavar="PATH",
+                        help="Also write Clang device LLVM IR; default path is <source>.ll")
     return parser.parse_args()
 
 
@@ -133,6 +141,7 @@ def compile_source(args: argparse.Namespace) -> tuple[str | bytes, dict[str, str
         clang_exe=args.clang,
         cuda_path=args.cuda_path,
         gpu_arch=args.gpu_arch,
+        kernel_dtypes=args.kernel_dtypes,
         full=False,
         keep_implicit=args.keep_implicit,
     )
@@ -144,17 +153,26 @@ def compile_source(args: argparse.Namespace) -> tuple[str | bytes, dict[str, str
             clang_exe=args.clang,
             cuda_path=args.cuda_path,
             gpu_arch=args.gpu_arch,
+            kernel_dtypes=args.kernel_dtypes,
             full=True,
             keep_implicit=args.keep_implicit,
         )
 
-    ir = ast_to_ir(compact_ast)
+    llvm = emit_llvm_ir(
+        args.source,
+        clang_exe=args.clang,
+        cuda_path=args.cuda_path,
+        gpu_arch=args.gpu_arch,
+        kernel_dtypes=args.kernel_dtypes,
+    )
+    ir = llvm_to_ir(llvm, compact_ast)
     isa = ir_to_isa(ir)
     binary = isa_to_binary(isa)
     hex_text = isa_to_hex(isa)
 
     side_outputs = {
         "ast": encode_ast(compact_ast),
+        "llvm": llvm,
         "ir": ir,
         "isa": isa,
         "hex": hex_text,
@@ -178,6 +196,7 @@ def main() -> int:
 
     save_paths = {
         "ast": optional_path(args.save_ast, args.source, ".ast.json"),
+        "llvm": optional_path(args.save_llvm, args.source, ".ll"),
         "ir": optional_path(args.save_ir, args.source, ".ir"),
         "isa": optional_path(args.save_isa, args.source, ".isa"),
         "hex": optional_path(args.save_hex, args.source, ".hex"),
