@@ -1,4 +1,4 @@
-#include "minigpu_kernel.h"
+#include "minigpu_linalg.h"
 
 template <typename T>
 __global__ void linear_kernel(T *input, T *weight, T *out,
@@ -6,29 +6,21 @@ __global__ void linear_kernel(T *input, T *weight, T *out,
     for (int idx = threadIdx.x; idx < total; idx += blockDim.x) {
         int row = idx / out_features;
         int col = idx - row * out_features;
-        T sum = 0;
-
-        for (int inner = 0; inner < in_features; inner += 1) {
-            sum += input[row * in_features + inner] *
-                   weight[col * in_features + inner];
-        }
-
-        out[idx] = sum;
+        out[idx] = minigpu_linear_element(
+            input, weight, row, col, out_features, in_features);
     }
 }
 
 template <typename T>
-__global__ void linear_bias_kernel(T *input, T *weight, T* bias, T *out, int total, int out_features, int in_features){
-    for (int idx = threadIdx.x; idx < total; idx += blockDim.x){
+__global__ void linear_bias_kernel(T *input, T *weight, T *bias, T *out,
+                                   int total, int out_features, int in_features) {
+    for (int idx = threadIdx.x; idx < total; idx += blockDim.x) {
         int row = idx / out_features;
         int col = idx - row * out_features;
-        T sum = bias[col];
-
-        for (int inner = 0; inner < in_features; inner += 1) {
-            sum += input[row * in_features + inner] *
-                   weight[col * in_features + inner];
-        }
-
-        out[idx] = sum;
+        out[idx] = bias[col] + minigpu_linear_element(
+            input, weight, row, col, out_features, in_features);
     }
 }
+
+MINIGPU_REGISTER_TYPED_KERNELS("linear", "i32,fp32", "linear_kernel")
+MINIGPU_REGISTER_TYPED_KERNELS("linear_bias", "i32,fp32", "linear_bias_kernel")

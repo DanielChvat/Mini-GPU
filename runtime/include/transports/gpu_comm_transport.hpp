@@ -15,7 +15,10 @@ namespace minigpu::transports {
 struct GpuCommTransportConfig {
     bool constants_use_data_memory = false;
     std::uint32_t status_done_mask = 0x1u;
-    std::uint32_t status_error_mask = 0x0eu;
+    std::uint32_t status_error_mask = 0x1cu;
+    std::uint32_t status_error_bit = 0x04u;
+    std::uint32_t status_unsupported_bit = 0x08u;
+    std::uint32_t status_divide_by_zero_bit = 0x10u;
     /* Number of bytes represented by one protocol address step. */
     std::uint32_t address_unit_bytes = 1u;
 };

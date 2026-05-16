@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "axpy_fp32"
+    }
+  ],
+  "instruction_words": 151
+}

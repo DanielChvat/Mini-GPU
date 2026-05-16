@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
         const=True,
         default=False,
         metavar="PATH",
-        help="Also write kernel entry PC metadata; default path is <source>.map",
+        help="Also write kernel symbol metadata; default path is <source>.map",
     )
     parser.add_argument("--clang", default="auto", help="Clang++ executable (default: auto)")
     parser.add_argument("--cuda-path", default="auto", help="CUDA toolkit path (default: auto)")
@@ -80,6 +80,13 @@ def parse_args() -> argparse.Namespace:
         "--kernel-dtypes",
         default="all",
         help="Comma-separated dtype instantiations for templated kernels, e.g. fp32,i32 (default: all)",
+    )
+    parser.add_argument(
+        "--only-kernel",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Emit only the named CUDA kernel entry; may be repeated.",
     )
     parser.add_argument("--full-ast", action="store_true", help="Emit full Clang AST for --emit ast")
     parser.add_argument("--keep-implicit", action="store_true", help="Keep implicit Clang AST nodes")
@@ -115,8 +122,8 @@ def encode_ast(ast: Any) -> str:
     return json.dumps(ast, indent=2)
 
 
-def kernel_map(isa: str) -> str:
-    """Return YAML metadata mapping kernel names to instruction PCs."""
+def kernel_map(isa: str, *, include_pc: bool = True) -> str:
+    """Return YAML metadata for kernel symbols in the compiled artifact."""
     symbols: list[dict[str, int | str]] = []
     pc = 0
     for line in isa.splitlines():
@@ -126,7 +133,10 @@ def kernel_map(isa: str) -> str:
         if stripped.startswith(".kernel"):
             parts = stripped.split(None, 1)
             if len(parts) == 2:
-                symbols.append({"name": parts[1].strip(), "pc": pc})
+                symbol: dict[str, int | str] = {"name": parts[1].strip()}
+                if include_pc:
+                    symbol["pc"] = pc
+                symbols.append(symbol)
             continue
         if not stripped.endswith(":"):
             pc += 1
@@ -165,7 +175,8 @@ def compile_source(args: argparse.Namespace) -> tuple[str | bytes, dict[str, str
         gpu_arch=args.gpu_arch,
         kernel_dtypes=args.kernel_dtypes,
     )
-    ir = llvm_to_ir(llvm, compact_ast)
+    only_kernels = set(args.only_kernel) if args.only_kernel else None
+    ir = llvm_to_ir(llvm, compact_ast, only_kernels=only_kernels)
     isa = ir_to_isa(ir)
     binary = isa_to_binary(isa)
     hex_text = isa_to_hex(isa)
@@ -177,7 +188,7 @@ def compile_source(args: argparse.Namespace) -> tuple[str | bytes, dict[str, str
         "isa": isa,
         "hex": hex_text,
         "bin": binary,
-        "map": kernel_map(isa),
+        "map": kernel_map(isa, include_pc=not bool(args.only_kernel)),
     }
 
     primary = {

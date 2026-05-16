@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "vector_add_kernel_i8"
+    }
+  ],
+  "instruction_words": 118
+}

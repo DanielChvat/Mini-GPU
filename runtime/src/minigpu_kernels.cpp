@@ -179,9 +179,7 @@ std::unordered_map<std::string, DeviceAddress> read_symbol_map(const std::string
 
     std::unordered_map<std::string, DeviceAddress> out;
     for (const YAML::Node &entry : symbols) {
-        out.emplace(
-            entry["name"].as<std::string>(),
-            static_cast<DeviceAddress>(yaml_u32(entry["pc"], 0)));
+        out.emplace(entry["name"].as<std::string>(), static_cast<DeviceAddress>(yaml_u32(entry["pc"], 0)));
     }
     return out;
 }
@@ -200,12 +198,12 @@ std::string replace_extension(const std::string &path, std::string_view extensio
 PrecompiledKernel parse_kernel_entry(
     const YAML::Node &entry,
     const std::string &artifact_path,
-    DeviceAddress artifact_program_addr,
     const std::vector<std::uint8_t> &program_bytes,
     const std::unordered_map<std::string, DeviceAddress> &symbols,
     const LaunchConfig &defaults) {
     PrecompiledKernel kernel;
     kernel.name = entry["name"].as<std::string>();
+    kernel.program_id = artifact_path;
     kernel.op = entry["op"].as<std::string>();
     kernel.dtype = entry["dtype"].as<std::string>();
     const std::string entry_name =
@@ -217,12 +215,8 @@ PrecompiledKernel parse_kernel_entry(
     }
 
     kernel.program_bytes = program_bytes;
-    if ((artifact_program_addr % sizeof(std::uint32_t)) != 0u) {
-        throw Error(Status::BadArgument);
-    }
-
-    kernel.program_addr = artifact_program_addr;
-    kernel.base_pc = (artifact_program_addr / sizeof(std::uint32_t)) + symbol->second;
+    kernel.entry_pc = symbol->second;
+    kernel.base_pc = symbol->second;
     kernel.default_grid_dim = yaml_u32(entry["grid_dim"], defaults.grid_dim);
     kernel.default_block_dim = yaml_u32(entry["block_dim"], defaults.block_dim);
     kernel.default_active_mask =
@@ -269,8 +263,6 @@ std::vector<PrecompiledKernel> parse_manifest(std::string_view manifest_path) {
 
         const std::string file = artifact["file"].as<std::string>();
         const std::string artifact_path = resolve_artifact_path(manifest_path, file);
-        const DeviceAddress artifact_program_addr =
-            yaml_u32(artifact["program_addr"], 0);
         const std::string map_file = artifact["map"]
             ? artifact["map"].as<std::string>()
             : replace_extension(file, ".map");
@@ -285,8 +277,7 @@ std::vector<PrecompiledKernel> parse_manifest(std::string_view manifest_path) {
 
         for (const YAML::Node &entry : kernel_nodes) {
             kernels.push_back(parse_kernel_entry(
-                entry, artifact_path, artifact_program_addr, program_bytes,
-                symbols, defaults));
+                entry, artifact_path, program_bytes, symbols, defaults));
         }
     }
 
@@ -405,6 +396,141 @@ void launch_matmul(
         launch_config);
 }
 
+/* Resolve and launch a matrix-vector multiply kernel. */
+void launch_gemv(
+    Context &context,
+    const TensorView &a,
+    const TensorView &x,
+    const TensorView &out,
+    std::uint32_t m,
+    std::uint32_t n,
+    const LaunchConfig *launch_config) {
+    if (a.dtype != x.dtype || a.dtype != out.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("gemv.") + std::string(a.dtype),
+        {
+            KernelArg::device_ptr(a.addr),
+            KernelArg::device_ptr(x.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(m),
+            KernelArg::u32(n),
+        },
+        launch_config);
+}
+
+/* Resolve and launch a dot product kernel. */
+void launch_dot(
+    Context &context,
+    const TensorView &a,
+    const TensorView &b,
+    const TensorView &out,
+    std::uint32_t n,
+    const LaunchConfig *launch_config) {
+    if (a.dtype != b.dtype || a.dtype != out.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("dot.") + std::string(a.dtype),
+        {
+            KernelArg::device_ptr(a.addr),
+            KernelArg::device_ptr(b.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(n),
+        },
+        launch_config);
+}
+
+/* Resolve and launch out = alpha * x. */
+void launch_scal(
+    Context &context,
+    const TensorView &x,
+    const TensorView &out,
+    float alpha,
+    const LaunchConfig *launch_config) {
+    if (x.dtype != out.dtype || x.dtype != "fp32" || x.elements != out.elements) {
+        throw Error(Status::BadArgument);
+    }
+    if (x.elements > UINT32_MAX) {
+        throw Error(Status::OutOfRange);
+    }
+
+    context.launch_kernel(
+        "scal.fp32",
+        {
+            KernelArg::device_ptr(x.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::f32(alpha),
+            KernelArg::u32(static_cast<std::uint32_t>(x.elements)),
+        },
+        launch_config);
+}
+
+/* Resolve and launch out = alpha * x + y. */
+void launch_axpy(
+    Context &context,
+    const TensorView &x,
+    const TensorView &y,
+    const TensorView &out,
+    float alpha,
+    const LaunchConfig *launch_config) {
+    if (x.dtype != y.dtype || x.dtype != out.dtype || x.dtype != "fp32" ||
+        x.elements != y.elements || x.elements != out.elements) {
+        throw Error(Status::BadArgument);
+    }
+    if (x.elements > UINT32_MAX) {
+        throw Error(Status::OutOfRange);
+    }
+
+    context.launch_kernel(
+        "axpy.fp32",
+        {
+            KernelArg::device_ptr(x.addr),
+            KernelArg::device_ptr(y.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::f32(alpha),
+            KernelArg::u32(static_cast<std::uint32_t>(x.elements)),
+        },
+        launch_config);
+}
+
+/* Resolve and launch out = beta * self + alpha * (a @ b). */
+void launch_addmm(
+    Context &context,
+    const TensorView &self,
+    const TensorView &a,
+    const TensorView &b,
+    const TensorView &out,
+    float beta,
+    float alpha,
+    std::uint32_t m,
+    std::uint32_t n,
+    std::uint32_t k,
+    const LaunchConfig *launch_config) {
+    if (self.dtype != a.dtype || self.dtype != b.dtype || self.dtype != out.dtype ||
+        self.dtype != "fp32") {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        "addmm.fp32",
+        {
+            KernelArg::device_ptr(self.addr),
+            KernelArg::device_ptr(a.addr),
+            KernelArg::device_ptr(b.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::f32(beta),
+            KernelArg::f32(alpha),
+            KernelArg::u32(m),
+            KernelArg::u32(n),
+            KernelArg::u32(k),
+        },
+        launch_config);
+}
+
 /* Resolve and launch a row-major linear layer kernel without bias. */
 void launch_linear(
     Context &context,
@@ -456,7 +582,7 @@ void launch_linear_bias(
             KernelArg::device_ptr(weight.addr),
             KernelArg::device_ptr(bias.addr),
             KernelArg::device_ptr(out.addr),
-            KernelArg:u32(total),
+            KernelArg::u32(total),
             KernelArg::u32(out_features),
             KernelArg::u32(in_features),
         },
@@ -491,9 +617,16 @@ void launch_conv1d(
             KernelArg::device_ptr(weight.addr),
             KernelArg::device_ptr(out.addr),
             KernelArg::u32(total),
-            KernelArg::u32(batch_size)
-        }
-    )
+            KernelArg::u32(batch_size),
+            KernelArg::u32(in_channels),
+            KernelArg::u32(out_channels),
+            KernelArg::u32(input_width),
+            KernelArg::u32(output_width),
+            KernelArg::u32(kernel_width),
+            KernelArg::u32(stride),
+            KernelArg::u32(padding),
+        },
+        launch_config);
 }
 
 /* Resolve and launch a 1d conv kernel with bias */
@@ -520,16 +653,126 @@ void launch_conv1d_bias(
     }
 
     context.launch_kernel(
-        std::string("conv1d.") + std::string(input.dtype),
+        std::string("conv1d_bias.") + std::string(input.dtype),
         {
             KernelArg::device_ptr(input.addr),
             KernelArg::device_ptr(weight.addr),
             KernelArg::device_ptr(bias.addr),
             KernelArg::device_ptr(out.addr),
             KernelArg::u32(total),
-            KernelArg::u32(batch_size)
-        }
-    )
+            KernelArg::u32(batch_size),
+            KernelArg::u32(in_channels),
+            KernelArg::u32(out_channels),
+            KernelArg::u32(input_width),
+            KernelArg::u32(output_width),
+            KernelArg::u32(kernel_width),
+            KernelArg::u32(stride),
+            KernelArg::u32(padding),
+        },
+        launch_config);
+}
+
+/* Resolve and launch a 2d conv kernel without bias */
+void launch_conv2d(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels,
+    std::uint32_t input_height,
+    std::uint32_t input_width,
+    std::uint32_t output_height,
+    std::uint32_t output_width,
+    std::uint32_t kernel_height,
+    std::uint32_t kernel_width,
+    std::uint32_t stride_h,
+    std::uint32_t stride_w,
+    std::uint32_t padding_h,
+    std::uint32_t padding_w,
+    const LaunchConfig *launch_config
+) {
+    if (input.dtype != weight.dtype || input.dtype != out.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("conv2d.") + std::string(input.dtype),
+        {
+            KernelArg::device_ptr(input.addr),
+            KernelArg::device_ptr(weight.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(total),
+            KernelArg::u32(batch_size),
+            KernelArg::u32(in_channels),
+            KernelArg::u32(out_channels),
+            KernelArg::u32(input_height),
+            KernelArg::u32(input_width),
+            KernelArg::u32(output_height),
+            KernelArg::u32(output_width),
+            KernelArg::u32(kernel_height),
+            KernelArg::u32(kernel_width),
+            KernelArg::u32(stride_h),
+            KernelArg::u32(stride_w),
+            KernelArg::u32(padding_h),
+            KernelArg::u32(padding_w),
+        },
+        launch_config);
+}
+
+/* Resolve and launch a 2d conv kernel with bias */
+void launch_conv2d_bias(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &bias,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels,
+    std::uint32_t input_height,
+    std::uint32_t input_width,
+    std::uint32_t output_height,
+    std::uint32_t output_width,
+    std::uint32_t kernel_height,
+    std::uint32_t kernel_width,
+    std::uint32_t stride_h,
+    std::uint32_t stride_w,
+    std::uint32_t padding_h,
+    std::uint32_t padding_w,
+    const LaunchConfig *launch_config
+) {
+    if (input.dtype != weight.dtype || input.dtype != out.dtype ||
+        input.dtype != bias.dtype || weight.dtype != bias.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("conv2d_bias.") + std::string(input.dtype),
+        {
+            KernelArg::device_ptr(input.addr),
+            KernelArg::device_ptr(weight.addr),
+            KernelArg::device_ptr(bias.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(total),
+            KernelArg::u32(batch_size),
+            KernelArg::u32(in_channels),
+            KernelArg::u32(out_channels),
+            KernelArg::u32(input_height),
+            KernelArg::u32(input_width),
+            KernelArg::u32(output_height),
+            KernelArg::u32(output_width),
+            KernelArg::u32(kernel_height),
+            KernelArg::u32(kernel_width),
+            KernelArg::u32(stride_h),
+            KernelArg::u32(stride_w),
+            KernelArg::u32(padding_h),
+            KernelArg::u32(padding_w),
+        },
+        launch_config);
 }
 
 } // namespace minigpu::kernels

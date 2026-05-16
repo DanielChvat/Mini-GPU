@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "scal_fp32"
+    }
+  ],
+  "instruction_words": 121
+}

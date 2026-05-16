@@ -23,6 +23,7 @@ enum class Status {
     Transport,
     Timeout,
     Unsupported,
+    DivideByZero,
 };
 
 /* Convert a runtime status code into a human-readable string. */
@@ -33,6 +34,9 @@ class Error : public std::runtime_error {
 public:
     /* Build an exception with status_message(status) as the message. */
     explicit Error(Status status);
+
+    /* Build an exception with device/runtime context in the message. */
+    Error(Status status, std::string message);
 
     /* Return the original runtime status code. */
     Status status() const noexcept;
@@ -76,6 +80,7 @@ struct Transport {
 struct Config {
     DeviceAddress memory_base = 0;
     std::size_t memory_size = 0;
+    std::size_t program_memory_size = 4096u * sizeof(std::uint32_t);
     std::size_t default_alignment = 4;
     Transport transport;
     bool enable_logging = false;
@@ -100,6 +105,7 @@ struct Kernel {
 /* A precompiled instruction stream that can be launched by registry name. */
 struct PrecompiledKernel {
     std::string name;
+    std::string program_id;
     std::string op;
     std::string dtype;
     const void *program = nullptr;
@@ -107,6 +113,7 @@ struct PrecompiledKernel {
     std::vector<std::uint8_t> program_bytes;
     DeviceAddress program_addr = 0;
     DeviceAddress base_pc = 0;
+    DeviceAddress entry_pc = 0;
     std::uint32_t default_grid_dim = 1;
     std::uint32_t default_block_dim = 4;
     std::uint32_t default_active_mask = 0xffffffffu;
@@ -127,6 +134,9 @@ struct KernelArg {
 
     /* Build a raw 32-bit constant argument. */
     static KernelArg u32(std::uint32_t value) noexcept;
+
+    /* Build a raw FP32 constant argument. */
+    static KernelArg f32(float value) noexcept;
 
     /* Build a word-address pointer argument from a byte-addressed allocation. */
     static KernelArg device_ptr(DeviceAddress byte_addr, std::uint32_t bytes_per_word = 4);
@@ -248,7 +258,7 @@ public:
     std::size_t memory_free() const noexcept;
 
 private:
-    static constexpr std::size_t kCompilerSpillBytes = 1024;
+    static constexpr std::size_t kCompilerSpillBytes = 8192;
 
     /* One contiguous allocator entry in the managed device-memory range.
      * offset is an absolute device address, size is bytes, and free marks
@@ -259,13 +269,25 @@ private:
         bool free = true;
     };
 
+    /* One cached program artifact inside instruction memory. */
+    struct ProgramCacheEntry {
+        std::string name;
+        DeviceAddress addr = 0;
+        std::size_t size = 0;
+        std::uint64_t last_used = 0;
+    };
+
     DeviceAddress memory_base_ = 0;
     std::size_t memory_size_ = 0;
+    std::size_t program_memory_size_ = 0;
+    std::uint64_t program_cache_clock_ = 0;
     DeviceAddress compiler_spill_base_ = 0;
     std::size_t compiler_spill_size_ = 0;
     std::size_t default_alignment_ = 4;
     Transport transport_;
     std::vector<Block> blocks_;
+    std::vector<Block> program_blocks_;
+    std::vector<ProgramCacheEntry> program_cache_;
     std::vector<PrecompiledKernel> kernels_;
     bool logging_enabled_ = false;
     std::string log_path_;
@@ -278,6 +300,18 @@ private:
 
     /* Merge adjacent free allocator blocks after a free operation. */
     void coalesce_free_blocks();
+
+    /* Merge adjacent free program-memory blocks after eviction. */
+    void coalesce_program_blocks();
+
+    /* Ensure a registered program artifact is resident in instruction memory. */
+    DeviceAddress ensure_program_loaded(const PrecompiledKernel &kernel);
+
+    /* Allocate instruction memory, evicting least-recently-used artifacts as needed. */
+    DeviceAddress allocate_program_slot(std::string_view name, std::size_t size);
+
+    /* Evict one least-recently-used cached program artifact. */
+    bool evict_lru_program();
 };
 
 } // namespace minigpu

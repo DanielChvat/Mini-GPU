@@ -299,7 +299,8 @@ def send_status(args):
         print(f"  error={(status >> 2) & 1}")
         print(f"  unsupported={(status >> 3) & 1}")
         print(f"  divide_by_zero={(status >> 4) & 1}")
-        print(f"  retired={(status >> 8) & 0xff}")
+        print(f"  retired={(status >> 8) & 0xfff}")
+        print(f"  pc=0x{(status >> 20) & 0xfff:03x}")
     finally:
         dev.close()
         print("closed")

@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "linear_bias_kernel_i32"
+    }
+  ],
+  "instruction_words": 374
+}

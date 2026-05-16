@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "gemv_kernel_fp32"
+    }
+  ],
+  "instruction_words": 277
+}

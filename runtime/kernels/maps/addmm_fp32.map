@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "addmm_fp32"
+    }
+  ],
+  "instruction_words": 486
+}

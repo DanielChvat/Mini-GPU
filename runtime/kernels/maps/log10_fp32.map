@@ -1,0 +1,23 @@
+{
+  "symbols": [
+    {
+      "name": "log10_fp32"
+    },
+    {
+      "name": "log10f"
+    },
+    {
+      "name": "log2f"
+    },
+    {
+      "name": "minigpu_mask_u32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    },
+    {
+      "name": "rcpf"
+    }
+  ],
+  "instruction_words": 1174
+}

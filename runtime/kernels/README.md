@@ -4,19 +4,20 @@ Put precompiled Mini-GPU kernel artifacts in this folder.
 
 The runtime loader supports:
 
-- `.bin`: raw instruction bytes
-- `.map`: compiler-generated kernel entry metadata
+- `bin/*.bin`: raw instruction bytes
+- `maps/*.map`: compiler-generated kernel entry metadata
 
-Repository kernels should use `.bin` plus `.map` artifacts. Save IR/ISA/hex
-debug output outside this folder unless you intentionally want to check it in.
+Repository kernels should use generated `bin/` plus `maps/` artifacts. Save
+IR/ISA/hex debug output outside this folder unless you intentionally want to
+check it in.
 
 Set `MINIGPU_KERNEL_DIR=/path/to/kernels` to load kernels from another folder.
 
-Kernel metadata lives in `kernels.yaml`. Add kernels under an artifact and point
-each entry at the CUDA function name. The runtime reads the `.map` file to find
-the artifact-local PC. An artifact can set `program_addr` to place its
-instruction words at a byte address in program BRAM; kernel launch PCs are
-computed as `program_addr / 4 + entry_pc`.
+Kernel metadata is generated from `MINIGPU_REGISTER_KERNEL` declarations in the
+`.cu` files. Single-entry artifacts compiled with `minigpucc --only-kernel` do
+not need per-symbol PCs in their `.map`; the runtime launches them at the start
+of the loaded program. Legacy multi-entry artifacts may still include `pc`
+values so the runtime can jump to an entry inside one instruction stream.
 
 Templated elementwise kernels should declare the template only:
 
@@ -32,13 +33,24 @@ before passing the source to Clang.
 
 Example:
 
-```yaml
-artifacts:
-  - file: vector_add.bin
-    program_addr: 0x0000
-    kernels:
-      - name: vector_add.i32
-        op: vector_add
-        dtype: i32
-        entry: vector_add
+```cpp
+template <typename T>
+__global__ void my_kernel(T *a, T *out, int n) { /* ... */ }
+
+MINIGPU_REGISTER_KERNEL("my_op.fp32", "my_op", "fp32", "my_kernel_fp32")
+```
+
+For templated kernels, register all supported dtype instantiations on one line:
+
+```cpp
+template <typename T>
+__global__ void my_kernel(T *a, T *out, int n) { /* ... */ }
+
+MINIGPU_REGISTER_TYPED_KERNELS("my_op", "i32,fp32,fp16", "my_kernel")
+```
+
+Regenerate all artifacts and `kernels.yaml` with:
+
+```bash
+python compiler/build_kernel_artifacts.py
 ```

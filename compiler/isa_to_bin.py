@@ -61,6 +61,8 @@ OPCODES = {
     "PRED": 0x31,
     "POPM": 0x32,
     "PREDN": 0x33,
+    "CALL": 0x34,
+    "RET": 0x35,
     "BRA": 0x38,
     "BZ": 0x39,
     "BNZ": 0x3A,
@@ -100,7 +102,7 @@ FRR_OPS = {"FADD", "FSUB", "FMUL", "FDIV"}
 UNARY_TYPED_OPS = {"FTOI", "ITOF"}
 RRI_OPS = {"ADDI", "SUBI", "MULI", "ANDI", "ORI", "XORI", "SHLI", "SHRI"}
 THREAD_OPS = {"TID", "TIDX", "BID", "BDIM", "GDIM", "LID", "WID"}
-ZERO_OPS = {"NOP", "PUSHM", "POPM", "BAR", "EXIT"}
+ZERO_OPS = {"NOP", "PUSHM", "POPM", "BAR", "EXIT", "RET"}
 MEM_RE = re.compile(r"^\[(r\d+)\s*\+\s*([^\]]+)\]$")
 
 
@@ -158,6 +160,7 @@ def parse_program(asm_text: str) -> tuple[list[str], AssemblerState]:
         if line.startswith(".kernel"):
             parts = line.split(None, 1)
             scope = parts[1].strip() if len(parts) == 2 else "__global__"
+            state.labels[scope] = len(instructions)
             state.next_arg_id = 0
             state.next_shared_id = 32
             arg_ids = {}
@@ -189,7 +192,9 @@ def scope_instruction_symbols(
     else:
         op_text = op
 
-    if op == "BRA" and len(operands) == 1 and not is_int(operands[0]):
+    if op == "CALL" and len(operands) == 1 and operands[0].startswith("@"):
+        return f"{op_text} {operands[0][1:]}"
+    if op in {"BRA", "CALL"} and len(operands) == 1 and not is_int(operands[0]):
         return f"{op_text} {scoped_label(scope, operands[0])}"
     if op in {"BZ", "BNZ"} and len(operands) == 2 and not is_int(operands[1]):
         return f"{op_text} {operands[0]}, {scoped_label(scope, operands[1])}"
@@ -284,7 +289,7 @@ def encode_instruction(line: str, pc: int, state: AssemblerState) -> int:
         expect_count(op, operands, 1)
         return pack(op, rs1=reg(operands[0]))
 
-    if op == "BRA":
+    if op in {"BRA", "CALL"}:
         expect_count(op, operands, 1)
         return pack(op, imm=branch_offset(operands[0], pc, state))
 

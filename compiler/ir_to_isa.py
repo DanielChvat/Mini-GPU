@@ -48,6 +48,8 @@ FLOAT_PREFIX_OPS = {
     "mul": "FMUL",
     "div": "FDIV",
 }
+SHARED_HELPER_SPILL_SLOT_BASE = 256
+SHARED_HELPER_SPILL_SLOT_STRIDE = 32
 
 CONVERT_OPS = {
     "ftoi": "FTOI",
@@ -71,6 +73,7 @@ class RegisterAllocator:
     spilled_values: dict[str, int] = field(default_factory=dict)
     value_depths: dict[str, int] = field(default_factory=dict)
     persistent_values: set[str] = field(default_factory=set)
+    memory_backed_values: set[str] = field(default_factory=set)
     next_spill_slot: int = 0
     spill_base_reg: str = "r15"
     spill_addr_reg: str = "r14"
@@ -82,13 +85,15 @@ class RegisterAllocator:
         """Assign a physical register to a newly defined IR value."""
         if value.startswith("%slot"):
             self.persistent_values.add(value)
+            self.memory_backed_values.add(value)
 
         old_reg = self.value_regs.pop(value, None)
         if old_reg is not None:
             self.value_regs[value] = old_reg
             return old_reg
 
-        self.spilled_values.pop(value, None)
+        if value not in self.memory_backed_values:
+            self.spilled_values.pop(value, None)
         reg = self.acquire_value_reg(asm)
         self.value_regs[value] = reg
         self.value_depths[value] = self.pred_depth
@@ -129,6 +134,17 @@ class RegisterAllocator:
         self.emit_spill_store(candidate, reg, asm)
         self.free_regs.insert(0, reg)
 
+    def spill_all(self, asm: list[str], exclude: set[str] | None = None) -> None:
+        """Spill all currently resident values before a helper call."""
+        exclude = (exclude or set()) | self.pinned_values
+        for value, reg in list(self.value_regs.items()):
+            if value in exclude:
+                continue
+            self.value_regs.pop(value, None)
+            self.emit_spill_store(value, reg, asm)
+            self.value_depths.pop(value, None)
+            self.free_regs.insert(0, reg)
+
     def spill_slot(self, value: str) -> int:
         """Return the spill slot assigned to an IR value."""
         slot = self.spilled_values.get(value)
@@ -146,7 +162,7 @@ class RegisterAllocator:
     def emit_spill_addr(self, slot: int, asm: list[str]) -> None:
         """Materialize a per-lane spill address for one logical spill slot."""
         self.emit_spill_base(asm)
-        asm.append(f"  LID {self.spill_addr_reg}")
+        asm.append(f"  TIDX {self.spill_addr_reg}")
         if slot:
             asm.append(f"  ADDI {self.spill_addr_reg}, {self.spill_addr_reg}, {slot * 4}")
         asm.append(f"  ADD {self.spill_addr_reg}, {self.spill_base_reg}, {self.spill_addr_reg}")
@@ -166,6 +182,12 @@ class RegisterAllocator:
     def release_after_use(self, value: str) -> None:
         """Free value registers or spill slots after their final textual use."""
         if not value.startswith("%"):
+            return
+        if value in self.memory_backed_values:
+            reg = self.value_regs.pop(value, None)
+            if reg is not None:
+                self.free_regs.insert(0, reg)
+            self.value_depths.pop(value, None)
             return
         if value in self.persistent_values:
             return
@@ -299,8 +321,17 @@ def ir_to_isa(ir_text: str) -> str:
     if current:
         kernel_lines.append(current)
 
+    helper_spill_bases: dict[str, int] = {}
     for section in kernel_lines:
         allocator = RegisterAllocator(value_operands(section))
+        section_name = section[0].split(None, 1)[1] if section and section[0].startswith("kernel ") else ""
+        if section_uses_call_abi(section):
+            helper_spill_bases.setdefault(
+                section_name,
+                SHARED_HELPER_SPILL_SLOT_BASE
+                + len(helper_spill_bases) * SHARED_HELPER_SPILL_SLOT_STRIDE,
+            )
+            allocator.next_spill_slot = helper_spill_bases[section_name]
 
         for line in section:
             if line.startswith("kernel "):
@@ -329,6 +360,11 @@ def ir_to_isa(ir_text: str) -> str:
 lower_ir = ir_to_isa
 
 
+def section_uses_call_abi(section: list[str]) -> bool:
+    """Return true for lowered shared helper sections using call ABI pseudo-ops."""
+    return any("call_arg" in line or line.startswith("call_return") for line in section)
+
+
 def lower_assignment(
     dst: str,
     op: str,
@@ -337,6 +373,11 @@ def lower_assignment(
     asm: list[str],
 ) -> None:
     """Lower one assigning IR instruction."""
+    base_op, fmt = split_typed_op(op)
+    if base_op == "call":
+        lower_call_assignment(dst, fmt, operands, allocator, asm)
+        return
+
     rd = allocator.define(dst, asm)
     allocator.pin(dst)
 
@@ -345,7 +386,12 @@ def lower_assignment(
             if len(operands) != 1:
                 raise IsaLoweringError(f"arg expects one operand: {dst} = {op} {operands}")
             allocator.persistent_values.add(dst)
+            allocator.memory_backed_values.add(dst)
             asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
+            allocator.emit_spill_store(dst, rd, asm)
+            allocator.value_regs.pop(dst, None)
+            allocator.value_depths.pop(dst, None)
+            allocator.free_regs.insert(0, rd)
             return
 
         if op == "shared":
@@ -366,13 +412,31 @@ def lower_assignment(
             asm.append(f"  {THREAD_OPS[op]} {rd}")
             return
 
-        base_op, fmt = split_typed_op(op)
-
         if base_op == "arg":
             if len(operands) != 1:
                 raise IsaLoweringError(f"arg expects one operand: {dst} = {op} {operands}")
             allocator.persistent_values.add(dst)
+            allocator.memory_backed_values.add(dst)
             asm.append(f"  LDC {rd}, ARG_{operands[0].upper()}")
+            allocator.emit_spill_store(dst, rd, asm)
+            allocator.value_regs.pop(dst, None)
+            allocator.value_depths.pop(dst, None)
+            allocator.free_regs.insert(0, rd)
+            return
+
+        if base_op == "call_arg":
+            if len(operands) != 1:
+                raise IsaLoweringError("call_arg expects one argument index")
+            index = parse_int_literal(operands[0])
+            if index < 0 or index > 3:
+                raise IsaLoweringError("call_arg supports argument registers r0..r3")
+            allocator.persistent_values.add(dst)
+            allocator.memory_backed_values.add(dst)
+            asm.append(f"  MOV {rd}, r{index}")
+            allocator.emit_spill_store(dst, rd, asm)
+            allocator.value_regs.pop(dst, None)
+            allocator.value_depths.pop(dst, None)
+            allocator.free_regs.insert(0, rd)
             return
 
         if base_op == "shared":
@@ -441,15 +505,54 @@ def lower_assignment(
             if len(operands) != 2:
                 raise IsaLoweringError(f"{op} expects two operands")
             rs1, scratch1 = operand_reg(operands[0], allocator, asm)
+            if operands[0].startswith("%") and scratch1 is None:
+                allocator.pin(operands[0])
             rs2, scratch2 = operand_reg(operands[1], allocator, asm)
             asm.append(f"  {opcode} {rd}, {rs1}, {rs2}")
+            if operands[0].startswith("%") and scratch1 is None:
+                allocator.unpin(operands[0])
             release_operand(operands[0], scratch1, allocator)
             release_operand(operands[1], scratch2, allocator)
             return
 
         raise IsaLoweringError(f"unsupported IR assignment op: {op}")
     finally:
+        if dst in allocator.memory_backed_values and dst in allocator.value_regs:
+            dst_reg = allocator.value_regs.pop(dst)
+            allocator.emit_spill_store(dst, dst_reg, asm)
+            allocator.value_depths.pop(dst, None)
+            allocator.free_regs.insert(0, dst_reg)
         allocator.unpin(dst)
+
+
+def lower_call_assignment(
+    dst: str,
+    fmt: str | None,
+    operands: list[str],
+    allocator: RegisterAllocator,
+    asm: list[str],
+) -> None:
+    """Lower a shared helper call using r0..rN args and r0 as return register."""
+    if len(operands) < 1:
+        raise IsaLoweringError("call expects helper name")
+    helper, *args = operands
+    if len(args) > 4:
+        raise IsaLoweringError("shared helper calls support up to four arguments")
+    allocator.spill_all(asm)
+    abi_regs = [f"r{idx}" for idx in range(len(args))]
+    saved_free_regs = list(allocator.free_regs)
+    allocator.free_regs = [reg for reg in allocator.free_regs if reg not in abi_regs]
+    try:
+        for index, arg in enumerate(args):
+            rs, scratch = operand_reg(arg, allocator, asm)
+            if rs != abi_regs[index]:
+                asm.append(f"  MOV {abi_regs[index]}, {rs}")
+            release_operand(arg, scratch, allocator)
+    finally:
+        allocator.free_regs = saved_free_regs
+    asm.append(f"  CALL @{helper}")
+    rd = allocator.define(dst, asm)
+    asm.append(f"  MOV {rd}, r0")
 
 
 def operand_reg(
@@ -459,10 +562,6 @@ def operand_reg(
 ) -> tuple[str, str | None]:
     """Return a register for a value operand or literal immediate."""
     if operand.startswith("%"):
-        if operand in allocator.spilled_values and operand not in allocator.value_regs:
-            scratch = allocator.acquire_scratch()
-            allocator.emit_spill_load(scratch, operand, asm)
-            return scratch, scratch
         return allocator.use(operand, asm), None
 
     scratch = allocator.acquire_scratch()
@@ -527,9 +626,13 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
         if len(operands) != 2:
             raise IsaLoweringError("store_global expects address and value operands")
         addr, scratch1 = operand_reg(operands[0], allocator, asm)
+        if operands[0].startswith("%") and scratch1 is None:
+            allocator.pin(operands[0])
         value, scratch2 = operand_reg(operands[1], allocator, asm)
         suffix = f".{isa_format(fmt)}" if fmt is not None else ""
         asm.append(f"  STG{suffix} [{addr} + 0], {value}")
+        if operands[0].startswith("%") and scratch1 is None:
+            allocator.unpin(operands[0])
         release_operand(operands[0], scratch1, allocator)
         release_operand(operands[1], scratch2, allocator)
         return
@@ -538,9 +641,13 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
         if len(operands) != 2:
             raise IsaLoweringError("store_shared expects address and value operands")
         addr, scratch1 = operand_reg(operands[0], allocator, asm)
+        if operands[0].startswith("%") and scratch1 is None:
+            allocator.pin(operands[0])
         value, scratch2 = operand_reg(operands[1], allocator, asm)
         suffix = f".{isa_format(fmt)}" if fmt is not None else ""
         asm.append(f"  STS{suffix} [{addr} + 0], {value}")
+        if operands[0].startswith("%") and scratch1 is None:
+            allocator.unpin(operands[0])
         release_operand(operands[0], scratch1, allocator)
         release_operand(operands[1], scratch2, allocator)
         return
@@ -594,6 +701,16 @@ def lower_statement(line: str, allocator: RegisterAllocator, asm: list[str]) -> 
         if operands:
             raise IsaLoweringError("return expects no operands")
         asm.append("  EXIT")
+        return
+
+    if base_op == "call_return":
+        if len(operands) != 1:
+            raise IsaLoweringError("call_return expects one value operand")
+        value_reg, scratch = operand_reg(operands[0], allocator, asm)
+        if value_reg != "r0":
+            asm.append(f"  MOV r0, {value_reg}")
+        release_operand(operands[0], scratch, allocator)
+        asm.append("  RET")
         return
 
     raise IsaLoweringError(f"unsupported IR statement op: {op}")

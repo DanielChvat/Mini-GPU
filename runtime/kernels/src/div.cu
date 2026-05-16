@@ -11,3 +11,6 @@ __global__ void div_fp32(float *a, float *b, float *out, int n) {
         out[i] = a[i] * rcpf(b[i]);
     }
 }
+
+MINIGPU_REGISTER_KERNEL("reciprocal.fp32", "reciprocal", "fp32", "reciprocal_fp32")
+MINIGPU_REGISTER_KERNEL("div.fp32", "div", "fp32", "div_fp32")

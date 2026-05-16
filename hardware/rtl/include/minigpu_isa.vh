@@ -52,6 +52,8 @@
 `define MGPU_OP_PRED   6'h31
 `define MGPU_OP_POPM   6'h32
 `define MGPU_OP_PREDN  6'h33
+`define MGPU_OP_CALL   6'h34
+`define MGPU_OP_RET    6'h35
 `define MGPU_OP_BRA    6'h38
 `define MGPU_OP_BZ     6'h39
 `define MGPU_OP_BNZ    6'h3a

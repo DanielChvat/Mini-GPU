@@ -1,0 +1,17 @@
+{
+  "symbols": [
+    {
+      "name": "exp_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "minigpu_mask_u32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    }
+  ],
+  "instruction_words": 587
+}

@@ -58,6 +58,56 @@ void launch_matmul(
     std::uint32_t k,
     const LaunchConfig *launch_config = nullptr);
 
+/* Resolve and launch a matrix-vector multiply kernel. */
+void launch_gemv(
+    Context &context,
+    const TensorView &a,
+    const TensorView &x,
+    const TensorView &out,
+    std::uint32_t m,
+    std::uint32_t n,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch a dot product kernel. */
+void launch_dot(
+    Context &context,
+    const TensorView &a,
+    const TensorView &b,
+    const TensorView &out,
+    std::uint32_t n,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch out = alpha * x. */
+void launch_scal(
+    Context &context,
+    const TensorView &x,
+    const TensorView &out,
+    float alpha,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch out = alpha * x + y. */
+void launch_axpy(
+    Context &context,
+    const TensorView &x,
+    const TensorView &y,
+    const TensorView &out,
+    float alpha,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch out = beta * self + alpha * (a @ b). */
+void launch_addmm(
+    Context &context,
+    const TensorView &self,
+    const TensorView &a,
+    const TensorView &b,
+    const TensorView &out,
+    float beta,
+    float alpha,
+    std::uint32_t m,
+    std::uint32_t n,
+    std::uint32_t k,
+    const LaunchConfig *launch_config = nullptr);
+
 /* Resolve and launch a row-major linear layer kernel. */
 void launch_linear(
     Context &context,

@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <mutex>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 
@@ -84,6 +85,11 @@ void connect(const std::string &port, std::uint32_t baud, std::uint32_t memory_s
     minigpu::Config config;
     config.memory_base = 0;
     config.memory_size = memory_size;
+    if (const char *program_bytes = std::getenv("MINIGPU_PROGRAM_MEMORY_BYTES")) {
+        if (program_bytes[0] != '\0') {
+            config.program_memory_size = static_cast<std::size_t>(std::stoul(program_bytes));
+        }
+    }
     config.default_alignment = 4;
     config.transport = minigpu::transports::make_gpu_comm_transport(dev);
 

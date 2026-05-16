@@ -74,6 +74,8 @@ module mini_gpu_core #(
     localparam STATE_DONE = 3'd7;
     localparam MASK_STACK_DEPTH = 4;
     localparam STACK_ENTRIES = WARP_COUNT * MASK_STACK_DEPTH;
+    localparam CALL_STACK_DEPTH = 4;
+    localparam CALL_STACK_ENTRIES = WARP_COUNT * CALL_STACK_DEPTH;
 
     reg [2:0] state;
     reg [WIDTH-1:0] const_mem [0:CONST_DEPTH-1];
@@ -84,6 +86,8 @@ module mini_gpu_core #(
     reg [WARP_SIZE-1:0] launch_mask_r [0:WARP_COUNT-1];
     reg [WARP_SIZE-1:0] mask_stack [0:STACK_ENTRIES-1];
     reg [2:0] mask_stack_depth [0:WARP_COUNT-1];
+    reg [PROG_ADDR_WIDTH-1:0] call_stack [0:CALL_STACK_ENTRIES-1];
+    reg [2:0] call_stack_depth [0:WARP_COUNT-1];
     reg warp_done_r [0:WARP_COUNT-1];
     reg barrier_waiting [0:WARP_COUNT-1];
     reg [WARP_INDEX_WIDTH-1:0] selected_idx;
@@ -113,6 +117,7 @@ module mini_gpu_core #(
     integer block_loop;
     integer warp_loop;
     integer stack_index;
+    integer call_stack_index;
     integer const_index;
 
     wire [TOTAL_LANES-1:0] sm_mem_req_valid;
@@ -312,12 +317,16 @@ module mini_gpu_core #(
                 active_mask_r[warp_index] <= {WARP_SIZE{1'b0}};
                 launch_mask_r[warp_index] <= {WARP_SIZE{1'b0}};
                 mask_stack_depth[warp_index] <= 3'b0;
+                call_stack_depth[warp_index] <= 3'b0;
                 warp_done_r[warp_index] <= 1'b1;
                 barrier_waiting[warp_index] <= 1'b0;
             end
 
             for (stack_index = 0; stack_index < STACK_ENTRIES; stack_index = stack_index + 1) begin
                 mask_stack[stack_index] <= {WARP_SIZE{1'b0}};
+            end
+            for (call_stack_index = 0; call_stack_index < CALL_STACK_ENTRIES; call_stack_index = call_stack_index + 1) begin
+                call_stack[call_stack_index] <= {PROG_ADDR_WIDTH{1'b0}};
             end
 
             for (const_index = 0; const_index < CONST_DEPTH; const_index = const_index + 1) begin
@@ -388,6 +397,38 @@ module mini_gpu_core #(
                         warp_pc[selected_idx] <= branch_target(warp_pc[selected_idx], current_instr[13:0]);
                         rr_index <= next_index(selected_idx);
                         state <= STATE_SCHEDULE;
+                    end else if (is_call(current_instr)) begin
+                        retire_no_writeback();
+                        if (call_stack_depth[selected_idx] < CALL_STACK_DEPTH[2:0]) begin
+                            call_stack[(selected_idx*CALL_STACK_DEPTH) + call_stack_depth[selected_idx]] <=
+                                warp_pc[selected_idx] + {{(PROG_ADDR_WIDTH-1){1'b0}}, 1'b1};
+                            call_stack_depth[selected_idx] <= call_stack_depth[selected_idx] + 3'd1;
+                            warp_pc[selected_idx] <= branch_target(warp_pc[selected_idx], current_instr[13:0]);
+                            rr_index <= next_index(selected_idx);
+                            state <= STATE_SCHEDULE;
+                        end else begin
+                            error <= 1'b1;
+                            unsupported <= 1'b1;
+                            busy <= 1'b0;
+                            done <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+                    end else if (is_ret(current_instr)) begin
+                        retire_no_writeback();
+                        if (call_stack_depth[selected_idx] != 3'b0) begin
+                            warp_pc[selected_idx] <=
+                                call_stack[(selected_idx*CALL_STACK_DEPTH) +
+                                           (call_stack_depth[selected_idx] - 3'd1)];
+                            call_stack_depth[selected_idx] <= call_stack_depth[selected_idx] - 3'd1;
+                            rr_index <= next_index(selected_idx);
+                            state <= STATE_SCHEDULE;
+                        end else begin
+                            error <= 1'b1;
+                            unsupported <= 1'b1;
+                            busy <= 1'b0;
+                            done <= 1'b1;
+                            state <= STATE_DONE;
+                        end
                     end else if (is_bar(current_instr)) begin
                         retire_no_writeback();
                         if (barrier_can_release_after_current_bar(selected_idx / NUM_WARPS, selected_idx)) begin
@@ -585,6 +626,7 @@ module mini_gpu_core #(
                     launch_mask_r[launch_index] <=
                         initial_warp_mask(launch_warp, launch_active_mask, launch_block_dim);
                     mask_stack_depth[launch_index] <= 3'b0;
+                    call_stack_depth[launch_index] <= 3'b0;
                     warp_done_r[launch_index] <=
                         (initial_warp_mask(launch_warp, launch_active_mask, launch_block_dim) ==
                          {WARP_SIZE{1'b0}});
@@ -742,6 +784,20 @@ module mini_gpu_core #(
         input [31:0] instr;
         begin
             is_bar = (instr[31:26] == `MGPU_OP_BAR);
+        end
+    endfunction
+
+    function is_call;
+        input [31:0] instr;
+        begin
+            is_call = (instr[31:26] == `MGPU_OP_CALL);
+        end
+    endfunction
+
+    function is_ret;
+        input [31:0] instr;
+        begin
+            is_ret = (instr[31:26] == `MGPU_OP_RET);
         end
     endfunction
 

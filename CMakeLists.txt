@@ -8,8 +8,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(MINIGPU_BUILD_PYTHON "Build Python bindings" ON)
 option(MINIGPU_BUILD_TESTS "Build Mini-GPU runtime tests" ON)
 option(MINIGPU_BUILD_TORCH "Build PyTorch PrivateUse1 backend stubs" ON)
+option(MINIGPU_BUILD_KERNELS "Add a target to rebuild Mini-GPU kernel artifacts" ON)
 
 find_package(yaml-cpp REQUIRED)
+
+if(MINIGPU_BUILD_PYTHON OR MINIGPU_BUILD_TORCH OR MINIGPU_BUILD_KERNELS)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+endif()
 
 if(MINIGPU_BUILD_PYTHON OR MINIGPU_BUILD_TORCH)
     find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
@@ -46,6 +51,31 @@ target_link_libraries(minigpu_runtime
     PUBLIC
         yaml-cpp::yaml-cpp
 )
+
+if(MINIGPU_BUILD_KERNELS)
+    file(GLOB MINIGPU_KERNEL_SOURCES
+        CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels/src/*.cu
+        ${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels/include/*.h
+    )
+
+    add_custom_target(minigpu_kernels
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/build_kernel_artifacts.py
+            --kernel-root ${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels
+        DEPENDS
+            ${MINIGPU_KERNEL_SOURCES}
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/build_kernel_artifacts.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/minigpucc.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/get_cuda_ast.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/emit_llvm_ir.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/llvm_to_ir.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/ir_to_isa.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/compiler/isa_to_bin.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Rebuilding registered Mini-GPU kernel artifacts"
+    )
+endif()
 
 add_library(comm
     gpu_comm/src/com.c

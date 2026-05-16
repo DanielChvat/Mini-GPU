@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "conv2d_bias_kernel_fp32"
+    }
+  ],
+  "instruction_words": 825
+}

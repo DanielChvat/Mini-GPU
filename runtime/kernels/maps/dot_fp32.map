@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "dot_kernel_fp32"
+    }
+  ],
+  "instruction_words": 126
+}

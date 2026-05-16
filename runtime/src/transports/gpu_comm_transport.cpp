@@ -2,7 +2,9 @@
 
 #include <chrono>
 #include <cstring>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -12,6 +14,23 @@ namespace {
 
 constexpr int kRetries = 3;
 constexpr std::uint32_t kDefaultAddressUnitBytes = 1u;
+
+std::uint32_t status_pc(std::uint32_t status_word) noexcept {
+    return (status_word >> 20) & 0xfffu;
+}
+
+std::uint32_t status_retired(std::uint32_t status_word) noexcept {
+    return (status_word >> 8) & 0xfffu;
+}
+
+std::string device_fault_message(std::uint32_t status_word, const char *fault) {
+    std::ostringstream out;
+    out << "Mini-GPU device fault: " << fault
+        << " status=0x" << std::hex << std::setw(8) << std::setfill('0') << status_word
+        << " pc=0x" << std::setw(3) << status_pc(status_word)
+        << " retired=" << std::dec << status_retired(status_word);
+    return out.str();
+}
 
 /* Return true when an address range fits in the current 16-bit COM address field. */
 bool fits_u16(DeviceAddress addr, std::size_t size = 0) {
@@ -490,7 +509,24 @@ Status gpu_comm_wait(
             return status;
         }
         if ((status_word & config.status_error_mask) != 0u) {
-            return Status::Unsupported;
+            if ((status_word & config.status_divide_by_zero_bit) != 0u) {
+                throw Error(
+                    Status::DivideByZero,
+                    device_fault_message(status_word, "divide by zero"));
+            }
+            if ((status_word & config.status_unsupported_bit) != 0u) {
+                throw Error(
+                    Status::Unsupported,
+                    device_fault_message(status_word, "unsupported instruction"));
+            }
+            if ((status_word & config.status_error_bit) != 0u) {
+                throw Error(
+                    Status::Transport,
+                    device_fault_message(status_word, "core error"));
+            }
+            throw Error(
+                Status::Transport,
+                device_fault_message(status_word, "unknown status error"));
         }
         if ((status_word & config.status_done_mask) != 0u) {
             return Status::Ok;

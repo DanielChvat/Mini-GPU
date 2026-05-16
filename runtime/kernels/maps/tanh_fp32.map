@@ -1,0 +1,26 @@
+{
+  "symbols": [
+    {
+      "name": "tanh_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "minigpu_mask_u32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    },
+    {
+      "name": "rcpf"
+    },
+    {
+      "name": "sigmoidf"
+    },
+    {
+      "name": "tanhf"
+    }
+  ],
+  "instruction_words": 1528
+}

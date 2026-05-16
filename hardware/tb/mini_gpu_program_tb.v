@@ -304,6 +304,9 @@ module mini_gpu_program_tb;
                          core_divide_by_zero[core],
                          core_retired_count[(core*16) +: 16],
                          core_pc[(core*PROG_ADDR_WIDTH) +: PROG_ADDR_WIDTH]);
+                $display("    current=0x%08h last=0x%08h",
+                         core_current_instr[(core*32) +: 32],
+                         core_last_instr[(core*32) +: 32]);
             end
         end
     endtask

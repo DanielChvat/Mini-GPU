@@ -108,11 +108,43 @@ at::Tensor div_tensor(const at::Tensor &a, const at::Tensor &b);
 /* Matrix multiply operation for Mini-GPU tensors. */
 at::Tensor mm(const at::Tensor &a, const at::Tensor &b);
 
+/* Matrix-vector multiply operation for Mini-GPU tensors. */
+at::Tensor mv(const at::Tensor &a, const at::Tensor &x);
+
+/* Dot-product operation for Mini-GPU tensors. */
+at::Tensor dot(const at::Tensor &a, const at::Tensor &b);
+
+/* BLAS-style scal operation: out = alpha * x. */
+at::Tensor scal(const at::Tensor &x, const at::Scalar &alpha);
+
+/* BLAS-style axpy operation: out = alpha * x + y. */
+at::Tensor axpy(const at::Tensor &x, const at::Tensor &y, const at::Scalar &alpha);
+
+/* BLAS-style addmm operation for Mini-GPU tensors. */
+at::Tensor addmm(
+    const at::Tensor &self,
+    const at::Tensor &mat1,
+    const at::Tensor &mat2,
+    const at::Scalar &beta,
+    const at::Scalar &alpha);
+
 /* Linear layer operation for Mini-GPU tensors. */
 at::Tensor linear(
     const at::Tensor &input,
     const at::Tensor &weight,
     const ::std::optional<at::Tensor> &bias);
+
+/* Dense 1D/2D convolution operation for Mini-GPU tensors. */
+at::Tensor convolution(
+    const at::Tensor &input,
+    const at::Tensor &weight,
+    const ::std::optional<at::Tensor> &bias,
+    c10::SymIntArrayRef stride,
+    c10::SymIntArrayRef padding,
+    c10::SymIntArrayRef dilation,
+    bool transposed,
+    c10::SymIntArrayRef output_padding,
+    c10::SymInt groups);
 
 /* ReLU operation for Mini-GPU tensors. */
 at::Tensor relu(const at::Tensor &a);

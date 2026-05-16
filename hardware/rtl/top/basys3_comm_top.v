@@ -196,8 +196,8 @@ module basys3_comm_top #(
     );
 
     assign status_word = {
-        16'b0,
-        core_retired_count[7:0],
+        core_pc[11:0],
+        core_retired_count[11:0],
         3'b0,
         gpu_divide_by_zero,
         gpu_unsupported,

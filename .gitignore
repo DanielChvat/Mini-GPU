@@ -34,6 +34,9 @@ ARM/
 ARM64/
 .vsconfig
 
+!runtime/kernels/bin/
+!runtime/kernels/bin/*.bin
+
 # MSBuild intermediate/output files
 *.idb
 *.iobj
@@ -130,6 +133,10 @@ uart_gpu_comm/_uart_gpu_comm*.dylib
 # Runtime precompiled kernel artifacts are source inputs for non-CUDA builds.
 !runtime/kernels/*.bin
 !runtime/kernels/*.map
+!runtime/kernels/bin/
+!runtime/kernels/bin/*.bin
+!runtime/kernels/maps/
+!runtime/kernels/maps/*.map
 
 # Python cache / packaging
 __pycache__/

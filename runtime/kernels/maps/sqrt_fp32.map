@@ -1,0 +1,20 @@
+{
+  "symbols": [
+    {
+      "name": "sqrt_fp32"
+    },
+    {
+      "name": "minigpu_mask_u32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    },
+    {
+      "name": "rsqrtf"
+    },
+    {
+      "name": "sqrtf"
+    }
+  ],
+  "instruction_words": 692
+}

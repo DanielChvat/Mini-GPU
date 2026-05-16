@@ -5,6 +5,11 @@
 TORCH_LIBRARY(minigpu, m) {
     m.def("vector_add(Tensor a, Tensor b) -> Tensor");
     m.def("matmul(Tensor a, Tensor b) -> Tensor");
+    m.def("mv(Tensor a, Tensor x) -> Tensor");
+    m.def("dot(Tensor a, Tensor b) -> Tensor");
+    m.def("scal(Tensor x, Scalar alpha) -> Tensor");
+    m.def("axpy(Tensor x, Tensor y, Scalar alpha) -> Tensor");
+    m.def("addmm(Tensor self, Tensor mat1, Tensor mat2, Scalar beta=1, Scalar alpha=1) -> Tensor");
     m.def("linear(Tensor input, Tensor weight, Tensor? bias=None) -> Tensor");
     m.def("relu(Tensor a) -> Tensor");
     m.def("exp(Tensor a) -> Tensor");
@@ -25,6 +30,11 @@ TORCH_LIBRARY(minigpu, m) {
 TORCH_LIBRARY_IMPL(minigpu, PrivateUse1, m) {
     m.impl("vector_add", TORCH_FN(minigpu::torch_backend::vector_add));
     m.impl("matmul", TORCH_FN(minigpu::torch_backend::mm));
+    m.impl("mv", TORCH_FN(minigpu::torch_backend::mv));
+    m.impl("dot", TORCH_FN(minigpu::torch_backend::dot));
+    m.impl("scal", TORCH_FN(minigpu::torch_backend::scal));
+    m.impl("axpy", TORCH_FN(minigpu::torch_backend::axpy));
+    m.impl("addmm", TORCH_FN(minigpu::torch_backend::addmm));
     m.impl("linear", TORCH_FN(minigpu::torch_backend::linear));
     m.impl("relu", TORCH_FN(minigpu::torch_backend::relu));
     m.impl("exp", TORCH_FN(minigpu::torch_backend::exp));

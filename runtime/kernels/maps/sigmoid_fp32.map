@@ -1,0 +1,23 @@
+{
+  "symbols": [
+    {
+      "name": "sigmoid_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "minigpu_mask_u32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    },
+    {
+      "name": "rcpf"
+    },
+    {
+      "name": "sigmoidf"
+    }
+  ],
+  "instruction_words": 1289
+}

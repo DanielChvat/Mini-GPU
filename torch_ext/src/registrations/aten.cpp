@@ -14,7 +14,11 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("div.Tensor", TORCH_FN(minigpu::torch_backend::div_tensor));
     m.impl("mul.Tensor", TORCH_FN(minigpu::torch_backend::mul_tensor));
     m.impl("mm", TORCH_FN(minigpu::torch_backend::mm));
+    m.impl("mv", TORCH_FN(minigpu::torch_backend::mv));
+    m.impl("dot", TORCH_FN(minigpu::torch_backend::dot));
+    m.impl("addmm", TORCH_FN(minigpu::torch_backend::addmm));
     m.impl("linear", TORCH_FN(minigpu::torch_backend::linear));
+    m.impl("convolution", TORCH_FN(minigpu::torch_backend::convolution));
     m.impl("relu", TORCH_FN(minigpu::torch_backend::relu));
     m.impl("exp", TORCH_FN(minigpu::torch_backend::exp));
     m.impl("log", TORCH_FN(minigpu::torch_backend::log));

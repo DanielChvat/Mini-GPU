@@ -136,7 +136,9 @@ std::string_view status_message(Status status) noexcept {
         case Status::Timeout:
             return "operation timed out";
         case Status::Unsupported:
-            return "operation is not supported by this transport";
+            return "Mini-GPU device reported an unsupported operation";
+        case Status::DivideByZero:
+            return "Mini-GPU device reported divide by zero";
     }
 
     return "unknown Mini-GPU runtime error";
@@ -145,6 +147,10 @@ std::string_view status_message(Status status) noexcept {
 /* Store the original status code while exposing a normal std::runtime_error. */
 Error::Error(Status status)
     : std::runtime_error(std::string(status_message(status))),
+      status_(status) {}
+
+Error::Error(Status status, std::string message)
+    : std::runtime_error(std::move(message)),
       status_(status) {}
 
 /* Return the status code that caused this runtime exception. */
@@ -162,6 +168,14 @@ void check(Status status) {
 /* Build a raw constant-memory argument. */
 KernelArg KernelArg::u32(std::uint32_t value) noexcept {
     return KernelArg{value};
+}
+
+/* Build a raw FP32 constant-memory argument. */
+KernelArg KernelArg::f32(float value) noexcept {
+    std::uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value));
+    std::memcpy(&bits, &value, sizeof(bits));
+    return KernelArg{bits};
 }
 
 /* Convert a byte-addressed device pointer into the word address used by LDG/STG. */
@@ -244,11 +258,15 @@ void DeviceBuffer::move_from(DeviceBuffer &other) noexcept {
 Context::Context(Config config)
     : memory_base_(config.memory_base),
       memory_size_(config.memory_size),
+      program_memory_size_(config.program_memory_size),
       default_alignment_(config.default_alignment ? config.default_alignment : 4),
       transport_(std::move(config.transport)),
       logging_enabled_(config.enable_logging),
       log_path_(std::move(config.log_path)) {
     if (memory_size_ == 0) {
+        throw Error(Status::BadArgument);
+    }
+    if (program_memory_size_ == 0 || (program_memory_size_ % sizeof(std::uint32_t)) != 0u) {
         throw Error(Status::BadArgument);
     }
 
@@ -274,6 +292,7 @@ Context::Context(Config config)
     const std::size_t managed_size = memory_size_ - compiler_spill_size_;
     compiler_spill_base_ = memory_base_ + static_cast<DeviceAddress>(managed_size);
     blocks_.push_back(Block{memory_base_, managed_size, true});
+    program_blocks_.push_back(Block{0, program_memory_size_, true});
     log_event("context created");
 }
 
@@ -281,11 +300,15 @@ Context::Context(Config config)
 Context::Context(Context &&other) noexcept
     : memory_base_(std::exchange(other.memory_base_, 0)),
       memory_size_(std::exchange(other.memory_size_, 0)),
+      program_memory_size_(std::exchange(other.program_memory_size_, 0)),
+      program_cache_clock_(std::exchange(other.program_cache_clock_, 0)),
       compiler_spill_base_(std::exchange(other.compiler_spill_base_, 0)),
       compiler_spill_size_(std::exchange(other.compiler_spill_size_, 0)),
       default_alignment_(std::exchange(other.default_alignment_, 4)),
       transport_(std::move(other.transport_)),
       blocks_(std::move(other.blocks_)),
+      program_blocks_(std::move(other.program_blocks_)),
+      program_cache_(std::move(other.program_cache_)),
       kernels_(std::move(other.kernels_)),
       logging_enabled_(std::exchange(other.logging_enabled_, false)),
       log_path_(std::move(other.log_path_)) {}
@@ -295,11 +318,15 @@ Context &Context::operator=(Context &&other) noexcept {
     if (this != &other) {
         memory_base_ = std::exchange(other.memory_base_, 0);
         memory_size_ = std::exchange(other.memory_size_, 0);
+        program_memory_size_ = std::exchange(other.program_memory_size_, 0);
+        program_cache_clock_ = std::exchange(other.program_cache_clock_, 0);
         compiler_spill_base_ = std::exchange(other.compiler_spill_base_, 0);
         compiler_spill_size_ = std::exchange(other.compiler_spill_size_, 0);
         default_alignment_ = std::exchange(other.default_alignment_, 4);
         transport_ = std::move(other.transport_);
         blocks_ = std::move(other.blocks_);
+        program_blocks_ = std::move(other.program_blocks_);
+        program_cache_ = std::move(other.program_cache_);
         kernels_ = std::move(other.kernels_);
         logging_enabled_ = std::exchange(other.logging_enabled_, false);
         log_path_ = std::move(other.log_path_);
@@ -472,6 +499,129 @@ void Context::write_constants(
     check(transport_.write_constants(dst_addr, constants, size));
 }
 
+/* Merge adjacent free instruction-memory blocks after evicting artifacts. */
+void Context::coalesce_program_blocks() {
+    for (std::size_t i = 0; i + 1 < program_blocks_.size();) {
+        Block &block = program_blocks_[i];
+        const Block &next = program_blocks_[i + 1];
+        if (block.free && next.free && block.offset + block.size == next.offset) {
+            block.size += next.size;
+            program_blocks_.erase(
+                program_blocks_.begin() + static_cast<std::ptrdiff_t>(i + 1));
+        } else {
+            ++i;
+        }
+    }
+}
+
+/* Evict the least-recently-used resident program artifact. */
+bool Context::evict_lru_program() {
+    if (program_cache_.empty()) {
+        return false;
+    }
+
+    auto victim = std::min_element(
+        program_cache_.begin(),
+        program_cache_.end(),
+        [](const ProgramCacheEntry &a, const ProgramCacheEntry &b) {
+            return a.last_used < b.last_used;
+        });
+
+    std::ostringstream log;
+    log << "evict_program name=" << victim->name
+        << " addr=0x" << std::hex << victim->addr
+        << " bytes=" << std::dec << victim->size;
+    log_event(log.str());
+
+    for (auto &block : program_blocks_) {
+        if (!block.free && block.offset == victim->addr && block.size == victim->size) {
+            block.free = true;
+            break;
+        }
+    }
+    program_cache_.erase(victim);
+    coalesce_program_blocks();
+    return true;
+}
+
+/* Allocate instruction memory, evicting old artifacts until one contiguous slot exists. */
+DeviceAddress Context::allocate_program_slot(std::string_view name, std::size_t size) {
+    if (size == 0 || (size % sizeof(std::uint32_t)) != 0u) {
+        throw Error(Status::BadArgument);
+    }
+    if (size > program_memory_size_) {
+        throw Error(Status::NoMemory);
+    }
+
+    while (true) {
+        for (std::size_t index = 0; index < program_blocks_.size(); ++index) {
+            Block &block = program_blocks_[index];
+            if (!block.free || block.size < size) {
+                continue;
+            }
+
+            const DeviceAddress addr = block.offset;
+            if (block.size > size) {
+                Block tail{
+                    block.offset + static_cast<DeviceAddress>(size),
+                    block.size - size,
+                    true,
+                };
+                block.size = size;
+                block.free = false;
+                program_blocks_.insert(
+                    program_blocks_.begin() + static_cast<std::ptrdiff_t>(index + 1),
+                    tail);
+            } else {
+                block.free = false;
+            }
+
+            std::ostringstream log;
+            log << "allocate_program name=" << name
+                << " addr=0x" << std::hex << addr
+                << " bytes=" << std::dec << size;
+            log_event(log.str());
+            return addr;
+        }
+
+        if (!evict_lru_program()) {
+            throw Error(Status::NoMemory);
+        }
+    }
+}
+
+/* Upload a registered artifact on cache miss and return its loaded byte address. */
+DeviceAddress Context::ensure_program_loaded(const PrecompiledKernel &kernel) {
+    const std::string_view cache_name =
+        kernel.program_id.empty() ? std::string_view(kernel.name) : std::string_view(kernel.program_id);
+    for (auto &entry : program_cache_) {
+        if (entry.name == cache_name) {
+            entry.last_used = ++program_cache_clock_;
+            return entry.addr;
+        }
+    }
+
+    const void *program = kernel.program_bytes.empty()
+        ? kernel.program
+        : kernel.program_bytes.data();
+    const std::size_t program_size = kernel.program_bytes.empty()
+        ? kernel.program_size
+        : kernel.program_bytes.size();
+    if (!program || program_size == 0) {
+        throw Error(Status::BadArgument);
+    }
+
+    const DeviceAddress addr = allocate_program_slot(cache_name, program_size);
+    write_program(addr, program, program_size);
+    program_cache_.push_back(ProgramCacheEntry{
+        std::string(cache_name),
+        addr,
+        program_size,
+        ++program_cache_clock_,
+    });
+    return addr;
+}
+
 /* Upload optional program/constants, launch the kernel, and wait if supported. */
 void Context::launch_kernel(const Kernel &kernel) {
     if (kernel.program_size && !kernel.program) {
@@ -526,8 +676,7 @@ void Context::register_kernel(PrecompiledKernel kernel) {
             std::ostringstream log;
             log << "register_kernel name=" << registered.name
                 << " bytes=" << registered.program_size
-                << " program_addr=0x" << std::hex << registered.program_addr
-                << " base_pc=0x" << registered.base_pc;
+                << " entry_pc=0x" << std::hex << registered.entry_pc;
             log_event(log.str());
             return;
         }
@@ -537,8 +686,7 @@ void Context::register_kernel(PrecompiledKernel kernel) {
     std::ostringstream log;
     log << "register_kernel name=" << kernels_.back().name
         << " bytes=" << kernels_.back().program_size
-        << " program_addr=0x" << std::hex << kernels_.back().program_addr
-        << " base_pc=0x" << kernels_.back().base_pc;
+        << " entry_pc=0x" << std::hex << kernels_.back().entry_pc;
     log_event(log.str());
 }
 
@@ -551,9 +699,11 @@ void Context::register_kernel_from_file(
     LaunchConfig defaults) {
     PrecompiledKernel kernel;
     kernel.name = std::move(name);
+    kernel.program_id = kernel.name;
     kernel.program_bytes = read_kernel_file(path);
     kernel.program_addr = program_addr;
     kernel.base_pc = base_pc;
+    kernel.entry_pc = base_pc;
     kernel.default_grid_dim = defaults.grid_dim;
     kernel.default_block_dim = defaults.block_dim;
     kernel.default_active_mask = defaults.active_mask;
@@ -600,19 +750,16 @@ void Context::launch_kernel(
     }
     constants[32] = compiler_spill_base_ / 4u;
 
+    const DeviceAddress loaded_program_addr = ensure_program_loaded(*registered);
+
     Kernel kernel;
-    if (!registered->program_bytes.empty()) {
-        kernel.program = registered->program_bytes.data();
-        kernel.program_size = registered->program_bytes.size();
-    } else {
-        kernel.program = registered->program;
-        kernel.program_size = registered->program_size;
-    }
-    kernel.program_addr = registered->program_addr;
+    kernel.program = nullptr;
+    kernel.program_size = 0;
+    kernel.program_addr = loaded_program_addr;
     kernel.constants = constants.empty() ? nullptr : constants.data();
     kernel.constants_size = constants.size() * sizeof(std::uint32_t);
     kernel.constants_addr = 0;
-    kernel.base_pc = registered->base_pc;
+    kernel.base_pc = (loaded_program_addr / sizeof(std::uint32_t)) + registered->entry_pc;
     kernel.grid_dim = launch.grid_dim;
     kernel.block_dim = launch.block_dim;
     kernel.active_mask = launch.active_mask;

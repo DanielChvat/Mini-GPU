@@ -1,6 +1,14 @@
 #ifndef MINIGPU_KERNEL_H
 #define MINIGPU_KERNEL_H
 
+#if defined(__INTELLISENSE__) || defined(__clangd__)
+#define __global__
+#define __device__
+#define __host__
+#define __shared__
+#define __forceinline__ inline
+#endif
+
 #ifndef __global__
 #define __global__ __attribute__((global))
 #endif
@@ -21,7 +29,10 @@
 #define __forceinline__ __attribute__((always_inline)) inline
 #endif
 
-#define MINIGPU_MATH_INLINE static __device__ __forceinline__
+#define MINIGPU_INLINE static __device__ __forceinline__
+#define MINIGPU_SHARED extern "C" __device__ __attribute__((noinline)) __attribute__((used)) __attribute__((annotate("minigpu_shared")))
+#define MINIGPU_REGISTER_KERNEL(name, op, dtype, entry)
+#define MINIGPU_REGISTER_TYPED_KERNELS(op, dtypes, entry)
 
 struct dim3 {
   unsigned int x, y, z;
@@ -50,108 +61,136 @@ extern __device__ float minigpu_as_f32(uint32_t value);
 extern __device__ uint32_t __float_as_uint(float value);
 extern __device__ float __uint_as_float(uint32_t value);
 
-MINIGPU_MATH_INLINE float fabsf(float x) {
+MINIGPU_SHARED uint32_t minigpu_mask_u32(int pred) {
+  return 0u - (uint32_t)pred;
+}
+
+MINIGPU_SHARED uint32_t minigpu_select_u32(uint32_t mask, uint32_t if_set, uint32_t if_clear) {
+  return (mask & if_set) | ((~mask) & if_clear);
+}
+
+MINIGPU_SHARED float minigpu_select_f32(uint32_t mask, float if_set, float if_clear) {
+  return __uint_as_float(minigpu_select_u32(mask, __float_as_uint(if_set), __float_as_uint(if_clear)));
+}
+
+MINIGPU_SHARED int32_t minigpu_float_order_key(float x) {
+  uint32_t bits = __float_as_uint(x);
+  if (bits & 0x80000000u) {
+    return (int32_t)((~bits) | 0x80000000u);
+  }
+  return (int32_t)bits;
+}
+
+MINIGPU_SHARED int minigpu_float_lt(float a, float b) {
+  return minigpu_float_order_key(a) < minigpu_float_order_key(b);
+}
+
+MINIGPU_SHARED int minigpu_float_gt(float a, float b) {
+  return minigpu_float_order_key(a) > minigpu_float_order_key(b);
+}
+
+MINIGPU_SHARED float fabsf(float x) {
   return __uint_as_float(__float_as_uint(x) & 0x7fffffffu);
 }
 
-MINIGPU_MATH_INLINE float fabs(float x) {
+MINIGPU_SHARED float fabs(float x) {
   return fabsf(x);
 }
 
-MINIGPU_MATH_INLINE float fminf(float a, float b) {
+MINIGPU_SHARED float fminf(float a, float b) {
   float y = a;
-  if (b < a) {
+  if (minigpu_float_lt(b, a)) {
     y = b;
   }
   return y;
 }
 
-MINIGPU_MATH_INLINE float fmaxf(float a, float b) {
+MINIGPU_SHARED float fmaxf(float a, float b) {
   float y = a;
-  if (b > a) {
+  if (minigpu_float_gt(b, a)) {
     y = b;
   }
   return y;
 }
 
-MINIGPU_MATH_INLINE float fmin(float a, float b) {
+MINIGPU_SHARED float fmin(float a, float b) {
   return fminf(a, b);
 }
 
-MINIGPU_MATH_INLINE float fmax(float a, float b) {
+MINIGPU_SHARED float fmax(float a, float b) {
   return fmaxf(a, b);
 }
 
-MINIGPU_MATH_INLINE float copysignf(float mag, float sign) {
+MINIGPU_SHARED float copysignf(float mag, float sign) {
   uint32_t mag_bits = __float_as_uint(mag) & 0x7fffffffu;
   uint32_t sign_bits = __float_as_uint(sign) & 0x80000000u;
   return __uint_as_float(mag_bits | sign_bits);
 }
 
-MINIGPU_MATH_INLINE float copysign(float mag, float sign) {
+MINIGPU_SHARED float copysign(float mag, float sign) {
   return copysignf(mag, sign);
 }
 
-MINIGPU_MATH_INLINE float clampf(float x, float lo, float hi) {
+MINIGPU_SHARED float clampf(float x, float lo, float hi) {
   float y = x;
-  if (y < lo) {
+  if (minigpu_float_lt(y, lo)) {
     y = lo;
   }
-  if (y > hi) {
+  if (minigpu_float_gt(y, hi)) {
     y = hi;
   }
   return y;
 }
 
-MINIGPU_MATH_INLINE int minigpu_round_i32(float x) {
+MINIGPU_SHARED int minigpu_round_i32(float x) {
   return (int)(x + copysignf(0.5f, x));
 }
 
-MINIGPU_MATH_INLINE float roundf(float x) {
+MINIGPU_SHARED float roundf(float x) {
   return (float)minigpu_round_i32(x);
 }
 
-MINIGPU_MATH_INLINE float round(float x) {
+MINIGPU_SHARED float round(float x) {
   return roundf(x);
 }
 
-MINIGPU_MATH_INLINE float truncf(float x) {
+MINIGPU_SHARED float truncf(float x) {
   return (float)((int)x);
 }
 
-MINIGPU_MATH_INLINE float trunc(float x) {
+MINIGPU_SHARED float trunc(float x) {
   return truncf(x);
 }
 
-MINIGPU_MATH_INLINE float floorf(float x) {
+MINIGPU_SHARED float floorf(float x) {
   int i = (int)x;
   float y = (float)i;
-  if (y > x) {
+  if (minigpu_float_gt(y, x)) {
     i = i - 1;
     y = (float)i;
   }
   return y;
 }
 
-MINIGPU_MATH_INLINE float floor(float x) {
+MINIGPU_SHARED float floor(float x) {
   return floorf(x);
 }
 
-MINIGPU_MATH_INLINE float ceilf(float x) {
+MINIGPU_SHARED float ceilf(float x) {
   int i = (int)x;
   float y = (float)i;
-  if (y < x) {
+  if (minigpu_float_lt(y, x)) {
     i = i + 1;
     y = (float)i;
   }
   return y;
 }
 
-MINIGPU_MATH_INLINE float ceil(float x) {
+MINIGPU_SHARED float ceil(float x) {
   return ceilf(x);
 }
 
-MINIGPU_MATH_INLINE float rcpf(float x) {
+MINIGPU_SHARED float rcpf(float x) {
   uint32_t ix = __float_as_uint(x);
   uint32_t sign = ix & 0x80000000u;
   uint32_t mag = ix & 0x7fffffffu;
@@ -162,14 +201,22 @@ MINIGPU_MATH_INLINE float rcpf(float x) {
   y = y * (two - x * y);
   y = y * (two - x * y);
   y = y * (two - x * y);
-  return y;
+
+  uint32_t zero_mask = minigpu_mask_u32(mag == 0u);
+  uint32_t inf_mask = minigpu_mask_u32(mag == 0x7f800000u);
+  uint32_t nan_mask = minigpu_mask_u32(mag > 0x7f800000u);
+  uint32_t result = __float_as_uint(y);
+  result = minigpu_select_u32(zero_mask, sign | 0x7f800000u, result);
+  result = minigpu_select_u32(inf_mask, sign, result);
+  result = minigpu_select_u32(nan_mask, ix, result);
+  return __uint_as_float(result);
 }
 
-MINIGPU_MATH_INLINE float __frcp_rn(float x) {
+MINIGPU_SHARED float __frcp_rn(float x) {
   return rcpf(x);
 }
 
-MINIGPU_MATH_INLINE float rsqrtf(float x) {
+MINIGPU_SHARED float rsqrtf(float x) {
   uint32_t ix = __float_as_uint(x);
   uint32_t seed = 0x5f3759dfu - (ix >> 1);
   float y = __uint_as_float(seed);
@@ -179,48 +226,47 @@ MINIGPU_MATH_INLINE float rsqrtf(float x) {
   y = y * (three_halves - half * x * y * y);
   y = y * (three_halves - half * x * y * y);
   y = y * (three_halves - half * x * y * y);
-  if (x <= 0.0f) {
-    y = 0.0f;
-  }
   return y;
 }
 
-MINIGPU_MATH_INLINE float sqrtf(float x) {
-  return x * rsqrtf(x);
+MINIGPU_SHARED float sqrtf(float x) {
+  uint32_t ix = __float_as_uint(x);
+  uint32_t mag = ix & 0x7fffffffu;
+  uint32_t sign = ix & 0x80000000u;
+  float y = x * rsqrtf(x);
+
+  uint32_t neg_mask = minigpu_mask_u32((sign != 0u) & (mag != 0u));
+  uint32_t zero_mask = minigpu_mask_u32(mag == 0u);
+  uint32_t inf_mask = minigpu_mask_u32((sign == 0u) & (mag == 0x7f800000u));
+  uint32_t nan_mask = minigpu_mask_u32(mag > 0x7f800000u);
+  uint32_t result = __float_as_uint(y);
+  result = minigpu_select_u32(neg_mask, 0x7fc00000u, result);
+  result = minigpu_select_u32(zero_mask, ix, result);
+  result = minigpu_select_u32(inf_mask, ix, result);
+  result = minigpu_select_u32(nan_mask, ix, result);
+  return __uint_as_float(result);
 }
 
-MINIGPU_MATH_INLINE float sqrt(float x) {
+MINIGPU_SHARED float sqrt(float x) {
   return sqrtf(x);
 }
 
-MINIGPU_MATH_INLINE float log2f(float x) {
-  if (x == 1.0f) {
-    return 0.0f;
+MINIGPU_SHARED float log2f(float x) {
+  uint32_t raw = __float_as_uint(x);
+  uint32_t ix = raw & 0x7fffffffu;
+  uint32_t sign = raw & 0x80000000u;
+  if (ix == 0u) {
+    return __uint_as_float(0xff800000u);
   }
-  if (x == 2.0f) {
-    return 1.0f;
-  }
-  if (x == 4.0f) {
-    return 2.0f;
-  }
-  if (x == 0.5f) {
-    return -1.0f;
+  int subnormal_shift = 0;
+  if (ix < 0x00800000u) {
+    x = x * 8388608.0f;
+    ix = __float_as_uint(x) & 0x7fffffffu;
+    subnormal_shift = -23;
   }
 
-  float y = x;
-  float k = 0.0f;
-  if (y > 2.0f) {
-    y = y * 0.5f;
-    k = k + 1.0f;
-  }
-  if (y > 2.0f) {
-    y = y * 0.5f;
-    k = k + 1.0f;
-  }
-  if (y < 1.0f) {
-    y = y * 2.0f;
-    k = k - 1.0f;
-  }
+  int k = (int)(ix >> 23) - 127 + subnormal_shift;
+  float y = __uint_as_float((ix & 0x007fffffu) | 0x3f800000u);
 
   float z = (y - 1.0f) * rcpf(y + 1.0f);
   float z2 = z * z;
@@ -229,91 +275,89 @@ MINIGPU_MATH_INLINE float log2f(float x) {
   float z7 = z5 * z2;
   float ln_y = 2.0f * (z + 0.333333333333f * z3 +
       0.2f * z5 + 0.142857142857f * z7);
-  return k + 1.4426950408889634f * ln_y;
+  float result_f = (float)k + 1.4426950408889634f * ln_y;
+  uint32_t neg_mask = minigpu_mask_u32((sign != 0u) & (ix != 0u));
+  uint32_t inf_mask = minigpu_mask_u32(ix == 0x7f800000u);
+  uint32_t nan_mask = minigpu_mask_u32(ix > 0x7f800000u);
+  uint32_t result = __float_as_uint(result_f);
+  result = minigpu_select_u32(neg_mask, 0x7fc00000u, result);
+  result = minigpu_select_u32(inf_mask, 0x7f800000u, result);
+  result = minigpu_select_u32(nan_mask, raw, result);
+  return __uint_as_float(result);
 }
 
-MINIGPU_MATH_INLINE float log2(float x) {
+MINIGPU_SHARED float log2(float x) {
   return log2f(x);
 }
 
-MINIGPU_MATH_INLINE float logf(float x) {
+MINIGPU_SHARED float logf(float x) {
   return 0.6931471805599453f * log2f(x);
 }
 
-MINIGPU_MATH_INLINE float log(float x) {
+MINIGPU_SHARED float log(float x) {
   return logf(x);
 }
 
-MINIGPU_MATH_INLINE float log10f(float x) {
+MINIGPU_SHARED float log10f(float x) {
   return 0.3010299956639812f * log2f(x);
 }
 
-MINIGPU_MATH_INLINE float log10(float x) {
+MINIGPU_SHARED float log10(float x) {
   return log10f(x);
 }
 
-MINIGPU_MATH_INLINE float expf(float x) {
-  const float inv_ln2 = 1.4426950408889634f;
+MINIGPU_SHARED float expf(float x) {
+  uint32_t ix = __float_as_uint(x);
+  uint32_t mag = ix & 0x7fffffffu;
+  uint32_t sign = ix & 0x80000000u;
+  float y = 1.0f + x * 0.00048828125f;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
+  y = y * y;
 
-  const float ln2_hi = 0.693145751953125f;
-  const float ln2_lo = 1.4286068203094172e-6f;
-
-  if (x > 88.0f) {
-    return __uint_as_float(0x7f800000u);
-  }
-  if (x < -88.0f) {
-    return 0.0f;
-  }
-
-  int k = minigpu_round_i32(x * inv_ln2);
-
-  float fk = (float)k;
-  float r = x - fk * ln2_hi;
-  r = r - fk * ln2_lo;
-
-  float r2 = r * r;
-  float r3 = r2 * r;
-  float r4 = r2 * r2;
-  float r5 = r4 * r;
-  float r6 = r3 * r3;
-
-  float exp_r =
-      1.0f
-    + r
-    + 0.5f * r2
-    + 0.166666666667f * r3
-    + 0.041666666667f * r4
-    + 0.008333333333f * r5
-    + 0.001388888889f * r6;
-
-  uint32_t scale_bits = (uint32_t)(k + 127) << 23;
-  float scale = __uint_as_float(scale_bits);
-
-  return scale * exp_r;
+  uint32_t overflow_mask = minigpu_mask_u32((sign == 0u) & (mag > 0x42b17217u));
+  uint32_t underflow_mask = minigpu_mask_u32((sign != 0u) & (mag > 0x42aeac50u));
+  uint32_t nan_mask = minigpu_mask_u32(mag > 0x7f800000u);
+  uint32_t result = __float_as_uint(y);
+  result = minigpu_select_u32(overflow_mask, 0x7f800000u, result);
+  result = minigpu_select_u32(underflow_mask, 0u, result);
+  result = minigpu_select_u32(nan_mask, ix, result);
+  return __uint_as_float(result);
 }
 
-MINIGPU_MATH_INLINE float exp(float x) {
+MINIGPU_SHARED float exp(float x) {
   return expf(x);
 }
 
-MINIGPU_MATH_INLINE float exp2f(float x) {
+MINIGPU_SHARED float exp2f(float x) {
   return expf(x * 0.6931471805599453f);
 }
 
-MINIGPU_MATH_INLINE float exp2(float x) {
+MINIGPU_SHARED float exp2(float x) {
   return exp2f(x);
 }
 
-MINIGPU_MATH_INLINE float powf(float base, float exponent) {
+MINIGPU_SHARED float powf(float base, float exponent) {
   return expf(exponent * logf(base));
 }
 
-MINIGPU_MATH_INLINE float pow(float base, float exponent) {
+MINIGPU_SHARED float pow(float base, float exponent) {
   return powf(base, exponent);
 }
 
-MINIGPU_MATH_INLINE float sinf(float x) {
-  float r = x;
+MINIGPU_SHARED float minigpu_xor_sign_f32(float x, uint32_t sign_mask) {
+  return __uint_as_float(__float_as_uint(x) ^ (sign_mask & 0x80000000u));
+}
+
+MINIGPU_SHARED float minigpu_sin_poly(float r) {
   float r2 = r * r;
   float r3 = r2 * r;
   float r5 = r3 * r2;
@@ -321,40 +365,87 @@ MINIGPU_MATH_INLINE float sinf(float x) {
   return r - 0.166666666667f * r3 + 0.008333333333f * r5 - 0.000198412698f * r7;
 }
 
-MINIGPU_MATH_INLINE float sin(float x) {
-  return sinf(x);
-}
-
-MINIGPU_MATH_INLINE float cosf(float x) {
-  float r = x;
+MINIGPU_SHARED float minigpu_cos_poly(float r) {
   float r2 = r * r;
   float r4 = r2 * r2;
   float r6 = r4 * r2;
   return 1.0f - 0.5f * r2 + 0.041666666667f * r4 - 0.001388888889f * r6;
 }
 
-MINIGPU_MATH_INLINE float cos(float x) {
+MINIGPU_SHARED int minigpu_nearest_quadrant(float x) {
+  return minigpu_round_i32(x * 0.6366197723675813f);
+}
+
+MINIGPU_SHARED float sinf(float x) {
+  int q = minigpu_nearest_quadrant(x);
+  int quadrant = q & 3;
+  float r = x - (float)q * 1.5707963267948966f;
+  float s = minigpu_sin_poly(r);
+  float c = minigpu_cos_poly(r);
+  uint32_t swap_mask = 0u - (uint32_t)(quadrant & 1);
+  uint32_t sign_mask = 0u - (uint32_t)((quadrant >> 1) & 1);
+  return minigpu_xor_sign_f32(minigpu_select_f32(swap_mask, c, s), sign_mask);
+}
+
+MINIGPU_SHARED float sin(float x) {
+  return sinf(x);
+}
+
+MINIGPU_SHARED float cosf(float x) {
+  int q = minigpu_nearest_quadrant(x);
+  int quadrant = q & 3;
+  float r = x - (float)q * 1.5707963267948966f;
+  float s = minigpu_sin_poly(r);
+  float c = minigpu_cos_poly(r);
+  uint32_t swap_mask = 0u - (uint32_t)(quadrant & 1);
+  uint32_t sign_mask = 0u - (uint32_t)(((quadrant + 1) >> 1) & 1);
+  return minigpu_xor_sign_f32(minigpu_select_f32(swap_mask, s, c), sign_mask);
+}
+
+MINIGPU_SHARED float cos(float x) {
   return cosf(x);
 }
 
-MINIGPU_MATH_INLINE float tanf(float x) {
+MINIGPU_SHARED float tanf(float x) {
   return sinf(x) * rcpf(cosf(x));
 }
 
-MINIGPU_MATH_INLINE float tan(float x) {
+MINIGPU_SHARED float tan(float x) {
   return tanf(x);
 }
 
-MINIGPU_MATH_INLINE float sigmoidf(float x) {
-  return rcpf(1.0f + expf(0.0f - x));
+MINIGPU_SHARED float sigmoidf(float x) {
+  uint32_t ix = __float_as_uint(x);
+  uint32_t mag = ix & 0x7fffffffu;
+  uint32_t sign = ix & 0x80000000u;
+  float y = rcpf(1.0f + expf(0.0f - x));
+
+  uint32_t pos_sat_mask = minigpu_mask_u32((sign == 0u) & (mag > 0x42b17217u));
+  uint32_t neg_sat_mask = minigpu_mask_u32((sign != 0u) & (mag > 0x42b17217u));
+  uint32_t nan_mask = minigpu_mask_u32(mag > 0x7f800000u);
+  uint32_t result = __float_as_uint(y);
+  result = minigpu_select_u32(pos_sat_mask, 0x3f800000u, result);
+  result = minigpu_select_u32(neg_sat_mask, 0u, result);
+  result = minigpu_select_u32(nan_mask, ix, result);
+  return __uint_as_float(result);
 }
 
-MINIGPU_MATH_INLINE float tanhf(float x) {
-  float e = expf((0.0f - 2.0f) * x);
-  return 2.0f * rcpf(1.0f + e) - 1.0f;
+MINIGPU_SHARED float tanhf(float x) {
+  uint32_t ix = __float_as_uint(x);
+  uint32_t mag = ix & 0x7fffffffu;
+  uint32_t sign = ix & 0x80000000u;
+  float y = 2.0f * sigmoidf(2.0f * x) - 1.0f;
+
+  uint32_t sat_mask = minigpu_mask_u32(mag > 0x41200000u);
+  uint32_t nan_mask = minigpu_mask_u32(mag > 0x7f800000u);
+  uint32_t sat = sign | 0x3f800000u;
+  uint32_t result = __float_as_uint(y);
+  result = minigpu_select_u32(sat_mask, sat, result);
+  result = minigpu_select_u32(nan_mask, ix, result);
+  return __uint_as_float(result);
 }
 
-MINIGPU_MATH_INLINE float tanh(float x) {
+MINIGPU_SHARED float tanh(float x) {
   return tanhf(x);
 }
 

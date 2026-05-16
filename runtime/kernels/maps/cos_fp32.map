@@ -1,0 +1,35 @@
+{
+  "symbols": [
+    {
+      "name": "cos_fp32"
+    },
+    {
+      "name": "copysignf"
+    },
+    {
+      "name": "cosf"
+    },
+    {
+      "name": "minigpu_cos_poly"
+    },
+    {
+      "name": "minigpu_nearest_quadrant"
+    },
+    {
+      "name": "minigpu_round_i32"
+    },
+    {
+      "name": "minigpu_select_f32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    },
+    {
+      "name": "minigpu_sin_poly"
+    },
+    {
+      "name": "minigpu_xor_sign_f32"
+    }
+  ],
+  "instruction_words": 714
+}

@@ -41,3 +41,11 @@ __global__ void pow_fp32(float *a, float *b, float *out, int n) {
         out[i] = powf(a[i], b[i]);
     }
 }
+
+MINIGPU_REGISTER_KERNEL("log.fp32", "log", "fp32", "log_fp32")
+MINIGPU_REGISTER_KERNEL("log2.fp32", "log2", "fp32", "log2_fp32")
+MINIGPU_REGISTER_KERNEL("log10.fp32", "log10", "fp32", "log10_fp32")
+MINIGPU_REGISTER_KERNEL("sin.fp32", "sin", "fp32", "sin_fp32")
+MINIGPU_REGISTER_KERNEL("cos.fp32", "cos", "fp32", "cos_fp32")
+MINIGPU_REGISTER_KERNEL("tan.fp32", "tan", "fp32", "tan_fp32")
+MINIGPU_REGISTER_KERNEL("pow.fp32", "pow", "fp32", "pow_fp32")

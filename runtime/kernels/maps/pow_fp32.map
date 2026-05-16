@@ -1,0 +1,29 @@
+{
+  "symbols": [
+    {
+      "name": "pow_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "log2f"
+    },
+    {
+      "name": "logf"
+    },
+    {
+      "name": "minigpu_mask_u32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    },
+    {
+      "name": "powf"
+    },
+    {
+      "name": "rcpf"
+    }
+  ],
+  "instruction_words": 1671
+}

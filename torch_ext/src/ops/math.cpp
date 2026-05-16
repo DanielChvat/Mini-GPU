@@ -4,6 +4,7 @@
 #include "minigpu_kernels.hpp"
 
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -55,6 +56,43 @@ at::Tensor run_fp32_unary_kernel(
         throw std::runtime_error(std::string(op_name) + " on Mini-GPU currently supports fp32 only");
     }
     return detail::run_unary_kernel(a, kernel_op, op_name);
+}
+
+std::uint32_t checked_u32(std::int64_t value, const char *name) {
+    if (value < 0 || value > static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max())) {
+        throw std::runtime_error(std::string(name) + " is out of range for Mini-GPU");
+    }
+    return static_cast<std::uint32_t>(value);
+}
+
+std::uint32_t sym_u32(c10::SymInt value, const char *name) {
+    return checked_u32(value.expect_int(), name);
+}
+
+std::uint32_t sym_array_u32(c10::SymIntArrayRef values, std::size_t index, const char *name) {
+    if (values.size() <= static_cast<std::int64_t>(index)) {
+        throw std::runtime_error(std::string(name) + " has too few dimensions");
+    }
+    return sym_u32(values[index], name);
+}
+
+bool sym_array_all(c10::SymIntArrayRef values, std::int64_t expected) {
+    for (const auto &value : values) {
+        if (value.expect_int() != expected) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string_view supported_kernel_dtype(const at::Tensor &tensor, const char *op_name) {
+    if (tensor.scalar_type() == at::kInt) {
+        return "i32";
+    }
+    if (tensor.scalar_type() == at::kFloat) {
+        return "fp32";
+    }
+    throw std::runtime_error(std::string(op_name) + " on Mini-GPU currently supports int32 and fp32");
 }
 
 } // namespace
@@ -171,12 +209,144 @@ at::Tensor mm(const at::Tensor &a, const at::Tensor &b) {
     return out;
 }
 
+at::Tensor mv(const at::Tensor &a, const at::Tensor &x) {
+    require_minigpu_contiguous(a, "aten::mv input");
+    require_minigpu_contiguous(x, "aten::mv vec");
+    if (a.dim() != 2 || x.dim() != 1) {
+        throw std::runtime_error("aten::mv on Mini-GPU requires a 2D matrix and 1D vector");
+    }
+    if (a.size(1) != x.size(0)) {
+        throw std::runtime_error("aten::mv on Mini-GPU requires compatible shapes");
+    }
+    if (a.scalar_type() != x.scalar_type()) {
+        throw std::runtime_error("aten::mv on Mini-GPU requires matching dtypes");
+    }
+
+    std::string_view dtype = supported_kernel_dtype(a, "aten::mv");
+    auto out = at::empty({a.size(0)}, a.options());
+
+    minigpu::kernels::launch_gemv(
+        runtime_context(),
+        minigpu::kernels::TensorView{device_address(a), static_cast<std::size_t>(a.numel()), dtype},
+        minigpu::kernels::TensorView{device_address(x), static_cast<std::size_t>(x.numel()), dtype},
+        minigpu::kernels::TensorView{device_address(out), static_cast<std::size_t>(out.numel()), dtype},
+        static_cast<std::uint32_t>(a.size(0)),
+        static_cast<std::uint32_t>(a.size(1)));
+
+    return out;
+}
+
+at::Tensor dot(const at::Tensor &a, const at::Tensor &b) {
+    require_minigpu_contiguous(a, "aten::dot input");
+    require_minigpu_contiguous(b, "aten::dot input");
+    if (a.dim() != 1 || b.dim() != 1) {
+        throw std::runtime_error("aten::dot on Mini-GPU requires 1D tensors");
+    }
+    if (a.size(0) != b.size(0)) {
+        throw std::runtime_error("aten::dot on Mini-GPU requires matching lengths");
+    }
+    if (a.scalar_type() != b.scalar_type()) {
+        throw std::runtime_error("aten::dot on Mini-GPU requires matching dtypes");
+    }
+
+    std::string_view dtype = supported_kernel_dtype(a, "aten::dot");
+    auto out = at::empty({}, a.options());
+
+    minigpu::kernels::launch_dot(
+        runtime_context(),
+        minigpu::kernels::TensorView{device_address(a), static_cast<std::size_t>(a.numel()), dtype},
+        minigpu::kernels::TensorView{device_address(b), static_cast<std::size_t>(b.numel()), dtype},
+        minigpu::kernels::TensorView{device_address(out), static_cast<std::size_t>(out.numel()), dtype},
+        static_cast<std::uint32_t>(a.size(0)));
+
+    return out;
+}
+
+at::Tensor scal(const at::Tensor &x, const at::Scalar &alpha) {
+    require_minigpu_contiguous(x, "minigpu::scal");
+    if (x.scalar_type() != at::kFloat) {
+        throw std::runtime_error("minigpu::scal currently supports fp32 only");
+    }
+
+    auto out = at::empty_like(x);
+    minigpu::kernels::launch_scal(
+        runtime_context(),
+        minigpu::kernels::TensorView{device_address(x), static_cast<std::size_t>(x.numel()), "fp32"},
+        minigpu::kernels::TensorView{device_address(out), static_cast<std::size_t>(out.numel()), "fp32"},
+        static_cast<float>(alpha.toDouble()));
+    return out;
+}
+
+at::Tensor axpy(const at::Tensor &x, const at::Tensor &y, const at::Scalar &alpha) {
+    require_minigpu_contiguous(x, "minigpu::axpy x");
+    require_minigpu_contiguous(y, "minigpu::axpy y");
+    if (x.sizes() != y.sizes()) {
+        throw std::runtime_error("minigpu::axpy requires matching shapes");
+    }
+    if (x.scalar_type() != y.scalar_type()) {
+        throw std::runtime_error("minigpu::axpy requires matching dtypes");
+    }
+    if (x.scalar_type() != at::kFloat) {
+        throw std::runtime_error("minigpu::axpy currently supports fp32 only");
+    }
+
+    auto out = at::empty_like(x);
+    minigpu::kernels::launch_axpy(
+        runtime_context(),
+        minigpu::kernels::TensorView{device_address(x), static_cast<std::size_t>(x.numel()), "fp32"},
+        minigpu::kernels::TensorView{device_address(y), static_cast<std::size_t>(y.numel()), "fp32"},
+        minigpu::kernels::TensorView{device_address(out), static_cast<std::size_t>(out.numel()), "fp32"},
+        static_cast<float>(alpha.toDouble()));
+    return out;
+}
+
+at::Tensor addmm(
+    const at::Tensor &self,
+    const at::Tensor &mat1,
+    const at::Tensor &mat2,
+    const at::Scalar &beta,
+    const at::Scalar &alpha) {
+    require_minigpu_contiguous(self, "aten::addmm self");
+    require_minigpu_contiguous(mat1, "aten::addmm mat1");
+    require_minigpu_contiguous(mat2, "aten::addmm mat2");
+    if (self.dim() != 2 || mat1.dim() != 2 || mat2.dim() != 2) {
+        throw std::runtime_error("aten::addmm on Mini-GPU currently requires 2D tensors");
+    }
+    if (mat1.size(1) != mat2.size(0)) {
+        throw std::runtime_error("aten::addmm on Mini-GPU requires compatible matmul shapes");
+    }
+    if (self.size(0) != mat1.size(0) || self.size(1) != mat2.size(1)) {
+        throw std::runtime_error("aten::addmm on Mini-GPU currently requires self shape [mat1.rows, mat2.cols]");
+    }
+    if (self.scalar_type() != mat1.scalar_type() || self.scalar_type() != mat2.scalar_type()) {
+        throw std::runtime_error("aten::addmm on Mini-GPU requires matching dtypes");
+    }
+    if (self.scalar_type() != at::kFloat) {
+        throw std::runtime_error("aten::addmm on Mini-GPU currently supports fp32 only");
+    }
+
+    auto out = at::empty_like(self);
+    minigpu::kernels::launch_addmm(
+        runtime_context(),
+        minigpu::kernels::TensorView{device_address(self), static_cast<std::size_t>(self.numel()), "fp32"},
+        minigpu::kernels::TensorView{device_address(mat1), static_cast<std::size_t>(mat1.numel()), "fp32"},
+        minigpu::kernels::TensorView{device_address(mat2), static_cast<std::size_t>(mat2.numel()), "fp32"},
+        minigpu::kernels::TensorView{device_address(out), static_cast<std::size_t>(out.numel()), "fp32"},
+        static_cast<float>(beta.toDouble()),
+        static_cast<float>(alpha.toDouble()),
+        static_cast<std::uint32_t>(mat1.size(0)),
+        static_cast<std::uint32_t>(mat2.size(1)),
+        static_cast<std::uint32_t>(mat1.size(1)));
+
+    return out;
+}
+
 at::Tensor linear(
     const at::Tensor &input,
     const at::Tensor &weight,
     const ::std::optional<at::Tensor> &bias) {
 
-    bool has_bias = false;
+    const bool has_bias = bias.has_value() && bias->defined();
     if (input.device().type() != c10::DeviceType::PrivateUse1 ||
         weight.device().type() != c10::DeviceType::PrivateUse1) {
         throw std::runtime_error("aten::linear requires Mini-GPU tensors");
@@ -197,24 +367,36 @@ at::Tensor linear(
         throw std::runtime_error("aten::linear on Mini-GPU requires matching in_features");
     }
 
-    std::string_view dtype;
-    if (input.scalar_type() == at::kInt) {
-        dtype = "i32";
-    } else if (input.scalar_type() == at::kFloat) {
-        dtype = "fp32";
-    } else {
-        throw std::runtime_error("aten::linear on Mini-GPU currently supports int32 and fp32");
-    }
+    std::string_view dtype = supported_kernel_dtype(input, "aten::linear");
 
-    if (bias.has_value() && bias->defined()) {
-        // throw std::runtime_error("aten::linear on Mini-GPU bias is not implemented yet");
-        has_bias = true;
+    if (has_bias) {
+        require_minigpu_contiguous(*bias, "aten::linear bias");
+        if (bias->dim() != 1 || bias->size(0) != weight.size(0)) {
+            throw std::runtime_error("aten::linear on Mini-GPU requires bias shape [out_features]");
+        }
+        if (bias->scalar_type() != input.scalar_type()) {
+            throw std::runtime_error("aten::linear on Mini-GPU requires matching bias dtype");
+        }
     }
 
     at::Tensor input_2d = input.dim() == 1 ? input.view({1, input.size(0)}) : input;
     auto out_2d = at::empty({input_2d.size(0), weight.size(0)}, input.options());
 
-    if(!has_bias){
+    if (has_bias) {
+        minigpu::kernels::launch_linear_bias(
+            runtime_context(),
+            minigpu::kernels::TensorView{
+                device_address(input_2d), static_cast<std::size_t>(input_2d.numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(*bias), static_cast<std::size_t>(bias->numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(out_2d), static_cast<std::size_t>(out_2d.numel()), dtype},
+            static_cast<std::uint32_t>(out_2d.numel()),
+            static_cast<std::uint32_t>(weight.size(0)),
+            static_cast<std::uint32_t>(weight.size(1)));
+    } else {
         minigpu::kernels::launch_linear(
             runtime_context(),
             minigpu::kernels::TensorView{
@@ -226,22 +408,196 @@ at::Tensor linear(
             static_cast<std::uint32_t>(out_2d.numel()),
             static_cast<std::uint32_t>(weight.size(0)),
             static_cast<std::uint32_t>(weight.size(1)));
-    }else{
-        minigpu::kernels::launch_linear_bias(
-            runtime_context(),
-            minigpu::kernels::TensorView{
-                device_address(input_2d), static_cast<std::size_t>(input_2d.numel()), dtype},
-            minigpu::kernels::TensorView{
-                device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
-            minigpu::kernels::TensorView{
-                device_address(weight), static_cast<std::size_t>(bias.numel()), dtype},
-            minigpu::kernels::TensorView{
-                device_address(out_2d), static_cast<std::size_t>(out_2d.numel()), dtype},
-            static_cast<std::uint32_t>(out_2d.numel()),
-            static_cast<std::uint32_t>(weight.size(0)),
-            static_cast<std::uint32_t>(weight.size(1)));
     }
     return input.dim() == 1 ? out_2d.view({weight.size(0)}) : out_2d;
+}
+
+at::Tensor convolution(
+    const at::Tensor &input,
+    const at::Tensor &weight,
+    const ::std::optional<at::Tensor> &bias,
+    c10::SymIntArrayRef stride,
+    c10::SymIntArrayRef padding,
+    c10::SymIntArrayRef dilation,
+    bool transposed,
+    c10::SymIntArrayRef output_padding,
+    c10::SymInt groups) {
+    require_minigpu_contiguous(input, "aten::convolution input");
+    require_minigpu_contiguous(weight, "aten::convolution weight");
+    if (input.scalar_type() != weight.scalar_type()) {
+        throw std::runtime_error("aten::convolution on Mini-GPU requires matching input and weight dtypes");
+    }
+    if (transposed) {
+        throw std::runtime_error("aten::convolution on Mini-GPU does not support transposed convolution yet");
+    }
+    if (groups.expect_int() != 1) {
+        throw std::runtime_error("aten::convolution on Mini-GPU currently supports groups=1 only");
+    }
+    if (!sym_array_all(dilation, 1)) {
+        throw std::runtime_error("aten::convolution on Mini-GPU currently supports dilation=1 only");
+    }
+    if (!sym_array_all(output_padding, 0)) {
+        throw std::runtime_error("aten::convolution on Mini-GPU requires output_padding=0");
+    }
+    if (input.dim() != 3 && input.dim() != 4) {
+        throw std::runtime_error("aten::convolution on Mini-GPU currently supports NCL and NCHW inputs");
+    }
+    if (weight.dim() != input.dim()) {
+        throw std::runtime_error("aten::convolution on Mini-GPU weight rank must match input rank");
+    }
+    if (input.size(1) != weight.size(1)) {
+        throw std::runtime_error("aten::convolution on Mini-GPU requires matching input channels");
+    }
+
+    std::string_view dtype = supported_kernel_dtype(input, "aten::convolution");
+    const bool has_bias = bias.has_value() && bias->defined();
+    if (has_bias) {
+        require_minigpu_contiguous(*bias, "aten::convolution bias");
+        if (bias->dim() != 1 || bias->size(0) != weight.size(0)) {
+            throw std::runtime_error("aten::convolution on Mini-GPU requires bias shape [out_channels]");
+        }
+        if (bias->scalar_type() != input.scalar_type()) {
+            throw std::runtime_error("aten::convolution on Mini-GPU requires matching bias dtype");
+        }
+    }
+
+    const auto batch_size = checked_u32(input.size(0), "batch_size");
+    const auto in_channels = checked_u32(input.size(1), "in_channels");
+    const auto out_channels = checked_u32(weight.size(0), "out_channels");
+
+    if (input.dim() == 3) {
+        if (stride.size() != 1 || padding.size() != 1 || dilation.size() != 1 || output_padding.size() != 1) {
+            throw std::runtime_error("aten::convolution 1D expects one stride/padding/dilation value");
+        }
+        const auto input_width = checked_u32(input.size(2), "input_width");
+        const auto kernel_width = checked_u32(weight.size(2), "kernel_width");
+        const auto stride_w = sym_array_u32(stride, 0, "stride");
+        const auto padding_w = sym_array_u32(padding, 0, "padding");
+        if (padding_w != 0) {
+            throw std::runtime_error("aten::convolution 1D on Mini-GPU currently supports padding=0 only");
+        }
+        if (stride_w == 0) {
+            throw std::runtime_error("aten::convolution 1D on Mini-GPU requires nonzero stride");
+        }
+        const auto output_width =
+            checked_u32((input.size(2) + 2 * static_cast<std::int64_t>(padding_w) -
+                         static_cast<std::int64_t>(kernel_width)) /
+                            static_cast<std::int64_t>(stride_w) +
+                        1,
+                        "output_width");
+        auto out = at::empty({input.size(0), weight.size(0), output_width}, input.options());
+        auto out_view = minigpu::kernels::TensorView{device_address(out), static_cast<std::size_t>(out.numel()), dtype};
+
+        if (has_bias) {
+            minigpu::kernels::launch_conv1d_bias(
+                runtime_context(),
+                minigpu::kernels::TensorView{device_address(input), static_cast<std::size_t>(input.numel()), dtype},
+                minigpu::kernels::TensorView{device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+                minigpu::kernels::TensorView{device_address(*bias), static_cast<std::size_t>(bias->numel()), dtype},
+                out_view,
+                static_cast<std::uint32_t>(out.numel()),
+                batch_size,
+                in_channels,
+                out_channels,
+                input_width,
+                output_width,
+                kernel_width,
+                stride_w,
+                padding_w);
+        } else {
+            minigpu::kernels::launch_conv1d(
+                runtime_context(),
+                minigpu::kernels::TensorView{device_address(input), static_cast<std::size_t>(input.numel()), dtype},
+                minigpu::kernels::TensorView{device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+                out_view,
+                static_cast<std::uint32_t>(out.numel()),
+                batch_size,
+                in_channels,
+                out_channels,
+                input_width,
+                output_width,
+                kernel_width,
+                stride_w,
+                padding_w);
+        }
+        return out;
+    }
+
+    if (stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 || output_padding.size() != 2) {
+        throw std::runtime_error("aten::convolution 2D expects two stride/padding/dilation values");
+    }
+    const auto input_height = checked_u32(input.size(2), "input_height");
+    const auto input_width = checked_u32(input.size(3), "input_width");
+    const auto kernel_height = checked_u32(weight.size(2), "kernel_height");
+    const auto kernel_width = checked_u32(weight.size(3), "kernel_width");
+    const auto stride_h = sym_array_u32(stride, 0, "stride");
+    const auto stride_w = sym_array_u32(stride, 1, "stride");
+    const auto padding_h = sym_array_u32(padding, 0, "padding");
+    const auto padding_w = sym_array_u32(padding, 1, "padding");
+    if (padding_h != 0 || padding_w != 0) {
+        throw std::runtime_error("aten::convolution 2D on Mini-GPU currently supports padding=0 only");
+    }
+    if (stride_h == 0 || stride_w == 0) {
+        throw std::runtime_error("aten::convolution 2D on Mini-GPU requires nonzero stride");
+    }
+    const auto output_height =
+        checked_u32((input.size(2) + 2 * static_cast<std::int64_t>(padding_h) -
+                     static_cast<std::int64_t>(kernel_height)) /
+                        static_cast<std::int64_t>(stride_h) +
+                    1,
+                    "output_height");
+    const auto output_width =
+        checked_u32((input.size(3) + 2 * static_cast<std::int64_t>(padding_w) -
+                     static_cast<std::int64_t>(kernel_width)) /
+                        static_cast<std::int64_t>(stride_w) +
+                    1,
+                    "output_width");
+    auto out = at::empty({input.size(0), weight.size(0), output_height, output_width}, input.options());
+    auto out_view = minigpu::kernels::TensorView{device_address(out), static_cast<std::size_t>(out.numel()), dtype};
+
+    if (has_bias) {
+        minigpu::kernels::launch_conv2d_bias(
+            runtime_context(),
+            minigpu::kernels::TensorView{device_address(input), static_cast<std::size_t>(input.numel()), dtype},
+            minigpu::kernels::TensorView{device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+            minigpu::kernels::TensorView{device_address(*bias), static_cast<std::size_t>(bias->numel()), dtype},
+            out_view,
+            static_cast<std::uint32_t>(out.numel()),
+            batch_size,
+            in_channels,
+            out_channels,
+            input_height,
+            input_width,
+            output_height,
+            output_width,
+            kernel_height,
+            kernel_width,
+            stride_h,
+            stride_w,
+            padding_h,
+            padding_w);
+    } else {
+        minigpu::kernels::launch_conv2d(
+            runtime_context(),
+            minigpu::kernels::TensorView{device_address(input), static_cast<std::size_t>(input.numel()), dtype},
+            minigpu::kernels::TensorView{device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+            out_view,
+            static_cast<std::uint32_t>(out.numel()),
+            batch_size,
+            in_channels,
+            out_channels,
+            input_height,
+            input_width,
+            output_height,
+            output_width,
+            kernel_height,
+            kernel_width,
+            stride_h,
+            stride_w,
+            padding_h,
+            padding_w);
+    }
+    return out;
 }
 
 at::Tensor relu(const at::Tensor &a) {

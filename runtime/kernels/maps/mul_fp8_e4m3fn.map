@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "mul_kernel_fp8"
+    }
+  ],
+  "instruction_words": 106
+}

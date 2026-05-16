@@ -3,176 +3,340 @@ defaults:
   block_dim: 4
   active_mask: auto
   timeout_ms: 5000
-
 artifacts:
-  - file: vector_add.bin
-    program_addr: 0x0000
-    kernels:
-      - name: vector_add.i32
-        op: vector_add
-        dtype: i32
-        entry: vector_add_kernel_i32
-      - name: vector_add.i16
-        op: vector_add
-        dtype: i16
-        entry: vector_add_kernel_i16
-      - name: vector_add.i8
-        op: vector_add
-        dtype: i8
-        entry: vector_add_kernel_i8
-      - name: vector_add.fp32
-        op: vector_add
-        dtype: fp32
-        entry: vector_add_kernel_fp32
-      - name: vector_add.fp16
-        op: vector_add
-        dtype: fp16
-        entry: vector_add_kernel_fp16
-      - name: vector_add.fp8_e4m3fn
-        op: vector_add
-        dtype: fp8_e4m3fn
-        entry: vector_add_kernel_fp8
-
-  - file: matmul.bin
-    program_addr: 0x0288
-    kernels:
-      - name: matmul.i32
-        op: matmul
-        dtype: i32
-        entry: matmul_kernel_i32
-      - name: matmul.fp32
-        op: matmul
-        dtype: fp32
-        entry: matmul_kernel_fp32
-
-  - file: linear.bin
-    program_addr: 0x0460
-    kernels:
-      - name: linear.i32
-        op: linear
-        dtype: i32
-        entry: linear_kernel_i32
-      - name: linear.fp32
-        op: linear
-        dtype: fp32
-        entry: linear_kernel_fp32
-
-  - file: mul.bin
-    program_addr: 0x0628
-    kernels:
-      - name: mul.i32
-        op: mul
-        dtype: i32
-        entry: mul_kernel_i32
-      - name: mul.i16
-        op: mul
-        dtype: i16
-        entry: mul_kernel_i16
-      - name: mul.i8
-        op: mul
-        dtype: i8
-        entry: mul_kernel_i8
-      - name: mul.fp32
-        op: mul
-        dtype: fp32
-        entry: mul_kernel_fp32
-      - name: mul.fp16
-        op: mul
-        dtype: fp16
-        entry: mul_kernel_fp16
-      - name: mul.fp8_e4m3fn
-        op: mul
-        dtype: fp8_e4m3fn
-        entry: mul_kernel_fp8
-
-  - file: div.bin
-    program_addr: 0x08b0
-    kernels:
-      - name: reciprocal.fp32
-        op: reciprocal
-        dtype: fp32
-        entry: reciprocal_fp32
-      - name: div.fp32
-        op: div
-        dtype: fp32
-        entry: div_fp32
-
-  - file: sqrt.bin
-    program_addr: 0x0b1c
-    kernels:
-      - name: sqrt.fp32
-        op: sqrt
-        dtype: fp32
-        entry: sqrt_fp32
-
-  - file: math.bin
-    program_addr: 0x0c38
-    kernels:
-      - name: log.fp32
-        op: log
-        dtype: fp32
-        entry: log_fp32
-      - name: log2.fp32
-        op: log2
-        dtype: fp32
-        entry: log2_fp32
-      - name: log10.fp32
-        op: log10
-        dtype: fp32
-        entry: log10_fp32
-      - name: sin.fp32
-        op: sin
-        dtype: fp32
-        entry: sin_fp32
-      - name: cos.fp32
-        op: cos
-        dtype: fp32
-        entry: cos_fp32
-      - name: tan.fp32
-        op: tan
-        dtype: fp32
-        entry: tan_fp32
-      - name: pow.fp32
-        op: pow
-        dtype: fp32
-        entry: pow_fp32
-
-  - file: activation.bin
-    program_addr: 0x2224
-    kernels:
-      - name: relu.i32
-        op: relu
-        dtype: i32
-        entry: relu_kernel_i32
-      - name: relu.i16
-        op: relu
-        dtype: i16
-        entry: relu_kernel_i16
-      - name: relu.i8
-        op: relu
-        dtype: i8
-        entry: relu_kernel_i8
-      - name: relu.fp32
-        op: relu
-        dtype: fp32
-        entry: relu_kernel_fp32
-      - name: relu.fp16
-        op: relu
-        dtype: fp16
-        entry: relu_kernel_fp16
-      - name: relu.fp8_e4m3fn
-        op: relu
-        dtype: fp8_e4m3fn
-        entry: relu_kernel_fp8
-      - name: exp.fp32
-        op: exp
-        dtype: fp32
-        entry: exp_fp32
-      - name: sigmoid.fp32
-        op: sigmoid
-        dtype: fp32
-        entry: sigmoid_fp32
-      - name: tanh.fp32
-        op: tanh
-        dtype: fp32
-        entry: tanh_fp32
+- file: bin/exp_fp32.bin
+  map: maps/exp_fp32.map
+  kernels:
+  - name: exp.fp32
+    op: exp
+    dtype: fp32
+    entry: exp_fp32
+- file: bin/sigmoid_fp32.bin
+  map: maps/sigmoid_fp32.map
+  kernels:
+  - name: sigmoid.fp32
+    op: sigmoid
+    dtype: fp32
+    entry: sigmoid_fp32
+- file: bin/tanh_fp32.bin
+  map: maps/tanh_fp32.map
+  kernels:
+  - name: tanh.fp32
+    op: tanh
+    dtype: fp32
+    entry: tanh_fp32
+- file: bin/relu_i32.bin
+  map: maps/relu_i32.map
+  kernels:
+  - name: relu.i32
+    op: relu
+    dtype: i32
+    entry: relu_kernel_i32
+- file: bin/relu_i16.bin
+  map: maps/relu_i16.map
+  kernels:
+  - name: relu.i16
+    op: relu
+    dtype: i16
+    entry: relu_kernel_i16
+- file: bin/relu_i8.bin
+  map: maps/relu_i8.map
+  kernels:
+  - name: relu.i8
+    op: relu
+    dtype: i8
+    entry: relu_kernel_i8
+- file: bin/relu_fp32.bin
+  map: maps/relu_fp32.map
+  kernels:
+  - name: relu.fp32
+    op: relu
+    dtype: fp32
+    entry: relu_kernel_fp32
+- file: bin/relu_fp16.bin
+  map: maps/relu_fp16.map
+  kernels:
+  - name: relu.fp16
+    op: relu
+    dtype: fp16
+    entry: relu_kernel_fp16
+- file: bin/relu_fp8_e4m3fn.bin
+  map: maps/relu_fp8_e4m3fn.map
+  kernels:
+  - name: relu.fp8_e4m3fn
+    op: relu
+    dtype: fp8_e4m3fn
+    entry: relu_kernel_fp8
+- file: bin/scal_fp32.bin
+  map: maps/scal_fp32.map
+  kernels:
+  - name: scal.fp32
+    op: scal
+    dtype: fp32
+    entry: scal_fp32
+- file: bin/axpy_fp32.bin
+  map: maps/axpy_fp32.map
+  kernels:
+  - name: axpy.fp32
+    op: axpy
+    dtype: fp32
+    entry: axpy_fp32
+- file: bin/addmm_fp32.bin
+  map: maps/addmm_fp32.map
+  kernels:
+  - name: addmm.fp32
+    op: addmm
+    dtype: fp32
+    entry: addmm_fp32
+- file: bin/dot_i32.bin
+  map: maps/dot_i32.map
+  kernels:
+  - name: dot.i32
+    op: dot
+    dtype: i32
+    entry: dot_kernel_i32
+- file: bin/dot_fp32.bin
+  map: maps/dot_fp32.map
+  kernels:
+  - name: dot.fp32
+    op: dot
+    dtype: fp32
+    entry: dot_kernel_fp32
+- file: bin/gemv_i32.bin
+  map: maps/gemv_i32.map
+  kernels:
+  - name: gemv.i32
+    op: gemv
+    dtype: i32
+    entry: gemv_kernel_i32
+- file: bin/gemv_fp32.bin
+  map: maps/gemv_fp32.map
+  kernels:
+  - name: gemv.fp32
+    op: gemv
+    dtype: fp32
+    entry: gemv_kernel_fp32
+- file: bin/conv1d_fp32.bin
+  map: maps/conv1d_fp32.map
+  kernels:
+  - name: conv1d.fp32
+    op: conv1d
+    dtype: fp32
+    entry: conv1d_kernel_fp32
+- file: bin/conv1d_bias_fp32.bin
+  map: maps/conv1d_bias_fp32.map
+  kernels:
+  - name: conv1d_bias.fp32
+    op: conv1d_bias
+    dtype: fp32
+    entry: conv1d_bias_kernel_fp32
+- file: bin/conv2d_fp32.bin
+  map: maps/conv2d_fp32.map
+  kernels:
+  - name: conv2d.fp32
+    op: conv2d
+    dtype: fp32
+    entry: conv2d_kernel_fp32
+- file: bin/conv2d_bias_fp32.bin
+  map: maps/conv2d_bias_fp32.map
+  kernels:
+  - name: conv2d_bias.fp32
+    op: conv2d_bias
+    dtype: fp32
+    entry: conv2d_bias_kernel_fp32
+- file: bin/reciprocal_fp32.bin
+  map: maps/reciprocal_fp32.map
+  kernels:
+  - name: reciprocal.fp32
+    op: reciprocal
+    dtype: fp32
+    entry: reciprocal_fp32
+- file: bin/div_fp32.bin
+  map: maps/div_fp32.map
+  kernels:
+  - name: div.fp32
+    op: div
+    dtype: fp32
+    entry: div_fp32
+- file: bin/linear_i32.bin
+  map: maps/linear_i32.map
+  kernels:
+  - name: linear.i32
+    op: linear
+    dtype: i32
+    entry: linear_kernel_i32
+- file: bin/linear_fp32.bin
+  map: maps/linear_fp32.map
+  kernels:
+  - name: linear.fp32
+    op: linear
+    dtype: fp32
+    entry: linear_kernel_fp32
+- file: bin/linear_bias_i32.bin
+  map: maps/linear_bias_i32.map
+  kernels:
+  - name: linear_bias.i32
+    op: linear_bias
+    dtype: i32
+    entry: linear_bias_kernel_i32
+- file: bin/linear_bias_fp32.bin
+  map: maps/linear_bias_fp32.map
+  kernels:
+  - name: linear_bias.fp32
+    op: linear_bias
+    dtype: fp32
+    entry: linear_bias_kernel_fp32
+- file: bin/log_fp32.bin
+  map: maps/log_fp32.map
+  kernels:
+  - name: log.fp32
+    op: log
+    dtype: fp32
+    entry: log_fp32
+- file: bin/log2_fp32.bin
+  map: maps/log2_fp32.map
+  kernels:
+  - name: log2.fp32
+    op: log2
+    dtype: fp32
+    entry: log2_fp32
+- file: bin/log10_fp32.bin
+  map: maps/log10_fp32.map
+  kernels:
+  - name: log10.fp32
+    op: log10
+    dtype: fp32
+    entry: log10_fp32
+- file: bin/sin_fp32.bin
+  map: maps/sin_fp32.map
+  kernels:
+  - name: sin.fp32
+    op: sin
+    dtype: fp32
+    entry: sin_fp32
+- file: bin/cos_fp32.bin
+  map: maps/cos_fp32.map
+  kernels:
+  - name: cos.fp32
+    op: cos
+    dtype: fp32
+    entry: cos_fp32
+- file: bin/tan_fp32.bin
+  map: maps/tan_fp32.map
+  kernels:
+  - name: tan.fp32
+    op: tan
+    dtype: fp32
+    entry: tan_fp32
+- file: bin/pow_fp32.bin
+  map: maps/pow_fp32.map
+  kernels:
+  - name: pow.fp32
+    op: pow
+    dtype: fp32
+    entry: pow_fp32
+- file: bin/matmul_i32.bin
+  map: maps/matmul_i32.map
+  kernels:
+  - name: matmul.i32
+    op: matmul
+    dtype: i32
+    entry: matmul_kernel_i32
+- file: bin/matmul_fp32.bin
+  map: maps/matmul_fp32.map
+  kernels:
+  - name: matmul.fp32
+    op: matmul
+    dtype: fp32
+    entry: matmul_kernel_fp32
+- file: bin/mul_i32.bin
+  map: maps/mul_i32.map
+  kernels:
+  - name: mul.i32
+    op: mul
+    dtype: i32
+    entry: mul_kernel_i32
+- file: bin/mul_i16.bin
+  map: maps/mul_i16.map
+  kernels:
+  - name: mul.i16
+    op: mul
+    dtype: i16
+    entry: mul_kernel_i16
+- file: bin/mul_i8.bin
+  map: maps/mul_i8.map
+  kernels:
+  - name: mul.i8
+    op: mul
+    dtype: i8
+    entry: mul_kernel_i8
+- file: bin/mul_fp32.bin
+  map: maps/mul_fp32.map
+  kernels:
+  - name: mul.fp32
+    op: mul
+    dtype: fp32
+    entry: mul_kernel_fp32
+- file: bin/mul_fp16.bin
+  map: maps/mul_fp16.map
+  kernels:
+  - name: mul.fp16
+    op: mul
+    dtype: fp16
+    entry: mul_kernel_fp16
+- file: bin/mul_fp8_e4m3fn.bin
+  map: maps/mul_fp8_e4m3fn.map
+  kernels:
+  - name: mul.fp8_e4m3fn
+    op: mul
+    dtype: fp8_e4m3fn
+    entry: mul_kernel_fp8
+- file: bin/sqrt_fp32.bin
+  map: maps/sqrt_fp32.map
+  kernels:
+  - name: sqrt.fp32
+    op: sqrt
+    dtype: fp32
+    entry: sqrt_fp32
+- file: bin/vector_add_i32.bin
+  map: maps/vector_add_i32.map
+  kernels:
+  - name: vector_add.i32
+    op: vector_add
+    dtype: i32
+    entry: vector_add_kernel_i32
+- file: bin/vector_add_i16.bin
+  map: maps/vector_add_i16.map
+  kernels:
+  - name: vector_add.i16
+    op: vector_add
+    dtype: i16
+    entry: vector_add_kernel_i16
+- file: bin/vector_add_i8.bin
+  map: maps/vector_add_i8.map
+  kernels:
+  - name: vector_add.i8
+    op: vector_add
+    dtype: i8
+    entry: vector_add_kernel_i8
+- file: bin/vector_add_fp32.bin
+  map: maps/vector_add_fp32.map
+  kernels:
+  - name: vector_add.fp32
+    op: vector_add
+    dtype: fp32
+    entry: vector_add_kernel_fp32
+- file: bin/vector_add_fp16.bin
+  map: maps/vector_add_fp16.map
+  kernels:
+  - name: vector_add.fp16
+    op: vector_add
+    dtype: fp16
+    entry: vector_add_kernel_fp16
+- file: bin/vector_add_fp8_e4m3fn.bin
+  map: maps/vector_add_fp8_e4m3fn.map
+  kernels:
+  - name: vector_add.fp8_e4m3fn
+    op: vector_add
+    dtype: fp8_e4m3fn
+    entry: vector_add_kernel_fp8

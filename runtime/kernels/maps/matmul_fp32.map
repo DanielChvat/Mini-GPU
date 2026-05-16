@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "matmul_kernel_fp32"
+    }
+  ],
+  "instruction_words": 365
+}

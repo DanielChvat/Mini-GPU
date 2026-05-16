@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "relu_kernel_fp16"
+    }
+  ],
+  "instruction_words": 150
+}

@@ -55,6 +55,7 @@ INT_OPS = {
 }
 
 FLOAT_OPS = {"fadd": "add", "fsub": "sub", "fmul": "mul", "fdiv": "div"}
+SHARED_ANNOTATION = "minigpu_shared"
 
 ICMP_OPS = {
     "slt": "lt",
@@ -92,7 +93,9 @@ class LlvmLoweringError(Exception):
 @dataclass
 class Function:
     symbol: str
+    return_format: str
     params: list[str]
+    param_formats: list[str]
     blocks: dict[str, list[str]]
     order: list[str]
 
@@ -117,6 +120,9 @@ class LowerState:
     pointers: dict[str, tuple[str, str]] = field(default_factory=dict)
     temp_index: int = 0
     visited: set[str] = field(default_factory=set)
+    is_shared_helper: bool = False
+    shared_helpers: set[str] = field(default_factory=set)
+    shared_helper_returns: dict[str, str] = field(default_factory=dict)
 
     def emit(self, text: str = "") -> None:
         self.lines.append(text)
@@ -126,17 +132,94 @@ class LowerState:
         return f"%t{self.temp_index}"
 
 
-def llvm_to_ir(llvm_text: str, ast_document: dict[str, Any]) -> str:
+def llvm_to_ir(
+    llvm_text: str,
+    ast_document: dict[str, Any],
+    only_kernels: set[str] | None = None,
+) -> str:
     """Lower an LLVM IR module into Mini-GPU IR text."""
     functions = parse_functions(llvm_text)
     metas = kernel_metadata(ast_document)
+    if only_kernels:
+        metas = {
+            symbol: meta
+            for symbol, meta in metas.items()
+            if symbol in only_kernels or meta.name in only_kernels
+        }
+        if not metas:
+            requested = ", ".join(sorted(only_kernels))
+            raise LlvmLoweringError(f"no CUDA kernel matched --only-kernel {requested}")
     chunks: list[str] = []
+    shared_helpers = shared_helpers_from_annotations(llvm_text)
+    helper_returns = {
+        name: functions[name].return_format
+        for name in shared_helpers
+        if name in functions
+    }
+    reachable_helpers = reachable_shared_helpers(functions, metas.keys(), shared_helpers)
     for symbol, meta in metas.items():
         function = functions.get(symbol)
         if function is None:
             raise LlvmLoweringError(f"missing LLVM function for CUDA kernel {meta.name} ({symbol})")
-        chunks.append(lower_function(function, meta))
+        chunks.append(lower_function(function, meta, shared_helpers, helper_returns))
+    for helper in sorted(reachable_helpers):
+        function = functions.get(helper) if helper in reachable_helpers else None
+        if function is not None:
+            chunks.append(lower_shared_helper(function, helper, shared_helpers, helper_returns))
     return "\n\n".join(chunks)
+
+
+def reachable_shared_helpers(
+    functions: dict[str, Function],
+    roots: Any,
+    shared_helpers: set[str],
+) -> set[str]:
+    """Return shared helpers reachable from kernels through direct LLVM calls."""
+    reachable: set[str] = set()
+    stack = list(roots)
+    seen: set[str] = set()
+    while stack:
+        symbol = stack.pop()
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        function = functions.get(symbol)
+        if function is None:
+            continue
+        for lines in function.blocks.values():
+            for line in lines:
+                call = CALL_RE.search(line)
+                if not call:
+                    continue
+                callee = call.group(1)
+                if callee in shared_helpers:
+                    reachable.add(callee)
+                    stack.append(callee)
+    return reachable
+
+
+def shared_helpers_from_annotations(text: str) -> set[str]:
+    """Return function symbols tagged with MINIGPU_SHARED in source."""
+    annotation_globals: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        match = re.match(r"^@([^=\s]+)\s*=.*c\"" + re.escape(SHARED_ANNOTATION) + r"\\00\"", stripped)
+        if match:
+            annotation_globals.add(match.group(1))
+
+    if not annotation_globals:
+        return set()
+
+    helpers: set[str] = set()
+    for line in text.splitlines():
+        if "@llvm.global.annotations" not in line:
+            continue
+        for function_name, annotation_name in re.findall(
+            r"\{\s*ptr\s+@([^,\s]+),\s*ptr\s+@([^,\s]+),", line
+        ):
+            if annotation_name in annotation_globals:
+                helpers.add(function_name)
+    return helpers
 
 
 def parse_functions(text: str) -> dict[str, Function]:
@@ -150,7 +233,8 @@ def parse_functions(text: str) -> dict[str, Function]:
             index += 1
             continue
         symbol = match.group(1)
-        params = parse_params(match.group(2))
+        return_format = define_return_format(line, symbol)
+        params, param_formats = parse_params(match.group(2))
         blocks: dict[str, list[str]] = {"entry": []}
         order = ["entry"]
         current = "entry"
@@ -167,7 +251,14 @@ def parse_functions(text: str) -> dict[str, Function]:
             elif stripped and not stripped.startswith(";"):
                 blocks[current].append(stripped)
             index += 1
-        functions[symbol] = Function(symbol=symbol, params=params, blocks=blocks, order=order)
+        functions[symbol] = Function(
+            symbol=symbol,
+            return_format=return_format,
+            params=params,
+            param_formats=param_formats,
+            blocks=blocks,
+            order=order,
+        )
         index += 1
     return functions
 
@@ -176,13 +267,23 @@ def clean_metadata(line: str) -> str:
     return line.split("!", 1)[0].rstrip()
 
 
-def parse_params(text: str) -> list[str]:
+def define_return_format(line: str, symbol: str) -> str:
+    marker = f"@{symbol}"
+    prefix = line.split(marker, 1)[0].strip()
+    if not prefix:
+        return "void"
+    return llvm_format(prefix.split()[-1])
+
+
+def parse_params(text: str) -> tuple[list[str], list[str]]:
     params: list[str] = []
+    formats: list[str] = []
     for part in split_operands(text):
         match = re.search(r"(%[-\w.]+)(?:\s+)?$", part.strip())
         if match:
             params.append(match.group(1))
-    return params
+            formats.append(llvm_format(part[:match.start()].strip()))
+    return params, formats
 
 
 def kernel_metadata(document: dict[str, Any]) -> dict[str, KernelMeta]:
@@ -211,8 +312,18 @@ def kernel_metadata(document: dict[str, Any]) -> dict[str, KernelMeta]:
     return metas
 
 
-def lower_function(function: Function, meta: KernelMeta) -> str:
-    state = LowerState(function=function, meta=meta)
+def lower_function(
+    function: Function,
+    meta: KernelMeta,
+    shared_helpers: set[str],
+    shared_helper_returns: dict[str, str],
+) -> str:
+    state = LowerState(
+        function=function,
+        meta=meta,
+        shared_helpers=shared_helpers,
+        shared_helper_returns=shared_helper_returns,
+    )
     state.emit(f"kernel {meta.name}")
     for index, llvm_name in enumerate(function.params):
         arg_name = meta.arg_names[index] if index < len(meta.arg_names) else f"arg{index}"
@@ -230,11 +341,51 @@ def lower_function(function: Function, meta: KernelMeta) -> str:
     return "\n".join(state.lines)
 
 
+def lower_shared_helper(
+    function: Function,
+    name: str,
+    shared_helpers: set[str],
+    shared_helper_returns: dict[str, str],
+) -> str:
+    """Lower a noinline device helper using r0..rN args and r0 return value."""
+    arg_names = [f"arg{idx}" for idx in range(len(function.params))]
+    arg_formats = function.param_formats or ["fp32" for _ in function.params]
+    meta = KernelMeta(
+        name=name,
+        arg_names=arg_names,
+        arg_formats=arg_formats,
+        arg_is_pointer=[False for _ in function.params],
+    )
+    state = LowerState(
+        function=function,
+        meta=meta,
+        is_shared_helper=True,
+        shared_helpers=shared_helpers,
+        shared_helper_returns=shared_helper_returns,
+    )
+    state.emit(f"kernel {name}")
+    for index, llvm_name in enumerate(function.params):
+        fmt = arg_formats[index] if index < len(arg_formats) else "fp32"
+        value_name = f"%arg{index}"
+        state.values[llvm_name] = value_name
+        state.value_types[value_name] = fmt
+        state.emit(f"{value_name} = call_arg.{fmt} {index}")
+    if function.params:
+        state.emit()
+
+    lower_entry(state)
+    return "\n".join(state.lines)
+
+
 def is_param_pointer(index: int, meta: KernelMeta) -> bool:
     return index < len(meta.arg_is_pointer) and meta.arg_is_pointer[index]
 
 
 def lower_entry(state: LowerState) -> None:
+    if state.is_shared_helper:
+        emit_block("entry", state, stop=set())
+        return
+
     entry = state.function.blocks["entry"]
     target: str | None = None
     for line in entry:
@@ -247,6 +398,19 @@ def lower_entry(state: LowerState) -> None:
         lower_instruction(line, state)
     if target is not None:
         emit_block(target, state, stop=set())
+
+
+def emit_return(term: tuple[str, ...] | None, state: LowerState) -> None:
+    """Emit kernel EXIT or helper RET for an LLVM return terminator."""
+    if state.is_shared_helper:
+        if term is None or len(term) != 2:
+            raise LlvmLoweringError(f"shared helper {state.meta.name} must return a value")
+        fmt = state.function.return_format
+        if fmt == "void":
+            fmt = token_type(term[1], state)
+        state.emit(f"call_return.{fmt} {value(term[1], state)}")
+    else:
+        state.emit("return")
 
 
 def emit_block(label: str, state: LowerState, stop: set[str]) -> None:
@@ -262,7 +426,7 @@ def emit_block(label: str, state: LowerState, stop: set[str]) -> None:
         lower_instruction(line, state)
 
     if term is None or term[0] == "ret":
-        state.emit("return")
+        emit_return(term, state)
         return
     if term[0] == "br":
         emit_block(term[1], state, stop)
@@ -278,7 +442,7 @@ def emit_block(label: str, state: LowerState, stop: set[str]) -> None:
 
     merge = common_merge(true_label, false_label, state.function.blocks)
     if merge is None:
-        raise LlvmLoweringError(f"unsupported branch shape at block {label}")
+        raise LlvmLoweringError(f"unsupported branch shape in {state.meta.name} at block {label}")
 
     cond_value = value(cond, state)
     state.emit(f"pred_begin {cond_value}")
@@ -338,7 +502,7 @@ def emit_region_until(
     for line in instructions:
         lower_instruction(line, state)
     if term is None or term[0] == "ret":
-        state.emit("return")
+        emit_return(term, state)
         return
     if term[0] == "br":
         emit_region_until(term[1], stop_label, loop_header, state, seen)
@@ -380,6 +544,9 @@ def split_block(lines: list[str]) -> tuple[list[str], tuple[str, ...] | None]:
 
 def terminator(line: str) -> tuple[str, ...] | None:
     if line.startswith("ret "):
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] != "void":
+            return ("ret", parts[-1])
         return ("ret",)
     match = BR_COND_RE.match(line)
     if match:
@@ -464,16 +631,13 @@ def common_merge(left: str, right: str, blocks: dict[str, list[str]]) -> str | N
     if left == right:
         return left
     left_reachable = reachable_labels(left, blocks)
-    current = right
-    seen: set[str] = set()
-    while current not in seen and current in blocks:
-        if current in left_reachable:
-            return current
-        seen.add(current)
-        _, term = split_block(blocks[current])
-        if term is None or term[0] != "br":
-            break
-        current = term[1]
+    right_reachable = reachable_labels(right, blocks)
+    common = left_reachable & right_reachable
+    if not common:
+        return None
+    for label in blocks:
+        if label in common:
+            return label
     return None
 
 
@@ -655,6 +819,13 @@ def lower_call_expr(expr: str, state: LowerState, dst: str | None) -> None:
     if "__syncthreads" in callee:
         state.emit("barrier")
         return
+    if callee in state.shared_helpers:
+        if dst is not None:
+            lowered_args = [value(arg, state) for arg in args]
+            result_fmt = state.shared_helper_returns.get(callee, "fp32")
+            state.value_types[dst] = result_fmt
+            state.emit(f"{dst} = call.{result_fmt} {callee}, {', '.join(lowered_args)}")
+        return
     raise LlvmLoweringError(f"unsupported call to {callee}")
 
 
@@ -793,13 +964,15 @@ def token_type(token: str, state: LowerState) -> str:
 
 def llvm_format(text: str) -> str:
     stripped = text.strip()
-    if stripped == "float":
+    if stripped.startswith("void"):
+        return "void"
+    if stripped.startswith("float"):
         return "fp32"
-    if stripped == "half":
+    if stripped.startswith("half"):
         return "fp16"
-    if stripped == "i16":
+    if stripped.startswith("i16"):
         return "i16"
-    if stripped == "i8":
+    if stripped.startswith("i8"):
         return "i8"
     return "i32" if stripped.startswith("i") else "ptr"
 
