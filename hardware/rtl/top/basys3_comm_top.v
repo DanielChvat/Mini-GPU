@@ -76,6 +76,31 @@ module basys3_comm_top #(
     wire gpu_error;
     wire gpu_unsupported;
     wire gpu_divide_by_zero;
+
+    // GPU to bus controller interface (arbitrated)
+    wire [WARP_SIZE-1:0] gpu_mem_req_valid;
+    wire [WARP_SIZE-1:0] gpu_mem_req_write;
+    wire [(WARP_SIZE*ADDR_WIDTH)-1:0] gpu_mem_req_addr;
+    wire [(WARP_SIZE*DATA_WIDTH)-1:0] gpu_mem_req_wdata;
+    wire [(WARP_SIZE*4)-1:0] gpu_mem_req_wmask;
+    wire [WARP_SIZE-1:0] gpu_mem_req_ready;
+    wire [WARP_SIZE-1:0] gpu_mem_resp_valid;
+    wire [(WARP_SIZE*DATA_WIDTH)-1:0] gpu_mem_resp_rdata;
+
+    // Bus controller to memory interface
+    wire [3:0] merged_mem_req_valid;
+    wire [3:0] merged_mem_req_write;
+    wire [(4*ADDR_WIDTH)-1:0] merged_mem_req_addr;
+    wire [(4*DATA_WIDTH)-1:0] merged_mem_req_wdata;
+    wire [(4*4)-1:0] merged_mem_req_wmask;
+    wire [3:0] merged_mem_req_ready;
+    wire [3:0] merged_mem_resp_valid;
+    wire [(4*DATA_WIDTH)-1:0] merged_mem_resp_rdata;
+    wire merged_mem_write_done;      
+    wire merged_mem_write_fail;      // no memory blocks implemented right now 
+    wire merged_memory_status_consumed;
+    wire [1:0] memory_request_id;
+
     wire [DATA_WIDTH-1:0] gpu_grid_dim = {{(DATA_WIDTH-1){1'b0}}, 1'b1};
     wire [DATA_WIDTH-1:0] gpu_block_dim = {{(DATA_WIDTH-3){1'b0}}, 3'd4};
 
@@ -91,6 +116,11 @@ module basys3_comm_top #(
 
     wire mem_write0 = data_mem_req_valid[0] && data_mem_req_write[0] && data_mem_req_ready[0];
     wire mem_read0 = data_mem_req_valid[0] && !data_mem_req_write[0] && data_mem_req_ready[0];
+
+    //== old policy enforcement ==//
+    // this prevents communication controller from writing to memory while GPU is busy, preventing conflicts between core and host 
+    wire [3:0] gated_data_mem_req_valid = gpu_busy ? 4'b0000 : data_mem_req_valid;
+    
 
     communication_controller #(
         .CLK_FREQ(CLK_FREQ),
@@ -166,16 +196,6 @@ module basys3_comm_top #(
         .active_mask(launch_active_mask_full[WARP_SIZE-1:0]),
         .block_dim(gpu_block_dim),
         .grid_dim(gpu_grid_dim),
-        .host_mem_req_valid(data_mem_req_valid),
-        .host_mem_req_write(data_mem_req_write),
-        .host_mem_req_addr(data_mem_req_addr),
-        .host_mem_req_wdata(data_mem_req_wdata),
-        .host_mem_req_ready(data_mem_req_ready),
-        .host_mem_resp_valid(data_mem_resp_valid),
-        .host_mem_resp_rdata(data_mem_resp_rdata),
-        .host_mem_write_done(mem_write_done),
-        .host_mem_write_fail(mem_write_fail),
-        .host_memory_status_consumed(memory_status_consumed),
         .core_busy(core_busy),
         .core_done(core_done),
         .core_error(core_error),
@@ -188,11 +208,80 @@ module basys3_comm_top #(
         .core_last_writeback_mask(core_last_writeback_mask),
         .core_last_writeback_addr(core_last_writeback_addr),
         .core_last_writeback_data(core_last_writeback_data),
+        .mem_req_valid(gpu_mem_req_valid),
+        .mem_req_write(gpu_mem_req_write),
+        .mem_req_addr(gpu_mem_req_addr),
+        .mem_req_wdata(gpu_mem_req_wdata),
+        .mem_req_wmask(gpu_mem_req_wmask),
+        .mem_req_ready(gpu_mem_req_ready),
+        .mem_resp_valid(gpu_mem_resp_valid),
+        .mem_resp_rdata(gpu_mem_resp_rdata),
         .busy(gpu_busy),
         .done(gpu_done),
         .error(gpu_error),
         .unsupported(gpu_unsupported),
         .divide_by_zero(gpu_divide_by_zero)
+    );
+
+    bus_controller #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH)
+    ) memory_bus (
+        .clk(CLK100MHZ),
+        .rst(rst),
+        .host_mem_req_valid(gated_data_mem_req_valid),   // enforce old policy here by gating the valid signal with gpu_busy
+        .host_mem_req_write(data_mem_req_write),
+        .host_mem_req_addr(data_mem_req_addr),
+        .host_mem_req_wdata(data_mem_req_wdata),
+        .host_mem_req_wmask({4{4'b1111}}),
+        .host_mem_req_ready(data_mem_req_ready),
+        .host_mem_resp_valid(data_mem_resp_valid),
+        .host_mem_resp_rdata(data_mem_resp_rdata),
+        .host_mem_write_done(mem_write_done),
+        .host_mem_write_fail(mem_write_fail),
+        .host_memory_status_consumed(memory_status_consumed),
+        .core_mem_req_valid(gpu_mem_req_valid),
+        .core_mem_req_write(gpu_mem_req_write),
+        .core_mem_req_addr(gpu_mem_req_addr),
+        .core_mem_req_wdata(gpu_mem_req_wdata),
+        .core_mem_req_wmask(gpu_mem_req_wmask),
+        .core_mem_req_ready(gpu_mem_req_ready),
+        .core_mem_resp_valid(gpu_mem_resp_valid),
+        .core_mem_resp_rdata(gpu_mem_resp_rdata),
+        .core_mem_write_done(),                         // not used/implemented by the core
+        .core_mem_write_fail(),                         // not used/implemented by the core
+        .core_memory_status_consumed(1'b1),             // will always consume 
+        .merged_mem_req_valid(merged_mem_req_valid),
+        .merged_mem_req_write(merged_mem_req_write),
+        .merged_mem_req_addr(merged_mem_req_addr),
+        .merged_mem_req_wdata(merged_mem_req_wdata),
+        .merged_mem_req_wmask(merged_mem_req_wmask),
+        .merged_mem_req_ready(merged_mem_req_ready),
+        .merged_mem_resp_valid(merged_mem_resp_valid),
+        .merged_mem_resp_rdata(merged_mem_resp_rdata),
+        .merged_mem_write_done(merged_mem_write_done),
+        .merged_mem_write_fail(merged_mem_write_fail),
+        .merged_memory_status_consumed(merged_memory_status_consumed),
+        .memory_request_id(memory_request_id)
+    );
+
+    assign merged_mem_write_done = |(merged_mem_req_valid & merged_mem_req_write & merged_mem_req_ready);
+    assign merged_mem_write_fail = 1'b0;      // no memory blocks implemented right now, so we can never fail
+    memory #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .BANK_DEPTH(MEMORY_BANK_DEPTH)
+    ) global_memory (
+        .clk(CLK100MHZ),
+        .rst(rst),
+        .req_valid(merged_mem_req_valid),
+        .req_write(merged_mem_req_write),
+        .req_addr(merged_mem_req_addr),
+        .req_wdata(merged_mem_req_wdata),
+        .req_wmask(merged_mem_req_wmask),
+        .req_ready(merged_mem_req_ready),
+        .resp_valid(merged_mem_resp_valid),
+        .resp_rdata(merged_mem_resp_rdata)
     );
 
     assign status_word = {
