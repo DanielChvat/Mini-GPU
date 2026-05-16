@@ -253,32 +253,42 @@ MINIGPU_MATH_INLINE float log10(float x) {
 }
 
 MINIGPU_MATH_INLINE float expf(float x) {
-  float scale = 1.0f;
-  float r = x;
-  if (r > 1.0f) {
-    r = r - 0.6931471805599453f;
-    scale = scale * 2.0f;
+  const float inv_ln2 = 1.4426950408889634f;
+
+  const float ln2_hi = 0.693145751953125f;
+  const float ln2_lo = 1.4286068203094172e-6f;
+
+  if (x > 88.0f) {
+    return __uint_as_float(0x7f800000u);
   }
-  if (r > 1.0f) {
-    r = r - 0.6931471805599453f;
-    scale = scale * 2.0f;
+  if (x < -88.0f) {
+    return 0.0f;
   }
-  if (r < -1.0f) {
-    r = r + 0.6931471805599453f;
-    scale = scale * 0.5f;
-  }
-  if (r < -1.0f) {
-    r = r + 0.6931471805599453f;
-    scale = scale * 0.5f;
-  }
+
+  int k = minigpu_round_i32(x * inv_ln2);
+
+  float fk = (float)k;
+  float r = x - fk * ln2_hi;
+  r = r - fk * ln2_lo;
 
   float r2 = r * r;
   float r3 = r2 * r;
   float r4 = r2 * r2;
   float r5 = r4 * r;
   float r6 = r3 * r3;
-  float exp_r = 1.0f + r + 0.5f * r2 + 0.166666666667f * r3 +
-      0.041666666667f * r4 + 0.008333333333f * r5 + 0.001388888889f * r6;
+
+  float exp_r =
+      1.0f
+    + r
+    + 0.5f * r2
+    + 0.166666666667f * r3
+    + 0.041666666667f * r4
+    + 0.008333333333f * r5
+    + 0.001388888889f * r6;
+
+  uint32_t scale_bits = (uint32_t)(k + 127) << 23;
+  float scale = __uint_as_float(scale_bits);
+
   return scale * exp_r;
 }
 

@@ -69,6 +69,98 @@ void launch_linear(
     std::uint32_t in_features,
     const LaunchConfig *launch_config = nullptr);
 
+/* Resolve and launch a row-major linear layer kernel with bias */
+void launch_linear_bias(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &bias,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t out_features,
+    std::uint32_t in_features,
+    const LaunchConfig *launch_config = nullptr); 
+
+/* Resolve and launch a 1d conv kernel without bias */
+void launch_conv1d(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &out,
+    std::uint32_t total, 
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels, 
+    std::uint32_t input_width,
+    std::uint32_t output_width,
+    std::uint32_t kernel_width,
+    std::uint32_t stride,
+    std::uint32_t padding,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch a 1d conv kernel with bias */
+void launch_conv1d_bias(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &bias,
+    const TensorView &out,
+    std::uint32_t total, 
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels, 
+    std::uint32_t input_width,
+    std::uint32_t output_width,
+    std::uint32_t kernel_width,
+    std::uint32_t stride,
+    std::uint32_t padding,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch a 2d conv kernel without bias */
+void launch_conv2d(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels,
+    std::uint32_t input_height,
+    std::uint32_t input_width, 
+    std::uint32_t output_height,
+    std::uint32_t output_width,
+    std::uint32_t kernel_height,
+    std::uint32_t kernel_width,
+    std::uint32_t stride_h,
+    std::uint32_t stride_w,
+    std::uint32_t padding_h,
+    std::uint32_t padding_w,
+    const LaunchConfig *launch_config = nullptr);
+
+/* Resolve and launch a 2d conv kernel with bias */
+void launch_conv2d_bias(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &bias,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels,
+    std::uint32_t input_height,
+    std::uint32_t input_width, 
+    std::uint32_t output_height,
+    std::uint32_t output_width,
+    std::uint32_t kernel_height,
+    std::uint32_t kernel_width,
+    std::uint32_t stride_h,
+    std::uint32_t stride_w,
+    std::uint32_t padding_h,
+    std::uint32_t padding_w,
+    const LaunchConfig *launch_config = nullptr);
+
 /* Return the Mini-GPU kernel dtype name for a C++ scalar type. */
 template <typename T>
 std::string_view dtype_name();

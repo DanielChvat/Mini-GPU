@@ -405,7 +405,7 @@ void launch_matmul(
         launch_config);
 }
 
-/* Resolve and launch a row-major linear layer kernel. */
+/* Resolve and launch a row-major linear layer kernel without bias. */
 void launch_linear(
     Context &context,
     const TensorView &input,
@@ -414,7 +414,8 @@ void launch_linear(
     std::uint32_t total,
     std::uint32_t out_features,
     std::uint32_t in_features,
-    const LaunchConfig *launch_config) {
+    const LaunchConfig *launch_config
+) {
     if (input.dtype != weight.dtype || input.dtype != out.dtype) {
         throw Error(Status::BadArgument);
     }
@@ -430,6 +431,105 @@ void launch_linear(
             KernelArg::u32(in_features),
         },
         launch_config);
+}
+
+/* Resolve and launch a row-major linear layer kernel with bias*/
+void launch_linear_bias(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &bias,
+    const TensorView &out,
+    std::uint32_t total,
+    std::uint32_t out_features,
+    std::uint32_t in_features,
+    const LaunchConfig *launch_config
+){
+    if (input.dtype != weight.dtype || input.dtype != out.dtype 
+        || input.dtype != bias.dtype || weight.dtype != bias.dtype) {
+        throw Error(Status::BadArgument);
+    }
+    context.launch_kernel(
+        std::string("linear_bias.") + std::string(input.dtype),
+        {
+            KernelArg::device_ptr(input.addr),
+            KernelArg::device_ptr(weight.addr),
+            KernelArg::device_ptr(bias.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg:u32(total),
+            KernelArg::u32(out_features),
+            KernelArg::u32(in_features),
+        },
+        launch_config);
+}
+
+/* Resolve and launch_conv1d without bias*/
+void launch_conv1d(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &out,
+    std::uint32_t total, 
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels, 
+    std::uint32_t input_width,
+    std::uint32_t output_width,
+    std::uint32_t kernel_width,
+    std::uint32_t stride,
+    std::uint32_t padding,
+    const LaunchConfig *launch_config
+){
+    if (input.dtype != weight.dtype || input.dtype != out.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("conv1d.") + std::string(input.dtype),
+        {
+            KernelArg::device_ptr(input.addr),
+            KernelArg::device_ptr(weight.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(total),
+            KernelArg::u32(batch_size)
+        }
+    )
+}
+
+/* Resolve and launch a 1d conv kernel with bias */
+void launch_conv1d_bias(
+    Context &context,
+    const TensorView &input,
+    const TensorView &weight,
+    const TensorView &bias,
+    const TensorView &out,
+    std::uint32_t total, 
+    std::uint32_t batch_size,
+    std::uint32_t in_channels,
+    std::uint32_t out_channels, 
+    std::uint32_t input_width,
+    std::uint32_t output_width,
+    std::uint32_t kernel_width,
+    std::uint32_t stride,
+    std::uint32_t padding,
+    const LaunchConfig *launch_config
+){
+    if (input.dtype != weight.dtype || input.dtype != out.dtype 
+        || input.dtype != bias.dtype || weight.dtype != bias.dtype) {
+        throw Error(Status::BadArgument);
+    }
+
+    context.launch_kernel(
+        std::string("conv1d.") + std::string(input.dtype),
+        {
+            KernelArg::device_ptr(input.addr),
+            KernelArg::device_ptr(weight.addr),
+            KernelArg::device_ptr(bias.addr),
+            KernelArg::device_ptr(out.addr),
+            KernelArg::u32(total),
+            KernelArg::u32(batch_size)
+        }
+    )
 }
 
 } // namespace minigpu::kernels

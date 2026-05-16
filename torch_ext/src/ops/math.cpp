@@ -175,6 +175,8 @@ at::Tensor linear(
     const at::Tensor &input,
     const at::Tensor &weight,
     const ::std::optional<at::Tensor> &bias) {
+
+    bool has_bias = false;
     if (input.device().type() != c10::DeviceType::PrivateUse1 ||
         weight.device().type() != c10::DeviceType::PrivateUse1) {
         throw std::runtime_error("aten::linear requires Mini-GPU tensors");
@@ -205,22 +207,40 @@ at::Tensor linear(
     }
 
     if (bias.has_value() && bias->defined()) {
-        throw std::runtime_error("aten::linear on Mini-GPU bias is not implemented yet");
+        // throw std::runtime_error("aten::linear on Mini-GPU bias is not implemented yet");
+        has_bias = true;
     }
 
     at::Tensor input_2d = input.dim() == 1 ? input.view({1, input.size(0)}) : input;
     auto out_2d = at::empty({input_2d.size(0), weight.size(0)}, input.options());
-    minigpu::kernels::launch_linear(
-        runtime_context(),
-        minigpu::kernels::TensorView{
-            device_address(input_2d), static_cast<std::size_t>(input_2d.numel()), dtype},
-        minigpu::kernels::TensorView{
-            device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
-        minigpu::kernels::TensorView{
-            device_address(out_2d), static_cast<std::size_t>(out_2d.numel()), dtype},
-        static_cast<std::uint32_t>(out_2d.numel()),
-        static_cast<std::uint32_t>(weight.size(0)),
-        static_cast<std::uint32_t>(weight.size(1)));
+
+    if(!has_bias){
+        minigpu::kernels::launch_linear(
+            runtime_context(),
+            minigpu::kernels::TensorView{
+                device_address(input_2d), static_cast<std::size_t>(input_2d.numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(out_2d), static_cast<std::size_t>(out_2d.numel()), dtype},
+            static_cast<std::uint32_t>(out_2d.numel()),
+            static_cast<std::uint32_t>(weight.size(0)),
+            static_cast<std::uint32_t>(weight.size(1)));
+    }else{
+        minigpu::kernels::launch_linear_bias(
+            runtime_context(),
+            minigpu::kernels::TensorView{
+                device_address(input_2d), static_cast<std::size_t>(input_2d.numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(weight), static_cast<std::size_t>(weight.numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(weight), static_cast<std::size_t>(bias.numel()), dtype},
+            minigpu::kernels::TensorView{
+                device_address(out_2d), static_cast<std::size_t>(out_2d.numel()), dtype},
+            static_cast<std::uint32_t>(out_2d.numel()),
+            static_cast<std::uint32_t>(weight.size(0)),
+            static_cast<std::uint32_t>(weight.size(1)));
+    }
     return input.dim() == 1 ? out_2d.view({weight.size(0)}) : out_2d;
 }
 
