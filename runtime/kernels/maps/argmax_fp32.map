@@ -1,0 +1,14 @@
+{
+  "symbols": [
+    {
+      "name": "argmax_fp32"
+    },
+    {
+      "name": "minigpu_float_gt"
+    },
+    {
+      "name": "minigpu_float_order_key"
+    }
+  ],
+  "instruction_words": 291
+}

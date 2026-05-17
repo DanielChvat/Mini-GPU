@@ -157,6 +157,80 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
         self.assert_tensor_close(torch.cos(ga), torch.cos(angles), rtol=5e-2, atol=5e-2)
         self.assert_tensor_close(torch.tan(ga), torch.tan(angles), rtol=1e-1, atol=1e-1)
 
+    def test_reductions_argmax_argmin_softmax(self):
+        x = torch.tensor([1.5, -2.0, 4.0, 0.25, -3.0, 2.0], dtype=torch.float32)
+        gx = self.to_minigpu(x)
+
+        self.assert_tensor_close(torch.sum(gx), torch.sum(x))
+        self.assert_tensor_close(torch.mean(gx), torch.mean(x), rtol=2e-2, atol=2e-2)
+        self.assert_tensor_close(torch.amax(gx), torch.amax(x))
+        self.assert_tensor_close(torch.amin(gx), torch.amin(x))
+        self.assert_tensor_close(torch.argmax(gx), torch.argmax(x).to(torch.int32), rtol=0, atol=0)
+        self.assert_tensor_close(torch.argmin(gx), torch.argmin(x).to(torch.int32), rtol=0, atol=0)
+        self.assert_tensor_close(torch.ops.minigpu.sum(gx), torch.sum(x))
+        self.assert_tensor_close(torch.ops.minigpu.mean(gx), torch.mean(x), rtol=2e-2, atol=2e-2)
+        self.assert_tensor_close(torch.ops.minigpu.amax(gx), torch.amax(x))
+        self.assert_tensor_close(torch.ops.minigpu.amin(gx), torch.amin(x))
+        self.assert_tensor_close(torch.ops.minigpu.argmax(gx), torch.argmax(x).to(torch.int32), rtol=0, atol=0)
+        self.assert_tensor_close(torch.ops.minigpu.argmin(gx), torch.argmin(x).to(torch.int32), rtol=0, atol=0)
+
+        logits = torch.tensor([[1.0, 2.0, -1.0], [0.5, -0.5, 3.0]], dtype=torch.float32)
+        self.assert_tensor_close(
+            torch.nn.functional.softmax(self.to_minigpu(logits), dim=-1),
+            torch.nn.functional.softmax(logits, dim=-1),
+            rtol=5e-2,
+            atol=5e-2,
+        )
+        self.assert_tensor_close(
+            torch.ops.minigpu.softmax(self.to_minigpu(logits), -1),
+            torch.nn.functional.softmax(logits, dim=-1),
+            rtol=5e-2,
+            atol=5e-2,
+        )
+
+    def test_pool2d_kernels(self):
+        x = torch.tensor(
+            [[[[1.0, -2.0, 0.5, 3.0],
+               [0.25, 1.5, -0.5, 2.0],
+               [2.5, -1.0, 4.0, 0.75],
+               [-0.25, 3.5, 1.0, -1.5]]]],
+            dtype=torch.float32,
+        )
+        gx = self.to_minigpu(x)
+
+        self.assert_tensor_close(
+            torch.nn.functional.max_pool2d(gx, kernel_size=2, stride=2),
+            torch.nn.functional.max_pool2d(x, kernel_size=2, stride=2),
+        )
+        self.assert_tensor_close(
+            torch.ops.minigpu.max_pool2d(gx, [2, 2], [2, 2]),
+            torch.nn.functional.max_pool2d(x, kernel_size=2, stride=2),
+        )
+        self.assert_tensor_close(
+            torch.nn.functional.avg_pool2d(gx, kernel_size=2, stride=2),
+            torch.nn.functional.avg_pool2d(x, kernel_size=2, stride=2),
+            rtol=2e-2,
+            atol=2e-2,
+        )
+        self.assert_tensor_close(
+            torch.ops.minigpu.avg_pool2d(gx, [2, 2], [2, 2]),
+            torch.nn.functional.avg_pool2d(x, kernel_size=2, stride=2),
+            rtol=2e-2,
+            atol=2e-2,
+        )
+        self.assert_tensor_close(
+            torch.nn.functional.adaptive_avg_pool2d(gx, output_size=(2, 2)),
+            torch.nn.functional.adaptive_avg_pool2d(x, output_size=(2, 2)),
+            rtol=2e-2,
+            atol=2e-2,
+        )
+        self.assert_tensor_close(
+            torch.ops.minigpu.adaptive_avg_pool2d(gx, [2, 2]),
+            torch.nn.functional.adaptive_avg_pool2d(x, output_size=(2, 2)),
+            rtol=2e-2,
+            atol=2e-2,
+        )
+
     def test_mm_and_linear(self):
         a = torch.tensor([[1.0, 2.0, -1.0], [0.5, -2.0, 4.0]], dtype=torch.float32)
         b = torch.tensor([[2.0, -1.0], [0.0, 3.0], [1.5, 0.5]], dtype=torch.float32)

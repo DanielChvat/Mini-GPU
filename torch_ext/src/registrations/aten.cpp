@@ -33,4 +33,17 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("sin", TORCH_FN(minigpu::torch_backend::sin));
     m.impl("cos", TORCH_FN(minigpu::torch_backend::cos));
     m.impl("tan", TORCH_FN(minigpu::torch_backend::tan));
+    m.impl("sum", TORCH_FN(minigpu::torch_backend::sum));
+    m.impl("sum.dim_IntList", TORCH_FN(minigpu::torch_backend::sum_dim));
+    m.impl("mean", TORCH_FN(minigpu::torch_backend::mean));
+    m.impl("mean.dim", TORCH_FN(minigpu::torch_backend::mean_dim));
+    m.impl("amax", TORCH_FN(minigpu::torch_backend::amax));
+    m.impl("amin", TORCH_FN(minigpu::torch_backend::amin));
+    m.impl("argmax", TORCH_FN(minigpu::torch_backend::argmax));
+    m.impl("argmin", TORCH_FN(minigpu::torch_backend::argmin));
+    m.impl("softmax.int", TORCH_FN(minigpu::torch_backend::softmax));
+    m.impl("_softmax", TORCH_FN(minigpu::torch_backend::softmax_impl));
+    m.impl("max_pool2d", TORCH_FN(minigpu::torch_backend::max_pool2d));
+    m.impl("avg_pool2d", TORCH_FN(minigpu::torch_backend::avg_pool2d));
+    m.impl("adaptive_avg_pool2d", TORCH_FN(minigpu::torch_backend::adaptive_avg_pool2d));
 }

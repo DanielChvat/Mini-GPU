@@ -291,6 +291,76 @@ artifacts:
     op: mul
     dtype: fp8_e4m3fn
     entry: mul_kernel_fp8
+- file: bin/max_pool2d_fp32.bin
+  map: maps/max_pool2d_fp32.map
+  kernels:
+  - name: max_pool2d.fp32
+    op: max_pool2d
+    dtype: fp32
+    entry: max_pool2d_fp32
+- file: bin/avg_pool2d_fp32.bin
+  map: maps/avg_pool2d_fp32.map
+  kernels:
+  - name: avg_pool2d.fp32
+    op: avg_pool2d
+    dtype: fp32
+    entry: avg_pool2d_fp32
+- file: bin/adaptive_avg_pool2d_fp32.bin
+  map: maps/adaptive_avg_pool2d_fp32.map
+  kernels:
+  - name: adaptive_avg_pool2d.fp32
+    op: adaptive_avg_pool2d
+    dtype: fp32
+    entry: adaptive_avg_pool2d_fp32
+- file: bin/sum_fp32.bin
+  map: maps/sum_fp32.map
+  kernels:
+  - name: sum.fp32
+    op: sum
+    dtype: fp32
+    entry: sum_fp32
+- file: bin/mean_fp32.bin
+  map: maps/mean_fp32.map
+  kernels:
+  - name: mean.fp32
+    op: mean
+    dtype: fp32
+    entry: mean_fp32
+- file: bin/amax_fp32.bin
+  map: maps/amax_fp32.map
+  kernels:
+  - name: amax.fp32
+    op: amax
+    dtype: fp32
+    entry: amax_fp32
+- file: bin/amin_fp32.bin
+  map: maps/amin_fp32.map
+  kernels:
+  - name: amin.fp32
+    op: amin
+    dtype: fp32
+    entry: amin_fp32
+- file: bin/argmax_fp32.bin
+  map: maps/argmax_fp32.map
+  kernels:
+  - name: argmax.fp32
+    op: argmax
+    dtype: fp32
+    entry: argmax_fp32
+- file: bin/argmin_fp32.bin
+  map: maps/argmin_fp32.map
+  kernels:
+  - name: argmin.fp32
+    op: argmin
+    dtype: fp32
+    entry: argmin_fp32
+- file: bin/softmax_fp32.bin
+  map: maps/softmax_fp32.map
+  kernels:
+  - name: softmax.fp32
+    op: softmax
+    dtype: fp32
+    entry: softmax_fp32
 - file: bin/sqrt_fp32.bin
   map: maps/sqrt_fp32.map
   kernels:

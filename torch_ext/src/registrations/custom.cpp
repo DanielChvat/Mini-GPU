@@ -1,5 +1,8 @@
 #include "minigpu_torch.hpp"
 
+#include <cstdint>
+#include <optional>
+
 #include <torch/library.h>
 
 TORCH_LIBRARY(minigpu, m) {
@@ -25,6 +28,16 @@ TORCH_LIBRARY(minigpu, m) {
     m.def("sin(Tensor a) -> Tensor");
     m.def("cos(Tensor a) -> Tensor");
     m.def("tan(Tensor a) -> Tensor");
+    m.def("sum(Tensor a) -> Tensor");
+    m.def("mean(Tensor a) -> Tensor");
+    m.def("amax(Tensor a) -> Tensor");
+    m.def("amin(Tensor a) -> Tensor");
+    m.def("argmax(Tensor a) -> Tensor");
+    m.def("argmin(Tensor a) -> Tensor");
+    m.def("softmax(Tensor a, int dim) -> Tensor");
+    m.def("max_pool2d(Tensor a, int[] kernel_size, int[] stride=[]) -> Tensor");
+    m.def("avg_pool2d(Tensor a, int[] kernel_size, int[] stride=[]) -> Tensor");
+    m.def("adaptive_avg_pool2d(Tensor a, SymInt[] output_size) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(minigpu, PrivateUse1, m) {
@@ -50,4 +63,32 @@ TORCH_LIBRARY_IMPL(minigpu, PrivateUse1, m) {
     m.impl("sin", TORCH_FN(minigpu::torch_backend::sin));
     m.impl("cos", TORCH_FN(minigpu::torch_backend::cos));
     m.impl("tan", TORCH_FN(minigpu::torch_backend::tan));
+    m.impl("sum", [](const at::Tensor &a) {
+        return minigpu::torch_backend::sum(a, c10::nullopt);
+    });
+    m.impl("mean", [](const at::Tensor &a) {
+        return minigpu::torch_backend::mean(a, c10::nullopt);
+    });
+    m.impl("amax", [](const at::Tensor &a) {
+        return minigpu::torch_backend::amax(a, {}, false);
+    });
+    m.impl("amin", [](const at::Tensor &a) {
+        return minigpu::torch_backend::amin(a, {}, false);
+    });
+    m.impl("argmax", [](const at::Tensor &a) {
+        return minigpu::torch_backend::argmax(a, std::nullopt, false);
+    });
+    m.impl("argmin", [](const at::Tensor &a) {
+        return minigpu::torch_backend::argmin(a, std::nullopt, false);
+    });
+    m.impl("softmax", [](const at::Tensor &a, std::int64_t dim) {
+        return minigpu::torch_backend::softmax(a, dim, c10::nullopt);
+    });
+    m.impl("max_pool2d", [](const at::Tensor &a, at::IntArrayRef kernel_size, at::IntArrayRef stride) {
+        return minigpu::torch_backend::max_pool2d(a, kernel_size, stride, {0, 0}, {1, 1}, false);
+    });
+    m.impl("avg_pool2d", [](const at::Tensor &a, at::IntArrayRef kernel_size, at::IntArrayRef stride) {
+        return minigpu::torch_backend::avg_pool2d(a, kernel_size, stride, {0, 0}, false, true, std::nullopt);
+    });
+    m.impl("adaptive_avg_pool2d", TORCH_FN(minigpu::torch_backend::adaptive_avg_pool2d));
 }

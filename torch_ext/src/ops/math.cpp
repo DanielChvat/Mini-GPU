@@ -3,9 +3,11 @@
 #include "elementwise.hpp"
 #include "minigpu_kernels.hpp"
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace minigpu::torch_backend {
@@ -85,6 +87,74 @@ bool sym_array_all(c10::SymIntArrayRef values, std::int64_t expected) {
     return true;
 }
 
+std::vector<std::int64_t> scalar_or_keepdim_shape(const at::Tensor &tensor, bool keepdim) {
+    if (!keepdim) {
+        return {};
+    }
+    return std::vector<std::int64_t>(static_cast<std::size_t>(tensor.dim()), 1);
+}
+
+bool dims_cover_all(at::OptionalIntArrayRef dims, std::int64_t rank) {
+    if (!dims.has_value()) {
+        return true;
+    }
+    if (dims->empty()) {
+        return true;
+    }
+    if (static_cast<std::int64_t>(dims->size()) != rank) {
+        return false;
+    }
+    std::vector<bool> seen(static_cast<std::size_t>(rank), false);
+    for (auto dim : *dims) {
+        if (dim < 0) {
+            dim += rank;
+        }
+        if (dim < 0 || dim >= rank || seen[static_cast<std::size_t>(dim)]) {
+            return false;
+        }
+        seen[static_cast<std::size_t>(dim)] = true;
+    }
+    return true;
+}
+
+bool dims_cover_all(at::IntArrayRef dims, std::int64_t rank) {
+    if (dims.empty()) {
+        return true;
+    }
+    if (static_cast<std::int64_t>(dims.size()) != rank) {
+        return false;
+    }
+    std::vector<bool> seen(static_cast<std::size_t>(rank), false);
+    for (auto dim : dims) {
+        if (dim < 0) {
+            dim += rank;
+        }
+        if (dim < 0 || dim >= rank || seen[static_cast<std::size_t>(dim)]) {
+            return false;
+        }
+        seen[static_cast<std::size_t>(dim)] = true;
+    }
+    return true;
+}
+
+std::array<std::uint32_t, 2> pair_u32_or(
+    at::IntArrayRef values,
+    std::uint32_t fallback_h,
+    std::uint32_t fallback_w,
+    const char *name) {
+    if (values.empty()) {
+        return {fallback_h, fallback_w};
+    }
+    if (values.size() == 1) {
+        auto value = checked_u32(values[0], name);
+        return {value, value};
+    }
+    if (values.size() == 2) {
+        return {checked_u32(values[0], name), checked_u32(values[1], name)};
+    }
+    throw std::runtime_error(std::string(name) + " expects one or two values");
+}
+
 std::string_view supported_kernel_dtype(const at::Tensor &tensor, const char *op_name) {
     if (tensor.scalar_type() == at::kInt) {
         return "i32";
@@ -93,6 +163,54 @@ std::string_view supported_kernel_dtype(const at::Tensor &tensor, const char *op
         return "fp32";
     }
     throw std::runtime_error(std::string(op_name) + " on Mini-GPU currently supports int32 and fp32");
+}
+
+void require_fp32_minigpu_contiguous(const at::Tensor &tensor, const char *op_name) {
+    require_minigpu_contiguous(tensor, op_name);
+    if (tensor.scalar_type() != at::kFloat) {
+        throw std::runtime_error(std::string(op_name) + " on Mini-GPU currently supports fp32 only");
+    }
+}
+
+at::Tensor run_global_reduction_kernel(
+    const at::Tensor &a,
+    const char *kernel_name,
+    const char *op_name,
+    bool keepdim) {
+    require_fp32_minigpu_contiguous(a, op_name);
+    if (a.numel() <= 0) {
+        throw std::runtime_error(std::string(op_name) + " on Mini-GPU requires non-empty input");
+    }
+    auto out = at::empty(scalar_or_keepdim_shape(a, keepdim), a.options());
+    runtime_context().launch_kernel(
+        kernel_name,
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(a.numel(), "reduction input size")),
+        });
+    return out;
+}
+
+at::Tensor run_mean_kernel(
+    const at::Tensor &a,
+    const char *op_name,
+    bool keepdim) {
+    require_fp32_minigpu_contiguous(a, op_name);
+    if (a.numel() <= 0) {
+        throw std::runtime_error(std::string(op_name) + " on Mini-GPU requires non-empty input");
+    }
+    auto out = at::empty(scalar_or_keepdim_shape(a, keepdim), a.options());
+    const auto count = checked_u32(a.numel(), "mean input size");
+    runtime_context().launch_kernel(
+        "mean.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(count),
+            minigpu::KernelArg::f32(1.0f / static_cast<float>(count)),
+        });
+    return out;
 }
 
 } // namespace
@@ -705,6 +823,238 @@ at::Tensor cos(const at::Tensor &a) {
 
 at::Tensor tan(const at::Tensor &a) {
     return to_minigpu_tensor(at::tan(to_cpu_tensor(a, "aten::tan")), a.options());
+}
+
+at::Tensor sum(const at::Tensor &a, c10::optional<c10::ScalarType> dtype) {
+    if (dtype.has_value() && *dtype != at::kFloat) {
+        throw std::runtime_error("aten::sum on Mini-GPU currently supports fp32 output only");
+    }
+    return run_global_reduction_kernel(a, "sum.fp32", "aten::sum", false);
+}
+
+at::Tensor sum_dim(
+    const at::Tensor &a,
+    at::OptionalIntArrayRef dim,
+    bool keepdim,
+    c10::optional<c10::ScalarType> dtype) {
+    if (!dims_cover_all(dim, a.dim())) {
+        throw std::runtime_error("aten::sum.dim_IntList on Mini-GPU currently supports all-dim reductions only");
+    }
+    if (dtype.has_value() && *dtype != at::kFloat) {
+        throw std::runtime_error("aten::sum.dim_IntList on Mini-GPU currently supports fp32 output only");
+    }
+    return run_global_reduction_kernel(a, "sum.fp32", "aten::sum.dim_IntList", keepdim);
+}
+
+at::Tensor mean(const at::Tensor &a, c10::optional<c10::ScalarType> dtype) {
+    if (dtype.has_value() && *dtype != at::kFloat) {
+        throw std::runtime_error("aten::mean on Mini-GPU currently supports fp32 output only");
+    }
+    return run_mean_kernel(a, "aten::mean", false);
+}
+
+at::Tensor mean_dim(
+    const at::Tensor &a,
+    at::OptionalIntArrayRef dim,
+    bool keepdim,
+    c10::optional<c10::ScalarType> dtype) {
+    if (!dims_cover_all(dim, a.dim())) {
+        throw std::runtime_error("aten::mean.dim on Mini-GPU currently supports all-dim reductions only");
+    }
+    if (dtype.has_value() && *dtype != at::kFloat) {
+        throw std::runtime_error("aten::mean.dim on Mini-GPU currently supports fp32 output only");
+    }
+    return run_mean_kernel(a, "aten::mean.dim", keepdim);
+}
+
+at::Tensor amax(const at::Tensor &a, at::IntArrayRef dim, bool keepdim) {
+    if (!dims_cover_all(dim, a.dim())) {
+        throw std::runtime_error("aten::amax on Mini-GPU currently supports all-dim reductions only");
+    }
+    return run_global_reduction_kernel(a, "amax.fp32", "aten::amax", keepdim);
+}
+
+at::Tensor amin(const at::Tensor &a, at::IntArrayRef dim, bool keepdim) {
+    if (!dims_cover_all(dim, a.dim())) {
+        throw std::runtime_error("aten::amin on Mini-GPU currently supports all-dim reductions only");
+    }
+    return run_global_reduction_kernel(a, "amin.fp32", "aten::amin", keepdim);
+}
+
+at::Tensor argmax(const at::Tensor &a, ::std::optional<std::int64_t> dim, bool keepdim) {
+    if (dim.has_value()) {
+        throw std::runtime_error("aten::argmax on Mini-GPU currently supports dim=None only");
+    }
+    require_fp32_minigpu_contiguous(a, "aten::argmax");
+    auto out = at::empty(scalar_or_keepdim_shape(a, keepdim), a.options().dtype(at::kInt));
+    runtime_context().launch_kernel(
+        "argmax.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(a.numel(), "argmax input size")),
+        });
+    return out;
+}
+
+at::Tensor argmin(const at::Tensor &a, ::std::optional<std::int64_t> dim, bool keepdim) {
+    if (dim.has_value()) {
+        throw std::runtime_error("aten::argmin on Mini-GPU currently supports dim=None only");
+    }
+    require_fp32_minigpu_contiguous(a, "aten::argmin");
+    auto out = at::empty(scalar_or_keepdim_shape(a, keepdim), a.options().dtype(at::kInt));
+    runtime_context().launch_kernel(
+        "argmin.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(a.numel(), "argmin input size")),
+        });
+    return out;
+}
+
+at::Tensor softmax(const at::Tensor &a, std::int64_t dim, c10::optional<c10::ScalarType> dtype) {
+    if (dtype.has_value() && *dtype != at::kFloat) {
+        throw std::runtime_error("aten::softmax on Mini-GPU currently supports fp32 output only");
+    }
+    return softmax_impl(a, dim, false);
+}
+
+at::Tensor softmax_impl(const at::Tensor &a, std::int64_t dim, bool half_to_float) {
+    if (half_to_float) {
+        throw std::runtime_error("aten::_softmax on Mini-GPU does not support half_to_float yet");
+    }
+    require_fp32_minigpu_contiguous(a, "aten::_softmax");
+    if (a.dim() == 0) {
+        throw std::runtime_error("aten::_softmax on Mini-GPU requires at least 1D input");
+    }
+    if (dim < 0) {
+        dim += a.dim();
+    }
+    if (dim != a.dim() - 1) {
+        throw std::runtime_error("aten::_softmax on Mini-GPU currently supports the last dimension only");
+    }
+    auto out = at::empty_like(a);
+    const auto cols = checked_u32(a.size(dim), "softmax cols");
+    const auto rows = checked_u32(a.numel() / a.size(dim), "softmax rows");
+    runtime_context().launch_kernel(
+        "softmax.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(rows),
+            minigpu::KernelArg::u32(cols),
+        });
+    return out;
+}
+
+at::Tensor max_pool2d(
+    const at::Tensor &a,
+    at::IntArrayRef kernel_size,
+    at::IntArrayRef stride,
+    at::IntArrayRef padding,
+    at::IntArrayRef dilation,
+    bool ceil_mode) {
+    require_fp32_minigpu_contiguous(a, "aten::max_pool2d");
+    if (a.dim() != 4) {
+        throw std::runtime_error("aten::max_pool2d on Mini-GPU requires NCHW input");
+    }
+    auto [kernel_h, kernel_w] = pair_u32_or(kernel_size, 0, 0, "max_pool2d kernel_size");
+    auto [stride_h, stride_w] = pair_u32_or(stride, kernel_h, kernel_w, "max_pool2d stride");
+    auto [padding_h, padding_w] = pair_u32_or(padding, 0, 0, "max_pool2d padding");
+    auto [dilation_h, dilation_w] = pair_u32_or(dilation, 1, 1, "max_pool2d dilation");
+    if (padding_h != 0 || padding_w != 0 || dilation_h != 1 || dilation_w != 1 || ceil_mode) {
+        throw std::runtime_error("aten::max_pool2d on Mini-GPU currently requires padding=0 dilation=1 ceil_mode=False");
+    }
+    if (kernel_h != 2 || kernel_w != 2) {
+        throw std::runtime_error("aten::max_pool2d on Mini-GPU currently supports kernel_size=2 only");
+    }
+    const auto out_h = checked_u32((a.size(2) - kernel_h) / stride_h + 1, "max_pool2d output height");
+    const auto out_w = checked_u32((a.size(3) - kernel_w) / stride_w + 1, "max_pool2d output width");
+    auto out = at::empty({a.size(0), a.size(1), out_h, out_w}, a.options());
+    runtime_context().launch_kernel(
+        "max_pool2d.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(out.numel(), "max_pool2d output size")),
+            minigpu::KernelArg::u32(checked_u32(a.size(1), "max_pool2d channels")),
+            minigpu::KernelArg::u32(checked_u32(a.size(2), "max_pool2d input height")),
+            minigpu::KernelArg::u32(checked_u32(a.size(3), "max_pool2d input width")),
+            minigpu::KernelArg::u32(out_h),
+            minigpu::KernelArg::u32(out_w),
+            minigpu::KernelArg::u32(stride_h),
+            minigpu::KernelArg::u32(stride_w),
+        });
+    return out;
+}
+
+at::Tensor avg_pool2d(
+    const at::Tensor &a,
+    at::IntArrayRef kernel_size,
+    at::IntArrayRef stride,
+    at::IntArrayRef padding,
+    bool ceil_mode,
+    bool count_include_pad,
+    ::std::optional<std::int64_t> divisor_override) {
+    require_fp32_minigpu_contiguous(a, "aten::avg_pool2d");
+    if (a.dim() != 4) {
+        throw std::runtime_error("aten::avg_pool2d on Mini-GPU requires NCHW input");
+    }
+    auto [kernel_h, kernel_w] = pair_u32_or(kernel_size, 0, 0, "avg_pool2d kernel_size");
+    auto [stride_h, stride_w] = pair_u32_or(stride, kernel_h, kernel_w, "avg_pool2d stride");
+    auto [padding_h, padding_w] = pair_u32_or(padding, 0, 0, "avg_pool2d padding");
+    if (padding_h != 0 || padding_w != 0 || ceil_mode || !count_include_pad || divisor_override.has_value()) {
+        throw std::runtime_error("aten::avg_pool2d on Mini-GPU currently requires padding=0 ceil_mode=False count_include_pad=True and no divisor_override");
+    }
+    if (kernel_h != 2 || kernel_w != 2) {
+        throw std::runtime_error("aten::avg_pool2d on Mini-GPU currently supports kernel_size=2 only");
+    }
+    const auto out_h = checked_u32((a.size(2) - kernel_h) / stride_h + 1, "avg_pool2d output height");
+    const auto out_w = checked_u32((a.size(3) - kernel_w) / stride_w + 1, "avg_pool2d output width");
+    auto out = at::empty({a.size(0), a.size(1), out_h, out_w}, a.options());
+    runtime_context().launch_kernel(
+        "avg_pool2d.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(out.numel(), "avg_pool2d output size")),
+            minigpu::KernelArg::u32(checked_u32(a.size(1), "avg_pool2d channels")),
+            minigpu::KernelArg::u32(checked_u32(a.size(2), "avg_pool2d input height")),
+            minigpu::KernelArg::u32(checked_u32(a.size(3), "avg_pool2d input width")),
+            minigpu::KernelArg::u32(out_h),
+            minigpu::KernelArg::u32(out_w),
+            minigpu::KernelArg::u32(stride_h),
+            minigpu::KernelArg::u32(stride_w),
+        });
+    return out;
+}
+
+at::Tensor adaptive_avg_pool2d(const at::Tensor &a, c10::SymIntArrayRef output_size) {
+    require_fp32_minigpu_contiguous(a, "aten::adaptive_avg_pool2d");
+    if (a.dim() != 4 || output_size.size() != 2) {
+        throw std::runtime_error("aten::adaptive_avg_pool2d on Mini-GPU requires NCHW input and 2D output_size");
+    }
+    const auto out_h = sym_array_u32(output_size, 0, "adaptive_avg_pool2d output height");
+    const auto out_w = sym_array_u32(output_size, 1, "adaptive_avg_pool2d output width");
+    if (a.size(2) != static_cast<std::int64_t>(out_h) * 2 ||
+        a.size(3) != static_cast<std::int64_t>(out_w) * 2) {
+        throw std::runtime_error("aten::adaptive_avg_pool2d on Mini-GPU currently supports exact 2x downsampling only");
+    }
+    auto out = at::empty({a.size(0), a.size(1), out_h, out_w}, a.options());
+    runtime_context().launch_kernel(
+        "adaptive_avg_pool2d.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(a)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(out.numel(), "adaptive_avg_pool2d output size")),
+            minigpu::KernelArg::u32(checked_u32(a.size(1), "adaptive_avg_pool2d channels")),
+            minigpu::KernelArg::u32(checked_u32(a.size(2), "adaptive_avg_pool2d input height")),
+            minigpu::KernelArg::u32(checked_u32(a.size(3), "adaptive_avg_pool2d input width")),
+            minigpu::KernelArg::u32(out_h),
+            minigpu::KernelArg::u32(out_w),
+        });
+    return out;
 }
 
 } // namespace minigpu::torch_backend

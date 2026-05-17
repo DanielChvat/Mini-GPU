@@ -184,6 +184,42 @@ at::Tensor sin(const at::Tensor &a);
 at::Tensor cos(const at::Tensor &a);
 at::Tensor tan(const at::Tensor &a);
 
+/* Reductions and simple NN helpers. */
+at::Tensor sum(const at::Tensor &a, c10::optional<c10::ScalarType> dtype);
+at::Tensor sum_dim(
+    const at::Tensor &a,
+    at::OptionalIntArrayRef dim,
+    bool keepdim,
+    c10::optional<c10::ScalarType> dtype);
+at::Tensor mean(const at::Tensor &a, c10::optional<c10::ScalarType> dtype);
+at::Tensor mean_dim(
+    const at::Tensor &a,
+    at::OptionalIntArrayRef dim,
+    bool keepdim,
+    c10::optional<c10::ScalarType> dtype);
+at::Tensor amax(const at::Tensor &a, at::IntArrayRef dim, bool keepdim);
+at::Tensor amin(const at::Tensor &a, at::IntArrayRef dim, bool keepdim);
+at::Tensor argmax(const at::Tensor &a, ::std::optional<std::int64_t> dim, bool keepdim);
+at::Tensor argmin(const at::Tensor &a, ::std::optional<std::int64_t> dim, bool keepdim);
+at::Tensor softmax(const at::Tensor &a, std::int64_t dim, c10::optional<c10::ScalarType> dtype);
+at::Tensor softmax_impl(const at::Tensor &a, std::int64_t dim, bool half_to_float);
+at::Tensor max_pool2d(
+    const at::Tensor &a,
+    at::IntArrayRef kernel_size,
+    at::IntArrayRef stride,
+    at::IntArrayRef padding,
+    at::IntArrayRef dilation,
+    bool ceil_mode);
+at::Tensor avg_pool2d(
+    const at::Tensor &a,
+    at::IntArrayRef kernel_size,
+    at::IntArrayRef stride,
+    at::IntArrayRef padding,
+    bool ceil_mode,
+    bool count_include_pad,
+    ::std::optional<std::int64_t> divisor_override);
+at::Tensor adaptive_avg_pool2d(const at::Tensor &a, c10::SymIntArrayRef output_size);
+
 } // namespace minigpu::torch_backend
 
 #endif

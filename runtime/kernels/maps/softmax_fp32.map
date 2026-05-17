@@ -1,0 +1,20 @@
+{
+  "symbols": [
+    {
+      "name": "softmax_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "minigpu_mask_u32"
+    },
+    {
+      "name": "minigpu_select_u32"
+    },
+    {
+      "name": "rcpf"
+    }
+  ],
+  "instruction_words": 1188
+}

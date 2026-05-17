@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "max_pool2d_fp32"
+    }
+  ],
+  "instruction_words": 892
+}

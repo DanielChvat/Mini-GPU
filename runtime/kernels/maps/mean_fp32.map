@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "mean_fp32"
+    }
+  ],
+  "instruction_words": 119
+}
