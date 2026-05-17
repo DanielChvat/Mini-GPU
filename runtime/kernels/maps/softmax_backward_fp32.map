@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "softmax_backward_fp32"
+    }
+  ],
+  "instruction_words": 300
+}

@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "relu_backward_fp32"
+    }
+  ],
+  "instruction_words": 173
+}

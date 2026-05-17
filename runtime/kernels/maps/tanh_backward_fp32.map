@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "tanh_backward_fp32"
+    }
+  ],
+  "instruction_words": 124
+}

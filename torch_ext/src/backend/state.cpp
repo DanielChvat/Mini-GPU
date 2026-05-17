@@ -4,6 +4,9 @@
 #include "minigpu_runtime.hpp"
 #include "transports/gpu_comm_transport.hpp"
 
+#include <ATen/CPUGeneratorImpl.h>
+#include <ATen/detail/PrivateUse1HooksInterface.h>
+
 #include <memory>
 #include <mutex>
 #include <cstdlib>
@@ -25,6 +28,44 @@ struct BackendState {
 std::mutex state_mutex;
 BackendState state;
 
+class MiniGpuPrivateUse1Hooks final : public at::PrivateUse1HooksInterface {
+public:
+    bool isBuilt() const override {
+        return true;
+    }
+
+    bool isAvailable() const override {
+        return state.context != nullptr;
+    }
+
+    const at::Generator &getDefaultGenerator(c10::DeviceIndex device_index) const override {
+        (void)device_index;
+        return at::detail::getDefaultCPUGenerator();
+    }
+
+    at::Device getDeviceFromPtr(void *data) const override {
+        (void)data;
+        return at::Device(c10::DeviceType::PrivateUse1, 0);
+    }
+
+    c10::Allocator *getPinnedMemoryAllocator() const override {
+        return nullptr;
+    }
+
+    bool hasPrimaryContext(c10::DeviceIndex device_index) const override {
+        return device_index == 0 && state.context != nullptr;
+    }
+
+    void resizePrivateUse1Bytes(const c10::Storage &storage, std::size_t newsize) const override {
+        (void)storage;
+        if (newsize != 0) {
+            throw std::runtime_error("Mini-GPU storage resize is not supported yet");
+        }
+    }
+};
+
+MiniGpuPrivateUse1Hooks hooks;
+
 } // namespace
 
 minigpu::Context &runtime_context() {
@@ -41,6 +82,9 @@ void init() {
         return;
     }
 
+    if (!at::isPrivateUse1HooksRegistered()) {
+        at::RegisterPrivateUse1HooksInterface(&hooks);
+    }
     state.initialized = true;
 }
 
@@ -94,6 +138,9 @@ void connect(const std::string &port, std::uint32_t baud, std::uint32_t memory_s
     config.transport = minigpu::transports::make_gpu_comm_transport(dev);
 
     try {
+        if (!at::isPrivateUse1HooksRegistered()) {
+            at::RegisterPrivateUse1HooksInterface(&hooks);
+        }
         state.context = std::make_unique<minigpu::Context>(std::move(config));
         minigpu::kernels::register_builtin_kernels(*state.context);
         state.dev = dev;

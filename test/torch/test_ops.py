@@ -105,6 +105,18 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
         self.assert_tensor_close(torch.sigmoid(gx), torch.sigmoid(x), rtol=5e-2, atol=5e-2)
         self.assert_tensor_close(torch.tanh(gx), torch.tanh(x), rtol=5e-2, atol=5e-2)
 
+    def test_activation_backward(self):
+        x = torch.tensor([-2.0, -0.5, 0.0, 0.75, 2.0], dtype=torch.float32)
+        grad = torch.tensor([1.0, -0.25, 0.5, 2.0, -1.5], dtype=torch.float32)
+
+        for fn in (torch.relu, torch.sigmoid, torch.tanh):
+            with self.subTest(fn=fn.__name__):
+                cpu_x = x.clone().requires_grad_(True)
+                gpu_x = self.to_minigpu(x).detach().requires_grad_(True)
+                fn(cpu_x).backward(grad)
+                fn(gpu_x).backward(self.to_minigpu(grad))
+                self.assert_tensor_close(gpu_x.grad, cpu_x.grad, rtol=7e-2, atol=7e-2)
+
     def test_log_log2_pow(self):
         x = torch.tensor([0.001, 0.01, 0.1, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 256.0], dtype=torch.float32)
         y = torch.tensor([0.5, -0.25, 2.0, 3.0, 2.0, 1.0, 2.0, 0.5, 3.0, -1.0, 0.25, 0.125], dtype=torch.float32)
@@ -187,6 +199,16 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
             rtol=5e-2,
             atol=5e-2,
         )
+
+    def test_softmax_backward(self):
+        logits = torch.tensor([[0.25, 1.0, -0.5], [2.0, -1.0, 0.5]], dtype=torch.float32)
+        grad = torch.tensor([[0.5, -0.25, 1.0], [-1.0, 0.75, 0.25]], dtype=torch.float32)
+        cpu_x = logits.clone().requires_grad_(True)
+        gpu_x = self.to_minigpu(logits).detach().requires_grad_(True)
+
+        torch.nn.functional.softmax(cpu_x, dim=-1).backward(grad)
+        torch.nn.functional.softmax(gpu_x, dim=-1).backward(self.to_minigpu(grad))
+        self.assert_tensor_close(gpu_x.grad, cpu_x.grad, rtol=7e-2, atol=7e-2)
 
     def test_pool2d_kernels(self):
         x = torch.tensor(
@@ -334,6 +356,26 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
             torch.nn.functional.linear(self.to_minigpu(x), self.to_minigpu(weight)),
             torch.nn.functional.linear(x, weight),
         )
+
+    def test_linear_backward(self):
+        x = torch.tensor([[1.0, -2.0, 0.5], [0.25, 1.5, -1.0]], dtype=torch.float32)
+        weight = torch.tensor([[0.5, -1.0, 2.0], [1.5, 0.25, -0.5]], dtype=torch.float32)
+        bias = torch.tensor([0.25, -0.75], dtype=torch.float32)
+        grad = torch.tensor([[1.0, -0.5], [0.25, 2.0]], dtype=torch.float32)
+
+        cpu_x = x.clone().requires_grad_(True)
+        cpu_weight = weight.clone().requires_grad_(True)
+        cpu_bias = bias.clone().requires_grad_(True)
+        gpu_x = self.to_minigpu(x).detach().requires_grad_(True)
+        gpu_weight = self.to_minigpu(weight).detach().requires_grad_(True)
+        gpu_bias = self.to_minigpu(bias).detach().requires_grad_(True)
+
+        torch.nn.functional.linear(cpu_x, cpu_weight, cpu_bias).backward(grad)
+        torch.nn.functional.linear(gpu_x, gpu_weight, gpu_bias).backward(self.to_minigpu(grad))
+
+        self.assert_tensor_close(gpu_x.grad, cpu_x.grad)
+        self.assert_tensor_close(gpu_weight.grad, cpu_weight.grad)
+        self.assert_tensor_close(gpu_bias.grad, cpu_bias.grad)
 
     def test_conv1d_kernel(self):
         x = torch.tensor(

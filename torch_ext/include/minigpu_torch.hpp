@@ -5,8 +5,10 @@
 #include <c10/core/Device.h>
 #include "minigpu_runtime.hpp"
 
+#include <array>
 #include <cstdint>
 #include <string>
+#include <tuple>
 
 namespace minigpu::torch_backend {
 
@@ -219,6 +221,24 @@ at::Tensor avg_pool2d(
     bool count_include_pad,
     ::std::optional<std::int64_t> divisor_override);
 at::Tensor adaptive_avg_pool2d(const at::Tensor &a, c10::SymIntArrayRef output_size);
+
+/* Backward kernels used by PyTorch autograd formulas. */
+at::Tensor threshold_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &self,
+    const at::Scalar &threshold);
+at::Tensor sigmoid_backward(const at::Tensor &grad_output, const at::Tensor &output);
+at::Tensor tanh_backward(const at::Tensor &grad_output, const at::Tensor &output);
+at::Tensor softmax_backward_data(
+    const at::Tensor &grad_output,
+    const at::Tensor &output,
+    std::int64_t dim,
+    at::ScalarType input_dtype);
+std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_backward(
+    const at::Tensor &self,
+    const at::Tensor &grad_output,
+    const at::Tensor &weight,
+    std::array<bool, 3> output_mask);
 
 } // namespace minigpu::torch_backend
 

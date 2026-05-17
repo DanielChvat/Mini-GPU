@@ -25,6 +25,27 @@ artifacts:
     op: tanh
     dtype: fp32
     entry: tanh_fp32
+- file: bin/relu_backward_fp32.bin
+  map: maps/relu_backward_fp32.map
+  kernels:
+  - name: relu_backward.fp32
+    op: relu_backward
+    dtype: fp32
+    entry: relu_backward_fp32
+- file: bin/sigmoid_backward_fp32.bin
+  map: maps/sigmoid_backward_fp32.map
+  kernels:
+  - name: sigmoid_backward.fp32
+    op: sigmoid_backward
+    dtype: fp32
+    entry: sigmoid_backward_fp32
+- file: bin/tanh_backward_fp32.bin
+  map: maps/tanh_backward_fp32.map
+  kernels:
+  - name: tanh_backward.fp32
+    op: tanh_backward
+    dtype: fp32
+    entry: tanh_backward_fp32
 - file: bin/relu_i32.bin
   map: maps/relu_i32.map
   kernels:
@@ -67,6 +88,34 @@ artifacts:
     op: relu
     dtype: fp8_e4m3fn
     entry: relu_kernel_fp8
+- file: bin/softmax_backward_fp32.bin
+  map: maps/softmax_backward_fp32.map
+  kernels:
+  - name: softmax_backward.fp32
+    op: softmax_backward
+    dtype: fp32
+    entry: softmax_backward_fp32
+- file: bin/linear_backward_input_fp32.bin
+  map: maps/linear_backward_input_fp32.map
+  kernels:
+  - name: linear_backward_input.fp32
+    op: linear_backward_input
+    dtype: fp32
+    entry: linear_backward_input_fp32
+- file: bin/linear_backward_weight_fp32.bin
+  map: maps/linear_backward_weight_fp32.map
+  kernels:
+  - name: linear_backward_weight.fp32
+    op: linear_backward_weight
+    dtype: fp32
+    entry: linear_backward_weight_fp32
+- file: bin/linear_backward_bias_fp32.bin
+  map: maps/linear_backward_bias_fp32.map
+  kernels:
+  - name: linear_backward_bias.fp32
+    op: linear_backward_bias
+    dtype: fp32
+    entry: linear_backward_bias_fp32
 - file: bin/scal_fp32.bin
   map: maps/scal_fp32.map
   kernels:

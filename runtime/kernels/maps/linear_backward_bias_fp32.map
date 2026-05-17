@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "linear_backward_bias_fp32"
+    }
+  ],
+  "instruction_words": 175
+}

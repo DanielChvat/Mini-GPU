@@ -90,9 +90,107 @@ public:
 MiniGpuAllocator g_minigpu_allocator;
 c10::AllocatorRegisterer<c10::DeviceType::PrivateUse1>
     g_minigpu_allocator_registerer(&g_minigpu_allocator);
-C10_REGISTER_GUARD_IMPL(
-    PrivateUse1,
-    c10::impl::NoOpDeviceGuardImpl<c10::DeviceType::PrivateUse1>)
+
+class MiniGpuDeviceGuardImpl final
+    : public c10::impl::NoOpDeviceGuardImpl<c10::DeviceType::PrivateUse1> {
+public:
+    c10::Device exchangeDevice(c10::Device device) const override {
+        setDevice(device);
+        return c10::Device(kMiniGpuDeviceType, 0);
+    }
+
+    c10::Device getDevice() const override {
+        return c10::Device(kMiniGpuDeviceType, 0);
+    }
+
+    void setDevice(c10::Device device) const override {
+        if (device.type() != kMiniGpuDeviceType || device.index() > 0) {
+            throw std::runtime_error("Mini-GPU currently only supports device index 0");
+        }
+    }
+
+    void uncheckedSetDevice(c10::Device device) const noexcept override {
+        (void)device;
+    }
+
+    c10::Stream getStream(c10::Device device) const noexcept override {
+        (void)device;
+        return c10::Stream(c10::Stream::DEFAULT, c10::Device(kMiniGpuDeviceType, 0));
+    }
+
+    c10::Stream getDefaultStream(c10::Device device) const override {
+        return getStream(device);
+    }
+
+    c10::Stream getStreamFromGlobalPool(c10::Device device, bool isHighPriority = false)
+        const override {
+        (void)isHighPriority;
+        return getStream(device);
+    }
+
+    c10::Stream getNewStream(c10::Device device, int priority = 0) const override {
+        (void)priority;
+        return getStream(device);
+    }
+
+    c10::Stream exchangeStream(c10::Stream stream) const noexcept override {
+        (void)stream;
+        return c10::Stream(c10::Stream::DEFAULT, c10::Device(kMiniGpuDeviceType, 0));
+    }
+
+    void record(
+        void **event,
+        const c10::Stream &stream,
+        const c10::DeviceIndex device_index,
+        const c10::EventFlag flag) const override {
+        (void)stream;
+        (void)device_index;
+        (void)flag;
+        static int completed_event = 0;
+        if (event && *event == nullptr) {
+            *event = &completed_event;
+        }
+    }
+
+    void block(void *event, const c10::Stream &stream) const override {
+        (void)event;
+        (void)stream;
+    }
+
+    bool queryEvent(void *event) const override {
+        (void)event;
+        return true;
+    }
+
+    void synchronizeEvent(void *event) const override {
+        (void)event;
+    }
+
+    void synchronizeDevice(const c10::DeviceIndex device_index) const override {
+        (void)device_index;
+    }
+
+    bool queryStream(const c10::Stream &stream) const override {
+        (void)stream;
+        return true;
+    }
+
+    void synchronizeStream(const c10::Stream &stream) const override {
+        (void)stream;
+    }
+
+    double elapsedTime(
+        void *event1,
+        void *event2,
+        const c10::DeviceIndex device_index) const override {
+        (void)event1;
+        (void)event2;
+        (void)device_index;
+        return 0.0;
+    }
+};
+
+C10_REGISTER_GUARD_IMPL(PrivateUse1, MiniGpuDeviceGuardImpl)
 
 /* Return true when a tensor lives on the Mini-GPU PrivateUse1 device. */
 bool is_minigpu_tensor(const at::Tensor &tensor) {
