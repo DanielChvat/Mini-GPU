@@ -14,6 +14,12 @@ module security_gate_tb;
     // SHA-256 of 4 big-endian 32-bit words [0,1,2,3]
     localparam [255:0] HASH_4_WORDS =
         256'h3067c72c5e501c31e3feca73f047dc341a956399ec705e0aee9efb17a1553578;
+    localparam [(NUM_GOLDEN_HASHES*256)-1:0] GOLDEN_HASHES = {
+        256'h0,
+        256'h0,
+        HASH_4_WORDS,
+        HASH_8_WORDS
+    };
 
     // =========================================================================
     // Clock / Reset
@@ -152,7 +158,8 @@ module security_gate_tb;
     security_gate #(
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
-        .NUM_GOLDEN_HASHES(NUM_GOLDEN_HASHES)
+        .NUM_GOLDEN_HASHES(NUM_GOLDEN_HASHES),
+        .GOLDEN_HASHES(GOLDEN_HASHES)
     ) dut (
         .clk(clk),
         .rst(rst),
@@ -395,10 +402,6 @@ module security_gate_tb;
         errors = 0;
         rst = 1'b1;
         clear_inputs();
-
-        // Load golden hashes
-        dut.golden_hash[0] = HASH_8_WORDS;
-        dut.golden_hash[1] = HASH_4_WORDS;
 
         #20;
         rst = 1'b0;

@@ -19,6 +19,12 @@ module security_gate_integration_tb();
     // SHA-256 of 4 big-endian 32-bit words [0,1,2,3]
     localparam [255:0] HASH_4_WORDS =
         256'h3067c72c5e501c31e3feca73f047dc341a956399ec705e0aee9efb17a1553578;
+    localparam [(4*256)-1:0] GOLDEN_HASHES = {
+        256'h0,
+        256'h0,
+        256'h0,
+        HASH_4_WORDS
+    };
 
     // =========================================================================
     // Clock / Reset
@@ -206,7 +212,8 @@ module security_gate_integration_tb();
     security_gate #(
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
-        .NUM_GOLDEN_HASHES(4)
+        .NUM_GOLDEN_HASHES(4),
+        .GOLDEN_HASHES(GOLDEN_HASHES)
     ) sec_gate (
         .clk(clk),
         .rst(rst),
@@ -412,9 +419,6 @@ module security_gate_integration_tb();
         testNum = 0;
         status_word = 32'b0;
 
-        // Load golden hash
-        sec_gate.golden_hash[0] = HASH_4_WORDS;
-
         #20;
         rst = 0;
         #1000;
@@ -578,7 +582,7 @@ module security_gate_integration_tb();
         // Test 5: Security reset via command → back to IDLE
         // ==============================================================
         testNum = 5;
-        $display("\n=== Test %0d: Security reset via CMD 0x0C ===", testNum);
+        $display("\n=== Test %0d: Security reset via CMD 0x06 ===", testNum);
 
         fork
             send_packet(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0);

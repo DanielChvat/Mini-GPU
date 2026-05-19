@@ -4,7 +4,9 @@
 module security_gate #(
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,
-    parameter NUM_GOLDEN_HASHES = 4
+    parameter NUM_GOLDEN_HASHES = 4,
+    parameter [(NUM_GOLDEN_HASHES*256)-1:0] GOLDEN_HASHES =
+        {(NUM_GOLDEN_HASHES*256){1'b0}}
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -88,12 +90,12 @@ module security_gate #(
     // Golden Hash Storage
     // =========================================================================
     reg [255:0] golden_hash [0:NUM_GOLDEN_HASHES-1];
+    integer golden_hash_idx;
 
     initial begin
-        golden_hash[0] = 256'h0000000000000000000000000000000000000000000000000000000000000000;
-        golden_hash[1] = 256'h0000000000000000000000000000000000000000000000000000000000000000;
-        golden_hash[2] = 256'h0000000000000000000000000000000000000000000000000000000000000000;
-        golden_hash[3] = 256'h0000000000000000000000000000000000000000000000000000000000000000;
+        for (golden_hash_idx = 0; golden_hash_idx < NUM_GOLDEN_HASHES; golden_hash_idx = golden_hash_idx + 1) begin
+            golden_hash[golden_hash_idx] = GOLDEN_HASHES[(golden_hash_idx*256) +: 256];
+        end
     end
 
     // =========================================================================
@@ -127,6 +129,12 @@ module security_gate #(
     // Lane-0 Decode
     // =========================================================================
     wire lane0_write = merged_mem_req_valid[0] && merged_mem_req_write[0];
+    wire lane0_write_accepted = lane0_write && merged_mem_req_ready[0];
+    wire [3:0] write_accepted =
+        merged_mem_req_valid & merged_mem_req_write & merged_mem_req_ready;
+    wire any_write_accepted = |write_accepted;
+    wire any_write_blocked = |(write_accepted & write_blocked);
+    wire any_write_allowed = any_write_accepted && !any_write_blocked;
 
     // =========================================================================
     // Protected Region Read Detection (per lane)
@@ -259,24 +267,25 @@ module security_gate #(
                 sha_needs_start <= 1'b0;
             end
 
+            mem_write_done <= 1'b0;
+            mem_write_fail <= 1'b0;
+
             // Accumulate write-blocked events from memory_sec.
             // Cleared when the comm_controller consumes the status.
-            if (|write_blocked) begin
+            if (any_write_blocked) begin
                 write_blocked_latch <= 1'b1;
             end
             if (memory_status_consumed) begin
                 write_blocked_latch <= 1'b0;
-                mem_write_done      <= 1'b0;
-                mem_write_fail      <= 1'b0;
             end
 
             case (state_reg)
 
                 S_IDLE: begin
-                    mem_write_done <= 1'b1;
-                    mem_write_fail <= 1'b0;
+                    mem_write_done <= any_write_allowed;
+                    mem_write_fail <= any_write_blocked;
 
-                    if (lane0_write && (memory_request_id == REQ_HOST)) begin
+                    if (lane0_write_accepted && (memory_request_id == REQ_HOST)) begin
                         sha_word_valid <= 1'b1;
                         sha_word_data  <= merged_mem_req_wdata[0 +: DATA_WIDTH];
                         weight_count_reg <= {{(ADDR_WIDTH-1){1'b0}}, 1'b1};
@@ -285,14 +294,14 @@ module security_gate #(
                 end
 
                 S_LOAD: begin
-                    mem_write_done <= 1'b1;
-                    mem_write_fail <= 1'b0;
+                    mem_write_done <= any_write_allowed;
+                    mem_write_fail <= any_write_blocked;
 
                     if (validate_triggered) begin
                         model_id_reg <= validate_model_id;
                         sha_finish   <= 1'b1;
                         state_reg    <= S_FINALIZE;
-                    end else if (lane0_write && (memory_request_id == REQ_HOST)) begin
+                    end else if (lane0_write_accepted && (memory_request_id == REQ_HOST)) begin
                         sha_word_valid <= 1'b1;
                         sha_word_data  <= merged_mem_req_wdata[0 +: DATA_WIDTH];
                         weight_count_reg <= weight_count_reg + {{(ADDR_WIDTH-1){1'b0}}, 1'b1};
@@ -305,9 +314,6 @@ module security_gate #(
                 end
 
                 S_FINALIZE: begin
-                    mem_write_done <= 1'b0;
-                    mem_write_fail <= 1'b0;
-
                     if (sha_digest_valid) begin
                         state_reg <= S_VERIFY;
                     end
@@ -319,9 +325,6 @@ module security_gate #(
                 end
 
                 S_VERIFY: begin
-                    mem_write_done <= 1'b0;
-                    mem_write_fail <= 1'b0;
-
                     if (sha_digest == golden_hash[model_id_reg]) begin
                         state_reg <= S_LOCK;
                     end else begin
@@ -331,8 +334,6 @@ module security_gate #(
                 end
 
                 S_LOCK: begin
-                    mem_write_done <= 1'b0;
-                    mem_write_fail <= 1'b0;
                     locked_reg     <= 1'b1;
                     limit_reg      <= weight_count_reg;
                     verified_reg   <= 1'b1;
@@ -340,8 +341,8 @@ module security_gate #(
                 end
 
                 S_EXECUTE: begin
-                    mem_write_done <= !write_blocked_latch;
-                    mem_write_fail <= write_blocked_latch;
+                    mem_write_done <= any_write_allowed && !write_blocked_latch;
+                    mem_write_fail <= any_write_blocked || write_blocked_latch;
                 end
 
                 S_ERROR: begin

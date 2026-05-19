@@ -213,9 +213,14 @@ module memory #(
 
     always @* begin
         req_ready[0] = req_valid[0];
-        req_ready[1] = req_valid[1] && (same_prior_count(1) < 2);
-        req_ready[2] = req_valid[2] && (same_prior_count(2) < 2);
-        req_ready[3] = req_valid[3] && (same_prior_count(3) < 2);
+        req_ready[1] = req_valid[1] &&
+               (prior_port_count(2'd1, req_lane_bank1, req_lane_index1, req_write[1]) < 2'd2);
+
+        req_ready[2] = req_valid[2] &&
+                    (prior_port_count(2'd2, req_lane_bank2, req_lane_index2, req_write[2]) < 2'd2);
+
+        req_ready[3] = req_valid[3] &&
+                    (prior_port_count(2'd3, req_lane_bank3, req_lane_index3, req_write[3]) < 2'd2);
 
         clear_ports();
 
@@ -386,17 +391,17 @@ module memory #(
         end
     endtask
 
-    function [1:0] same_prior_count;
-        input [1:0] lane_id;
-        begin
-            case (lane_id)
-                2'd0: same_prior_count = 2'd0;
-                2'd1: same_prior_count = prior_port_count(2'd1, req_lane_bank1, req_lane_index1, req_write[1]);
-                2'd2: same_prior_count = prior_port_count(2'd2, req_lane_bank2, req_lane_index2, req_write[2]);
-                default: same_prior_count = prior_port_count(2'd3, req_lane_bank3, req_lane_index3, req_write[3]);
-            endcase
-        end
-    endfunction
+    // function [1:0] same_prior_count;
+    //     input [1:0] lane_id;
+    //     begin
+    //         case (lane_id)
+    //             2'd0: same_prior_count = 2'd0;
+    //             2'd1: same_prior_count = prior_port_count(2'd1, req_lane_bank1, req_lane_index1, req_write[1]);
+    //             2'd2: same_prior_count = prior_port_count(2'd2, req_lane_bank2, req_lane_index2, req_write[2]);
+    //             default: same_prior_count = prior_port_count(2'd3, req_lane_bank3, req_lane_index3, req_write[3]);
+    //         endcase
+    //     end
+    // endfunction
 
     function [1:0] prior_port_count;
         input [1:0] lane_id;
