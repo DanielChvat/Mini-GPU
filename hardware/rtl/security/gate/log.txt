@@ -176,3 +176,118 @@ Main security gate design
             - reduced number of adders in design when updating the digest
             - instead of 8 parallel adds getting processed in 1 cycle, they share 1 adder across 8 cycles
             - this is done by using a MUX
+
+
+
+- 5/20
+    - instruction memory limit causes limits when training and inference because it can't load all the kernels
+        - combined with the UART constraint, it takes forever to do meaningful training 
+    - when kernels are sent to the hardware
+        - after finished send the verify with the kernel number 
+        - mostly the same security architecture as the weight protection
+        - ack when verification success and nack when verification fails
+    - kernel flow:
+        - launch_kernel with the various different arguments
+            - this is effectively a wrapper for the main launch_kernel functions
+            - it prepares the kernel struct/object for the main function
+            - launch_kernel with Kernel object as argument
+                - context::write_program
+                    - arguments: kernel program address, kernel program, and kernel program size
+                        - transport_.write_program
+                            - passes same arguments
+                            - gpu_comm_write_program
+                                - write_chunked_command
+                                    - arguments: dev, COM_CMD_WRITE_PROGRAM, dst_addr, packet_words.data(), packet_words.size()
+                                    - send_packet
+                - context::write_constants
+                    - arguments: kernel constant address, kernel constants, and kernel constants size
+                        - transport_.write_constants
+                            - passes same arguments
+                            - gpu_comm_write_constants
+                                - write_chunked_command
+                                    - arguments either:
+                                        - dev, COM_CMD_WRITE_DATA, dst_addr, src, size, config.address_unit_bytes
+                                        OR - dev, COM_CMD_WRITE_CONSTANTS, dst_addr, packet_words.data(), packet_words.size()
+                                    - send_packet            
+                - Status status = send_packet(dev, cmd, chunk_addr, payload, packet_payload_len);
+                    -   std::uint8_t packet[COM_MAX_PACKET];
+                        int packet_len = com_build_packet(packet, cmd, addr, payload, payload_len);
+                        com_send_raw(packet ...)
+                        expect_ack(dev, addr)
+
+launch_kernel() [minigpu_kernels.cpp]
+  → context.launch_kernel(...) [minigpu_runtime.cpp:626]
+    → ensure_program_loaded(*kernel) [minigpu_runtime.cpp:594]
+      → write_program(addr, program, size) [minigpu_runtime.cpp:463]
+        → transport_.write_program(...) [minigpu_runtime.cpp:479]
+          → gpu_comm_write_program(...) [gpu_comm_transport.cpp:416]
+            → write_chunked_command(COM_CMD_WRITE_PROGRAM, ...) [gpu_comm_transport.cpp:425]
+              → (loops over chunks)
+                → send_packet(COM_CMD_WRITE_PROGRAM, chunk_addr, chunk_payload) [x N times]
+                  → com_build_packet() [gpu_comm C library]
+
+- our security handling should be inside the gpu_comm_write_program and gpu_comm_write_constants layer
+    - should we standarize where the constants are going to live? because without it standarized, i'll need double the memory for hash storage
+    - we will standairze it so that gpu_comm_write_constants will only write to data memory
+
+Kernel Verification Design (kernel_vfy):
+- security goal: only authenticated kernels may execute, and verified kernels can't be modified while executing
+    - protected assets: kernel / instruction memory
+    - trusted hardware: security FSM, SHA256 core, golden hash BRAM
+    - Untrusted components: host software, uploaded kernel data, input data, data memory, program write requests, launch requests
+    - Security gurantees: accelerator core can only execute a kernel if:
+        - kernel was streamed into instruction memory
+        - streamed bytes were hashed
+        - hash matched trusted golden hash
+        - instruction memory was locked
+        - launch was gated by kernel_verified == 1
+- We will use the same core concepts from the security gate design where we use the SHA256 core for hashing
+- security FSM: IDLE, LOAD, FINALIZE, VERIFY, LOCK, EXECUTE, ERROR
+    IDLE
+    No verified kernel is active.
+    Host may begin kernel upload with COM_CMD_WRITE_PROGRAM.
+    Host can still write/read data memory
+
+    LOAD
+    Host is streaming kernel words via COM_CMD_WRITE_PROGRAM
+    Each accepted program word is:
+        1. written to instruction memory
+        2. fed into SHA-256 stream
+
+    FINALIZE
+    Host indicates kernel upload is complete via COM_CMD_VALIDATE
+    SHA-256 wrapper pads/finalizes message.
+
+    VERIFY
+    Security FSM compares computed hash against selected golden hash.
+    Golden hash is selected via address field of COM_CMD_VALIDATE
+
+    LOCK
+    Program memory writes are disabled.
+    kernel_verified is set.
+
+    EXECUTE
+    Launch is allowed.
+    Core may fetch from locked instruction memory.
+    Host may write/read data memory.
+    Host may upload a new kernel only when core_busy == 0.
+
+    ERROR
+    Security fault state.
+    Launch disabled.
+    Program writes disabled or ignored except security reset.
+    Host must send SECURITY_RESET.
+
+- in this architecture we need to support switching out multiple kernels
+    - multiple kernels can be used by a process
+- during EXECUTE, if the core isn't busy and a COM_CMD_WRITE_PROGRAM is recieved, we will go into the LOAD state
+    - note: the initial COM_CMD_WRITE_PROGRAM contains words so that needs to be written and hashed as well
+    - if the core is busy, the write will be rejected and a NACK will be sent back
+    - when making the transition, kernel_verified = 0; program_locked = 0; and sha256_reset needs to be pulsed
+- when in error state, host will need to send the security reset command 
+- a hash failues (VERIFY), sha256 failure (LOAD), crc failure (LOAD), will all cause the state to change to ERROR 
+- there will be 40+ hashes stored on the chip
+    - these will be declared in a dedicated BRAM chunk
+    - these will be managed via a separate module, where the input is the hash number/index and the output is the 256 bit golden hash
+    - note: the current validate_model_id is only 4 bits wide, should increase it to at least 6 bits
+        - we'll also rename it to validate_kernel_id
