@@ -254,3 +254,21 @@ Encryption Controller module design
 - 5/22
     - Will likely scrap this for the current project
     - not enough resources to make this work even if fully implemented
+    - even with a single shared SHA256 core among all the different modules, we still don't have enough resources
+    - Yosys approximiations for different IPs and wrappers:
+        - AES: 8214 logic cells, 2857 LUTs
+        - ROSC: 578 LCs, 169 LUTs
+        - HMAC-SHA256: 2118 LCs, 1270 LUTs
+        - SHA256 byte stream: 6500 LCs, 3402 LUTs
+        - total: 17,410 Logic cells, 7698 Look up tables
+    - Yosys approximation for current security controller:
+        - 235,817 logic cells and 172,607 LUTs
+        - however, this implementation was very unoptimal for area
+        - GPT's approximitation for how much area we can reduce:
+            -  ~20k-35k logic cells, ~12k-18k LUTs
+    - even with the huge reduction in area, it is questionable if the security system can be implemented on the Basys3 FPGA
+    - therefore, it will be almost impossible to implement the encryption and keep all the other functionality
+    - initially we thought that we could just prototype the subsystem by adding the bare-minimum modules (memory, communication controller etc.), but adding the actual GPU core would be impossible
+        - but now the reality doesn't look like we can even prototype the subsystem
+    - Considering the high likelihood that we won't be able to actually load this onto the physical hardware, I would be better off working on improving the current system
+    - therefore, for this project we will be scrapping the encryption security feature
