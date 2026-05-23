@@ -10,7 +10,8 @@ module basys3_comm_top #(
     parameter WARP_SIZE = 4,
     parameter NUM_CORES = 1,
     parameter NUM_WARPS_PER_CORE = 1,
-    parameter WARP_ID_WIDTH = 1
+    parameter WARP_ID_WIDTH = 1,
+    parameter ENABLE_TRANSMISSION_SECURITY = 1
 ) (
     input  wire        CLK100MHZ,
     input  wire        btnC,
@@ -97,7 +98,8 @@ module basys3_comm_top #(
         .BAUD_RATE(BAUD_RATE),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
-        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH)
+        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH),
+        .ENABLE_TRANSMISSION_SECURITY(ENABLE_TRANSMISSION_SECURITY)
     ) comm (
         .clk(CLK100MHZ),
         .rst(rst),

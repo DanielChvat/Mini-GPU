@@ -249,4 +249,8 @@ Encryption Controller module design
     - when in security idle state, prioritize incoming RX UART over TX from controller
     - to recover from the error state, a new INIT will need to be sent
         - when in error state, the gate will not send any packets to the top communication_controller module
-        
+
+
+- 5/22
+    - Will likely scrap this for the current project
+    - not enough resources to make this work even if fully implemented

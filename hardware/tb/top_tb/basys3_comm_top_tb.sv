@@ -54,7 +54,8 @@ module basys3_comm_top_tb;
         .WARP_SIZE(WARP_SIZE),
         .NUM_CORES(1),
         .NUM_WARPS_PER_CORE(1),
-        .WARP_ID_WIDTH(1)
+        .WARP_ID_WIDTH(1),
+        .ENABLE_TRANSMISSION_SECURITY(0)
     ) dut (
         .CLK100MHZ(CLK100MHZ),
         .btnC(btnC),

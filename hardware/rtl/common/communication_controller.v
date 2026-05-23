@@ -3,7 +3,8 @@ module communication_controller #(
     parameter BAUD_RATE = 115200,
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,
-    parameter MEMORY_BANK_DEPTH = 8192
+    parameter MEMORY_BANK_DEPTH = 8192,
+    parameter ENABLE_TRANSMISSION_SECURITY = 0
 )(
     input  wire clk,
     input  wire rst,
@@ -111,53 +112,84 @@ module communication_controller #(
     wire       tx_payload_advance;
 
     // ============================================================
-    // Instantiate RX
+    // Transport
     // ============================================================
-    serial_packet_rx #(
-        .CLK_FREQ(CLK_FREQ),
-        .BAUD_RATE(BAUD_RATE)
-    ) u_rx (
-        .clk(clk),
-        .rst(rst),
-        .rx_line(rx_line),
+    generate
+        if (ENABLE_TRANSMISSION_SECURITY) begin : secure_transport
+            encryption_security_controller #(
+                .CLK_FREQ(CLK_FREQ),
+                .BAUD_RATE(BAUD_RATE)
+            ) u_secure_transport (
+                .clk(clk),
+                .rst(rst),
+                .rx_line(rx_line),
+                .tx_line(tx_line),
 
-        .word_data(word_data),
-        .word_valid(word_valid),
+                .rx_word_data(word_data),
+                .rx_word_valid(word_valid),
+                .rx_cmd(rx_cmd),
+                .rx_addr(rx_addr),
+                .rx_len(rx_len),
+                .write_done(write_done),
+                .write_fail(write_fail),
+                .packet_done(packet_done),
+                .send_ack(send_ack),
+                .send_nack(send_nack),
 
-        .cmd(rx_cmd),
-        .addr(rx_addr),
-        .len(rx_len),
+                .tx_start(tx_start),
+                .tx_cmd(tx_cmd),
+                .tx_addr(tx_addr),
+                .tx_len(tx_len),
+                .tx_payload_data(tx_payload_data),
+                .tx_payload_valid(tx_payload_valid),
+                .tx_payload_advance(tx_payload_advance),
+                .tx_busy(tx_busy)
+            );
+        end else begin : legacy_transport
+            serial_packet_rx #(
+                .CLK_FREQ(CLK_FREQ),
+                .BAUD_RATE(BAUD_RATE)
+            ) u_rx (
+                .clk(clk),
+                .rst(rst),
+                .rx_line(rx_line),
 
-        .write_done(write_done),
-        .write_fail(write_fail),
+                .word_data(word_data),
+                .word_valid(word_valid),
 
-        .packet_done(packet_done),
-        .send_ack(send_ack),
-        .send_nack(send_nack)
-    );
+                .cmd(rx_cmd),
+                .addr(rx_addr),
+                .len(rx_len),
 
-    // ============================================================
-    // Instantiate TX
-    // ============================================================
-    serial_packet_tx #(
-        .CLK_FREQ(CLK_FREQ),
-        .BAUD_RATE(BAUD_RATE)
-    ) u_tx (
-        .clk(clk),
-        .rst(rst),
+                .write_done(write_done),
+                .write_fail(write_fail),
 
-        .start(tx_start),
-        .cmd(tx_cmd),
-        .addr(tx_addr),
-        .len(tx_len),
+                .packet_done(packet_done),
+                .send_ack(send_ack),
+                .send_nack(send_nack)
+            );
 
-        .payload_data(tx_payload_data),
-        .payload_valid(tx_payload_valid),
-        .payload_advance(tx_payload_advance),
+            serial_packet_tx #(
+                .CLK_FREQ(CLK_FREQ),
+                .BAUD_RATE(BAUD_RATE)
+            ) u_tx (
+                .clk(clk),
+                .rst(rst),
 
-        .tx_line(tx_line),
-        .busy(tx_busy)
-    );
+                .start(tx_start),
+                .cmd(tx_cmd),
+                .addr(tx_addr),
+                .len(tx_len),
+
+                .payload_data(tx_payload_data),
+                .payload_valid(tx_payload_valid),
+                .payload_advance(tx_payload_advance),
+
+                .tx_line(tx_line),
+                .busy(tx_busy)
+            );
+        end
+    endgenerate
 
     // ============================================================
     // Edge detection

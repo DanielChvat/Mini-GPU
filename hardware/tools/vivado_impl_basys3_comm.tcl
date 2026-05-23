@@ -10,6 +10,27 @@ add_files -norecurse [list \
     [file join $repo_root hardware/rtl/common/communication_controller.v] \
     [file join $repo_root hardware/rtl/common/serial_packet_rx.v] \
     [file join $repo_root hardware/rtl/common/serial_packet_tx.v] \
+    [file join $repo_root hardware/rtl/common/uart_rx_byte.v] \
+    [file join $repo_root hardware/rtl/common/uart_tx_byte.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/encryption_security_controller.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/hmac_sha256_packet.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/sha256_byte_stream.v] \
+    [file join $repo_root hardware/rtl/security/gate/sha256/sha256_core.v] \
+    [file join $repo_root hardware/rtl/security/gate/sha256/sha256_k_constants.v] \
+    [file join $repo_root hardware/rtl/security/gate/sha256/sha256_w_mem.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/rosc/rosc_wrapper.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/rosc/rosc_entropy_core.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/rosc/rosc.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/chacha/chacha_wrapper.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/chacha/chacha_core.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/chacha/chacha_qr.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/aes/aes_ctr_wrapper.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/aes/aes_core.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/aes/aes_encipher_block.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/aes/aes_decipher_block.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/aes/aes_key_mem.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/aes/aes_sbox.v] \
+    [file join $repo_root hardware/rtl/security/Encryption/aes/aes_inv_sbox.v] \
     [file join $repo_root hardware/rtl/core/mini_gpu.v] \
     [file join $repo_root hardware/rtl/core/mini_gpu_core.v] \
     [file join $repo_root hardware/rtl/core/sm.v] \
