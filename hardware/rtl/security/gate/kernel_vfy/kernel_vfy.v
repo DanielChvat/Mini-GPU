@@ -207,6 +207,12 @@ module kernel_vfy #(
                         sha_word_data  <= cc_prog_wdata;
                         state_reg      <= S_LOAD;
                     end
+                    if(validate_triggered) begin
+                        // Validation is invalid in this state
+                        // fault_reg <= 1'b1;
+                        // state_reg <= S_ERROR;
+                        validate_fail <= 1'b1;
+                    end
                 end
 
                 S_LOAD: begin
@@ -283,6 +289,13 @@ module kernel_vfy #(
                             state_reg          <= S_LOAD;
                         end
                         // core_busy case: write is blocked combinationally via prog_write_blocked
+
+                        if(validate_triggered) begin
+                            // Validation is invalid in this state
+                            // fault_reg <= 1'b1;
+                            // state_reg <= S_ERROR;
+                            validate_fail <= 1'b1;
+                        end
                     end
                 end
 
