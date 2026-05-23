@@ -557,6 +557,17 @@ module basys3_security_top_tb;
         put_word_le(0, 32'hcafebabe);
         transact_bad_crc(COM_CMD_WRITE_DATA, 16'h0040, 16'd4);
 
+        if (dut.u_kernel_vfy.state_reg !== 3'd6) begin
+            $display("TEST%0d FAIL: kernel_vfy state got=%0d expected=6 (ERROR)",
+                     test_num, dut.u_kernel_vfy.state_reg);
+            errors = errors + 1;
+        end
+
+        // Security reset should clear error state
+        transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
+        // Allow a few cycles for security_reset to propagate
+        repeat (10) @(posedge CLK100MHZ);
+
         // =====================================================================
         // Test 4: Kernel verification - upload, validate (ACK), security reset
         // =====================================================================

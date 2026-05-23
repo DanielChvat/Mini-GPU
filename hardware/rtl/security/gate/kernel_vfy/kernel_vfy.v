@@ -11,6 +11,7 @@ module kernel_vfy #(
     input  wire        clk,
     input  wire        rst,
     input  wire        security_reset,
+    input  wire        security_error,
 
     // Program write interface IN (from comm_controller)
     input  wire                        cc_prog_we,
@@ -192,6 +193,12 @@ module kernel_vfy #(
                 sha_needs_start <= 1'b0;
             end
 
+            // security_error from communication_controller handling
+            if (security_error) begin
+                fault_reg <= 1'b1;
+                state_reg <= S_ERROR;
+            end
+
             case (state_reg)
 
                 S_IDLE: begin
@@ -215,7 +222,11 @@ module kernel_vfy #(
                         sha_word_valid <= 1'b1;
                         sha_word_data  <= cc_prog_wdata;
                     end
-                    // future design note: it might be to add an if cc_prog_we && !sha_ready case to send an error/go to error state
+                    // go to error state if sha is not ready to accept data but we have a new word (and no buffered word)
+                    else if (cc_prog_we && !first_word_pending && !sha_ready) begin
+                        fault_reg <= 1'b1;
+                        state_reg <= S_ERROR;
+                    end
 
                     if (validate_triggered) begin
                         kernel_id_reg <= validate_kernel_id;

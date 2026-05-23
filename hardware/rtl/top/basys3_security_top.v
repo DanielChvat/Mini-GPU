@@ -46,6 +46,7 @@ module basys3_security_top #(
     wire [5:0]  validate_kernel_id;
     wire        validate_triggered;
     wire security_reset_triggered;
+    wire security_error;
     wire        prog_we_full;
     wire [ADDR_WIDTH-1:0] prog_addr_full;
     wire [31:0] prog_wdata;
@@ -176,6 +177,7 @@ module basys3_security_top #(
         .validate_done(kv_validate_done),
         .validate_fail(kv_validate_fail),
         .security_reset_triggered(security_reset_triggered),
+        .security_error(security_error),
         .dbg_rx_cmd(dbg_rx_cmd),
         .dbg_rx_addr(dbg_rx_addr),
         .dbg_rx_len(dbg_rx_len)
@@ -191,6 +193,7 @@ module basys3_security_top #(
         .clk(CLK100MHZ),
         .rst(rst),
         .security_reset(security_reset_triggered),
+        .security_error(security_error),
         .cc_prog_we(prog_we_full),
         .cc_prog_addr(prog_addr_full),
         .cc_prog_wdata(prog_wdata),

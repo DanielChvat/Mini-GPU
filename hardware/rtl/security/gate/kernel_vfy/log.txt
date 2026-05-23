@@ -110,3 +110,25 @@ Kernel Verification Design (kernel_vfy):
     - these will be managed via a separate module, where the input is the hash number/index and the output is the 256 bit golden hash
     - note: the current validate_model_id is only 4 bits wide, should increase it to at least 6 bits
         - we'll also rename it to validate_kernel_id
+
+- 5/22
+    - initial implementation of the security gate created
+
+- 5/23
+    - potential vulnerabilities with the hardware:
+        1. CRC failure still writes into instruction memory and goes into the hash stream
+            - 2 ways to address this: stall the write/hash till CRC is confirmed or go into the error state after the CRC fails
+        2. SHA256 core may not be ready for the next set of data when the cc_prog_we is active. This could lead to instructions that slip into the instruction memory without it being hashed, and/or a word can be skipped causing it to fail the verification (which is fine for the zero trust system)
+            - 2 ways to address this as well: either add buffering and backpressure support or go into error state 
+        3. when running simulation, kernel_golden_hashes.mem does not get loaded correctly. I don't know if this is because of iverilog or a general issue, will have to come back to this
+        4. COM_CMD_VALIDATE that is sent outisde S_LOAD and S_ERROR can deadlock the system
+            - in invalid states return validate_fail if validate gets called
+        5. a launch command before validation gets blocked, but the system returns an ACK, making the host think that it launched successfully
+            - need to make it so that a NACK is sent when launch is blocked
+    - For CRC failure and SHA256 core not being ready, the easy solution is to make them go into error state
+        - from actually testing the system, CRC failure is very uncommon, so building an entire response system is likely not good ROI
+        - it is unlikely that the SHA256 core is not ready, this is because the delay between each word is significant, due to the UART data transmission constraint 
+        - therefore, because both scenarios are unlikely, it would be a good idea to just have our system go into error state, this is me choosing where I should spend my time, but this is a perfectly valid solution, because it doesn't make the security any weaker, it still enforces zero-trust
+    - Issue 1 & 2 patched
+        - issue 1 caused a failure in the TB because we didn't do a security reset after verifying the CRC error caused NACK
+            - made sure that the TB checked that the state went into error

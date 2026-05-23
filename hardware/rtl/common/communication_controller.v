@@ -56,6 +56,7 @@ module communication_controller #(
 
     // ================= Security reset interface =================
     output reg         security_reset_triggered,
+    output reg         security_error,
 
     // ================= Debug / observability =================
     output wire [7:0]  dbg_rx_cmd,
@@ -281,6 +282,7 @@ module communication_controller #(
             read_payload_requested <= 0;
             read_sending_word <= 0;
             validate_kernel_id <= 6'b0;
+            security_error <= 0;
         end else begin
 
             // defaults
@@ -299,6 +301,7 @@ module communication_controller #(
             launch_valid <= 1'b0;
             validate_triggered <= 1'b0;
             security_reset_triggered <= 1'b0;
+            security_error <= 1'b0;
 
             // Remember when TX asks for read payload before memory data is ready.
             if ((state == READ_START) || (state == READ_WAIT) ||
@@ -413,6 +416,8 @@ module communication_controller #(
                     pending_addr <= rx_addr;
                     pending_len <= 0;
                     req_valid   <= 1;
+
+                    security_error <= 1'b1;
                 end
                 else if (ack_edge && (rx_cmd != COM_CMD_READ_DATA) &&
                          (rx_cmd != COM_CMD_READ_STATUS)) begin
