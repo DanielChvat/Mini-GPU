@@ -2,7 +2,7 @@
 
 `include "minigpu_isa.vh"
 
-module basys3_comm_top_tb;
+module basys3_security_top_tb;
     localparam integer CLK_FREQ = 100_000_000;
     localparam integer BAUD_RATE = 10_000_000;
     localparam integer BAUD_PERIOD_NS = 100;
@@ -24,6 +24,10 @@ module basys3_comm_top_tb;
     localparam [7:0] COM_CMD_NAK             = 8'h09;
     localparam [7:0] COM_CMD_WRITE_CONSTANTS = 8'h0b;
 
+    // SHA-256 of the 12 vector-add kernel instruction words (big-endian)
+    localparam [255:0] VECTOR_ADD_HASH =
+        256'hae79b5465f8e02713971535685574c9774b58d60a5d78484b665d746b9e6928f;
+
     reg CLK100MHZ;
     reg btnC;
     reg [15:0] sw;
@@ -43,7 +47,7 @@ module basys3_comm_top_tb;
     reg [7:0] rx_payload [0:255];
     reg [31:0] status_word;
 
-    basys3_comm_top #(
+    basys3_security_top #(
         .CLK_FREQ(CLK_FREQ),
         .BAUD_RATE(BAUD_RATE),
         .ADDR_WIDTH(ADDR_WIDTH),
@@ -440,6 +444,7 @@ module basys3_comm_top_tb;
         end
     endtask
 
+    // Upload the 12-instruction vector-add kernel
     task load_vector_add_kernel;
         begin
             write_program_word(16'd0, pack_instr(`MGPU_OP_LDC,  4'd10, 4'd0,  4'd0, 14'd0));
@@ -457,6 +462,26 @@ module basys3_comm_top_tb;
         end
     endtask
 
+    // Validate the loaded kernel with a given kernel_id, expect ACK
+    task validate_kernel_expect_ack;
+        input [5:0] kernel_id;
+        begin
+            clear_payload();
+            transact(COM_CMD_VALIDATE, {10'b0, kernel_id}, 16'd0,
+                     COM_CMD_ACK, {10'b0, kernel_id}, 16'd0);
+        end
+    endtask
+
+    // Validate the loaded kernel with a given kernel_id, expect NAK
+    task validate_kernel_expect_nak;
+        input [5:0] kernel_id;
+        begin
+            clear_payload();
+            transact(COM_CMD_VALIDATE, {10'b0, kernel_id}, 16'd0,
+                     COM_CMD_NAK, {10'b0, kernel_id}, 16'd0);
+        end
+    endtask
+
     task launch_kernel;
         begin
             clear_payload();
@@ -468,14 +493,14 @@ module basys3_comm_top_tb;
     endtask
 
     initial begin
-        #20_000_000;
-        $display("BASYS3 COMM TOP TESTS TIMED OUT");
+        #40_000_000;
+        $display("BASYS3 SECURITY TOP TESTS TIMED OUT");
         $finish;
     end
 
     initial begin
-        $dumpfile("tmp/basys3_comm_top_tb.vcd");
-        $dumpvars(1, basys3_comm_top_tb);
+        $dumpfile("tmp/basys3_security_top_tb.vcd");
+        $dumpvars(1, basys3_security_top_tb);
 
         CLK100MHZ = 1'b0;
         btnC = 1'b1;
@@ -490,15 +515,26 @@ module basys3_comm_top_tb;
         btnC = 1'b0;
         wait_not_reset();
 
-        // initial state check after reset 
+        // Set golden hash for kernel_id=0 to the vector-add kernel hash
+        dut.u_kernel_vfy.hash_store.hash_mem[0] = VECTOR_ADD_HASH;
+        // Set a different hash for kernel_id=1 (will cause mismatch)
+        dut.u_kernel_vfy.hash_store.hash_mem[1] = 256'hDEADBEEF;
+
+        // =====================================================================
+        // Test 1: initial state check after reset
+        // =====================================================================
         test_num = 1;
+        $display("TEST%0d: Initial state check", test_num);
         if (led[0] !== 1'b1) fail("LED0 should indicate reset released");
         if (led[1] !== 1'b1) fail("LED1 should mirror idle RsRx");
         if (dp !== 1'b1) fail("seven-segment decimal point should be off");
         if (an === 4'bxxxx || seg === 7'bxxxxxxx) fail("seven-segment outputs contain X");
 
-        // test writing and reading memory through the communication controller interface
+        // =====================================================================
+        // Test 2: writing and reading memory
+        // =====================================================================
         test_num = 2;
+        $display("TEST%0d: Write and read memory", test_num);
         write_words(16'h0010, 4, 32'h11223344);
         if (dut.write_count !== 16'd4) begin
             $display("TEST%0d FAIL: top write_count got=%0d expected=4", test_num, dut.write_count);
@@ -512,20 +548,47 @@ module basys3_comm_top_tb;
         end
         expect_eq32("last_mem_rdata after read", dut.last_mem_rdata, 32'h11223347);
 
-        // crc error handling
+        // =====================================================================
+        // Test 3: CRC error handling
+        // =====================================================================
         test_num = 3;
+        $display("TEST%0d: CRC error handling", test_num);
         clear_payload();
         put_word_le(0, 32'hcafebabe);
         transact_bad_crc(COM_CMD_WRITE_DATA, 16'h0040, 16'd4);
 
-        // // validate and security reset commands
-        // test_num = 4;
-        // transact(COM_CMD_VALIDATE, 16'h0005, 16'd0, COM_CMD_ACK, 16'h0005, 16'd0);
-        // if (dut.validate_model_id !== 4'h5) fail("validate_model_id did not update");
-        // transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
+        // =====================================================================
+        // Test 4: Kernel verification - upload, validate (ACK), security reset
+        // =====================================================================
+        test_num = 4;
+        $display("TEST%0d: Kernel verification (upload + validate ACK + security reset)", test_num);
+        // Upload vector-add kernel (kernel_vfy goes IDLE→LOAD)
+        load_vector_add_kernel();
+        // Validate with kernel_id=0 (golden hash matches) → expect ACK
+        validate_kernel_expect_ack(6'd0);
+        // Check kernel_vfy reached EXECUTE state (state=5) and is verified
+        if (dut.u_kernel_vfy.state_reg !== 3'd5) begin
+            $display("TEST%0d FAIL: kernel_vfy state got=%0d expected=5 (EXECUTE)",
+                     test_num, dut.u_kernel_vfy.state_reg);
+            errors = errors + 1;
+        end
+        if (dut.u_kernel_vfy.verified_reg !== 1'b1) fail("kernel_verified should be 1 after validate ACK");
+        // Security reset should clear verification state
+        transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
+        // Allow a few cycles for security_reset to propagate
+        repeat (10) @(posedge CLK100MHZ);
+        if (dut.u_kernel_vfy.state_reg !== 3'd0) begin
+            $display("TEST%0d FAIL: kernel_vfy state after security reset got=%0d expected=0 (IDLE)",
+                     test_num, dut.u_kernel_vfy.state_reg);
+            errors = errors + 1;
+        end
+        if (dut.u_kernel_vfy.verified_reg !== 1'b0) fail("kernel_verified should be 0 after security reset");
 
-        // check debug status and display
+        // =====================================================================
+        // Test 5: check debug status and display
+        // =====================================================================
         test_num = 5;
+        $display("TEST%0d: Debug status and display", test_num);
         sw[1:0] = 2'd0;
         transact(COM_CMD_READ_STATUS, 16'h0000, 16'd0, COM_CMD_READ_STATUS, 16'h0000, 16'd4);
         if (led[15:8] !== COM_CMD_READ_STATUS) begin
@@ -537,20 +600,78 @@ module basys3_comm_top_tb;
         repeat (4) @(posedge CLK100MHZ);
         if (seg === 7'bxxxxxxx || an === 4'bxxxx) fail("display outputs invalid when selecting last memory address");
 
-        // test vector addition kernel
+        // =====================================================================
+        // Test 6: Kernel validation mismatch (NAK)
+        // =====================================================================
         test_num = 6;
+        $display("TEST%0d: Kernel validation mismatch (NAK)", test_num);
+        // Upload kernel, validate with wrong kernel_id (id=1 has wrong hash)
         load_vector_add_kernel();
+        validate_kernel_expect_nak(6'd1);
+        // kernel_vfy should be in ERROR state (state=6)
+        if (dut.u_kernel_vfy.state_reg !== 3'd6) begin
+            $display("TEST%0d FAIL: kernel_vfy state got=%0d expected=6 (ERROR)",
+                     test_num, dut.u_kernel_vfy.state_reg);
+            errors = errors + 1;
+        end
+        if (dut.u_kernel_vfy.fault_reg !== 1'b1) fail("kernel_fault should be set after mismatch");
+        // Recover via security reset
+        transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
+        repeat (10) @(posedge CLK100MHZ);
+
+        // =====================================================================
+        // Test 7: Launch gating - launch blocked without verification
+        // =====================================================================
+        test_num = 7;
+        $display("TEST%0d: Launch gating (blocked without verification)", test_num);
+        // Upload kernel but do NOT validate
+        load_vector_add_kernel();
+        // kernel_vfy is in LOAD state, not verified
+        // Set up data for vector add
         write_const_word(16'd0, 32'd0);
         write_const_word(16'd1, 32'd16);
         write_const_word(16'd2, 32'd32);
         write_words(16'h0000, 4, 32'd100);
         write_words(16'h0040, 4, 32'd7);
+        // Launch should get ACK from comm_controller but gpu_launch_valid should be gated
+        // (launch_valid passes through comm but kernel_vfy blocks gpu_launch_valid)
+        launch_kernel();
+        // GPU should NOT have started since launch was gated
+        repeat (100) @(posedge CLK100MHZ);
+        read_status();
+        // gpu_done (bit 0) should NOT be set since launch was blocked
+        if (status_word[0] == 1'b1 && status_word[15:8] != 8'd0) begin
+            fail("GPU should not have executed without kernel verification");
+        end
+        // Security reset to clean up
+        transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
+        repeat (10) @(posedge CLK100MHZ);
+
+        // =====================================================================
+        // Test 8: Full vector addition with kernel verification
+        // =====================================================================
+        test_num = 8;
+        $display("TEST%0d: Full vector addition with kernel verification", test_num);
+        // Upload vector-add kernel
+        load_vector_add_kernel();
+        // Validate with correct hash (kernel_id=0)
+        validate_kernel_expect_ack(6'd0);
+        // Set up constants and data
+        write_const_word(16'd0, 32'd0);
+        write_const_word(16'd1, 32'd16);
+        write_const_word(16'd2, 32'd32);
+        write_words(16'h0000, 4, 32'd100);
+        write_words(16'h0040, 4, 32'd7);
+        // Now launch should succeed (kernel is verified)
         launch_kernel();
         poll_gpu_done();
         read_vector_add_expect(16'h0080, 4, 32'd100, 32'd7);
 
-        // resset check
-        test_num = 7;
+        // =====================================================================
+        // Test 9: Reset check
+        // =====================================================================
+        test_num = 9;
+        $display("TEST%0d: Reset check", test_num);
         btnC = 1'b1;
         repeat (4) @(posedge CLK100MHZ);
         btnC = 1'b0;
@@ -563,9 +684,9 @@ module basys3_comm_top_tb;
 
         #1000;
         if (errors == 0) begin
-            $display("BASYS3 COMM TOP TESTS PASSED");
+            $display("BASYS3 SECURITY TOP TESTS PASSED");
         end else begin
-            $display("BASYS3 COMM TOP TESTS FAILED: %0d errors", errors);
+            $display("BASYS3 SECURITY TOP TESTS FAILED: %0d errors", errors);
         end
         $finish;
     end

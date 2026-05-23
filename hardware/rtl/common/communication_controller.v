@@ -46,8 +46,13 @@ module communication_controller #(
     input  wire [31:0]                 status_word,
 
     // ================= Validate interface =================
-    output reg [3:0]   validate_model_id,
+    output reg [5:0]   validate_kernel_id,
     output reg         validate_triggered,
+
+    // ================= Kernel verification status =================
+    input  wire        prog_write_blocked,
+    input  wire        validate_done,
+    input  wire        validate_fail,
 
     // ================= Security reset interface =================
     output reg         security_reset_triggered,
@@ -190,6 +195,7 @@ module communication_controller #(
     localparam STATUS_SEND     = 4'd11; // present status word to TX
     localparam STATUS_WAIT     = 4'd12; // wait for status response to finish
     localparam WAIT_WRITE_RESPONSE = 4'd13; // wait for write_done or write_fail from memory
+    localparam WAIT_VALIDATE_KERNEL_RESPONSE = 4'd14; // wait for kernel_vfy validate_done or validate_fail
 
     reg [3:0] state;
 
@@ -274,7 +280,7 @@ module communication_controller #(
             read_resp_len <= 0;
             read_payload_requested <= 0;
             read_sending_word <= 0;
-            validate_model_id <= 4'b0;
+            validate_kernel_id <= 6'b0;
         end else begin
 
             // defaults
@@ -360,8 +366,12 @@ module communication_controller #(
                 write_words_seen <= 16'd0;
                 state <= WAIT_WRITE_RESPONSE;
             end else if (packet_done && (rx_cmd == COM_CMD_WRITE_PROGRAM)) begin
-                write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
+                if (prog_write_blocked) begin
+                    write_fail_hold <= 1'b1;
+                end else begin
+                    write_done_hold <= 1'b1;
+                end
             end else if (packet_done && (rx_cmd == COM_CMD_WRITE_CONSTANTS)) begin
                 write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
@@ -371,9 +381,9 @@ module communication_controller #(
                 write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
             end else if (packet_done && (rx_cmd == COM_CMD_VALIDATE)) begin
-                validate_model_id <= rx_addr[3:0];
+                validate_kernel_id <= rx_addr[5:0];
                 validate_triggered <= 1'b1;
-                write_done_hold <= 1'b1;
+                state <= WAIT_VALIDATE_KERNEL_RESPONSE;
             end else if (packet_done && (rx_cmd == COM_CMD_SECURITY_RESET)) begin
                 security_reset_triggered <= 1'b1;
                 write_done_hold <= 1'b1;
@@ -593,6 +603,17 @@ module communication_controller #(
             // ----------------------------------------------------
             STATUS_WAIT: begin
                 if (!tx_busy) begin
+                    state <= IDLE;
+                end
+            end
+
+            // ----------------------------------------------------
+            WAIT_VALIDATE_KERNEL_RESPONSE: begin
+                if (validate_done) begin
+                    write_done_hold <= 1'b1;
+                    state <= IDLE;
+                end else if (validate_fail) begin
+                    write_fail_hold <= 1'b1;
                     state <= IDLE;
                 end
             end

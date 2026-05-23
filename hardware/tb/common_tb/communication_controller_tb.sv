@@ -28,10 +28,14 @@ wire [7:0]  dbg_rx_cmd;
 wire [15:0] dbg_rx_addr;
 wire [15:0] dbg_rx_len;
 
-wire [3:0]  validate_model_id;
+wire [5:0]  validate_kernel_id;
 wire        validate_triggered;
 
 wire security_reset_triggered;
+
+reg         prog_write_blocked;
+reg         validate_done;
+reg         validate_fail;
 
 wire        prog_we;
 wire [ADDR_WIDTH-1:0] prog_addr;
@@ -99,8 +103,11 @@ communication_controller #(
     .dbg_rx_cmd(dbg_rx_cmd),
     .dbg_rx_addr(dbg_rx_addr),
     .dbg_rx_len(dbg_rx_len),
-    .validate_model_id(validate_model_id),
+    .validate_kernel_id(validate_kernel_id),
     .validate_triggered(validate_triggered),
+    .prog_write_blocked(prog_write_blocked),
+    .validate_done(validate_done),
+    .validate_fail(validate_fail),
     .security_reset_triggered(security_reset_triggered),
     .prog_we(prog_we),
     .prog_addr(prog_addr),
@@ -128,7 +135,7 @@ memory #(
     .req_write(data_mem_req_write),
     .req_addr(data_mem_req_addr),
     .req_wdata(data_mem_req_wdata),
-    .req_wmask({4{1'b1}}),
+    .req_wmask({16{1'b1}}),
     .req_ready(data_mem_req_ready),
     .resp_valid(data_mem_resp_valid),
     .resp_rdata(data_mem_resp_rdata)
@@ -447,6 +454,9 @@ task reset_dut;
         rst = 1'b1;
         rx_line = 1'b1;
         rsp_valid = 1'b0;
+        prog_write_blocked = 1'b0;
+        validate_done = 1'b0;
+        validate_fail = 1'b0;
         repeat (5) @(posedge clk);
         rst = 1'b0;
         #1000;
@@ -802,24 +812,84 @@ initial begin
     end
 
     // ========================================================
-    // TEST 10: VALIDATE command triggers validation and sends ACK
+    // TEST 10: VALIDATE command for kernel verification
+    //   10a: validate_done → ACK
+    //   10b: validate_fail → NAK
+    //   Verifies 6-bit kernel ID, triggered pulse, and
+    //   WAIT_VALIDATE_KERNEL_RESPONSE state behavior
     // ========================================================
     testNum = 10;
+
+    // --- 10a: Successful kernel validation (validate_done → ACK) ---
     validate_triggered_seen = 1'b0;
+    validate_done = 1'b0;
+    validate_fail = 1'b0;
 
     fork
-        send_packet(COM_CMD_VALIDATE, 16'h0005, 16'd0);
-        expect_tx_done(COM_CMD_ACK, 16'h0005, 16'd0);
+        // Send VALIDATE with kernel_id = 0x25 (6-bit value in addr[5:0])
+        send_packet(COM_CMD_VALIDATE, 16'h0025, 16'd0);
+
+        // Simulate kernel_vfy responding with validate_done after a delay
+        begin
+            // Wait for comm_controller to enter WAIT_VALIDATE_KERNEL_RESPONSE
+            timeout_count = 0;
+            while ((dut.state !== 4'd14) && (timeout_count < 50000)) begin
+                @(posedge clk);
+                timeout_count = timeout_count + 1;
+            end
+            if (dut.state !== 4'd14) begin
+                $display("TEST10a FAIL: comm_controller did not enter WAIT_VALIDATE_KERNEL_RESPONSE");
+                errors = errors + 1;
+            end
+            // Pulse validate_done
+            @(posedge clk);
+            validate_done = 1'b1;
+            @(posedge clk);
+            validate_done = 1'b0;
+        end
+
+        expect_tx_done(COM_CMD_ACK, 16'h0025, 16'd0);
     join
     wait_tx_idle();
 
-    if (validate_model_id !== 4'h5) begin
-        $display("TEST10 FAIL: validate_model_id expected 4'h5 got %h", validate_model_id);
+    if (validate_kernel_id !== 6'h25) begin
+        $display("TEST10a FAIL: validate_kernel_id expected 6'h25 got %h", validate_kernel_id);
         errors = errors + 1;
     end
 
     if (!validate_triggered_seen) begin
-        $display("TEST10 FAIL: validate_triggered was not pulsed");
+        $display("TEST10a FAIL: validate_triggered was not pulsed");
+        errors = errors + 1;
+    end
+
+    // --- 10b: Failed kernel validation (validate_fail → NAK) ---
+    validate_triggered_seen = 1'b0;
+    validate_done = 1'b0;
+    validate_fail = 1'b0;
+
+    fork
+        // Send VALIDATE with kernel_id = 0x0A
+        send_packet(COM_CMD_VALIDATE, 16'h000A, 16'd0);
+
+        // Simulate kernel_vfy responding with validate_fail
+        begin
+            timeout_count = 0;
+            while ((dut.state !== 4'd14) && (timeout_count < 50000)) begin
+                @(posedge clk);
+                timeout_count = timeout_count + 1;
+            end
+            @(posedge clk);
+            validate_fail = 1'b1;
+            @(posedge clk);
+            validate_fail = 1'b0;
+        end
+
+        expect_tx_done(COM_CMD_NAK, 16'h000A, 16'd0);
+    join
+    wait_tx_idle();
+
+    if (validate_kernel_id !== 6'h0A) begin
+        $display("TEST10b FAIL: validate_kernel_id expected 6'h0A got %h", validate_kernel_id);
         errors = errors + 1;
     end
 
