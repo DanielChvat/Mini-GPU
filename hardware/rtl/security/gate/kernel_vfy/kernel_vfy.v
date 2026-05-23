@@ -25,6 +25,7 @@ module kernel_vfy #(
 
     // Launch gating
     input  wire                        cc_launch_valid,
+    output wire                        cc_launch_ready,
     output wire                        gpu_launch_valid,
 
     // Validate interface (from comm_controller)
@@ -127,7 +128,8 @@ module kernel_vfy #(
     assign gpu_prog_wdata = cc_prog_wdata;
 
     // Launch gated by verification
-    assign gpu_launch_valid = cc_launch_valid && verified_reg && (state_reg == S_EXECUTE);
+    assign cc_launch_ready = (state_reg == S_EXECUTE) && verified_reg;
+    assign gpu_launch_valid = cc_launch_valid && cc_launch_ready;
 
     // Write blocked when in EXECUTE with core_busy, or in ERROR, or locked
     assign prog_write_blocked = (state_reg == S_EXECUTE && core_busy)

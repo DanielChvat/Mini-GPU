@@ -44,6 +44,7 @@ module communication_controller #(
     output reg  [31:0]                 launch_block_dim,
     output reg  [31:0]                 launch_active_mask,
     input  wire [31:0]                 status_word,
+    input wire                         launch_ready,
 
     // ================= Validate interface =================
     output reg [5:0]   validate_kernel_id,
@@ -379,10 +380,14 @@ module communication_controller #(
                 write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
             end else if (packet_done && (rx_cmd == COM_CMD_LAUNCH)) begin
-                launch_valid <= 1'b1;
-                launch_base_pc <= rx_addr[ADDR_WIDTH-1:0];
-                write_done_hold <= 1'b1;
-                write_words_seen <= 16'd0;
+                if(!launch_ready) begin
+                    write_fail_hold <= 1'b1;
+                end else begin
+                    launch_valid <= 1'b1;
+                    launch_base_pc <= rx_addr[ADDR_WIDTH-1:0];
+                    write_done_hold <= 1'b1;
+                    write_words_seen <= 16'd0;
+                end
             end else if (packet_done && (rx_cmd == COM_CMD_VALIDATE)) begin
                 validate_kernel_id <= rx_addr[5:0];
                 validate_triggered <= 1'b1;

@@ -133,6 +133,7 @@ Kernel Verification Design (kernel_vfy):
     - Issue 1 & 2 patched
         - issue 1 caused a failure in the TB because we didn't do a security reset after verifying the CRC error caused NACK
             - made sure that the TB checked that the state went into error
-    - Issue 3 patched  
+    - Issue 4 patched  
         - EXECUTE and IDLE states will return a validate_fail pulse if the validate is validate_triggered
-    
+    - Issue 5 patched
+        - NACK is sent when the kernel is unable to launch
