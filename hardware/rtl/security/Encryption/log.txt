@@ -260,7 +260,8 @@ Encryption Controller module design
         - ROSC: 578 LCs, 169 LUTs
         - HMAC-SHA256: 2118 LCs, 1270 LUTs
         - SHA256 byte stream: 6500 LCs, 3402 LUTs
-        - total: 17,410 Logic cells, 7698 Look up tables
+        - CHACHA: 5665 LCs, 2951 LUTs
+        - total: 23,075 Logic cells, 10,649 Look up tables
     - Yosys approximation for current security controller:
         - 235,817 logic cells and 172,607 LUTs
         - however, this implementation was very unoptimal for area
