@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-`include "minigpu_isa.vh"
+`include "../include/minigpu_isa.vh"
 
 module mini_gpu_core #(
     parameter WIDTH = 32,

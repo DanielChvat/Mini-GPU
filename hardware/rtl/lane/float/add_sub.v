@@ -1,7 +1,6 @@
 `timescale 1ns/1ps
 
-`include "minigpu_isa.vh"
-
+`include "../../include/minigpu_isa.vh"
 module float_add_sub #(
     parameter FP32_ONLY = 0,
     parameter NORMALIZE_STAGES = 24

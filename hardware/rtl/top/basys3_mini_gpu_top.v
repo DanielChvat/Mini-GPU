@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-`include "minigpu_isa.vh"
+`include "../include/minigpu_isa.vh"
 
 module basys3_mini_gpu_top #(
     parameter NUM_CORES = 1,

@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-`include "minigpu_isa.vh"
+`include "../../include/minigpu_isa.vh"
 
 module shared_fpu #(
     parameter ENABLE_FLOAT_ADD = 1,

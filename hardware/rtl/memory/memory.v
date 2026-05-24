@@ -38,6 +38,29 @@ module memory #(
     wire [BANK_ADDR_WIDTH-1:0] req_lane_index2 = req_lane_addr2[BANK_BITS +: BANK_ADDR_WIDTH];
     wire [BANK_ADDR_WIDTH-1:0] req_lane_index3 = req_lane_addr3[BANK_BITS +: BANK_ADDR_WIDTH];
 
+    wire prior0_uses_lane1_port = req_valid[0] &&
+                                  (req_lane_bank0 == req_lane_bank1) &&
+                                  !(req_write[0] && req_write[1] && (req_lane_index0 == req_lane_index1));
+    wire prior0_uses_lane2_port = req_valid[0] &&
+                                  (req_lane_bank0 == req_lane_bank2) &&
+                                  !(req_write[0] && req_write[2] && (req_lane_index0 == req_lane_index2));
+    wire prior1_uses_lane2_port = req_valid[1] &&
+                                  (req_lane_bank1 == req_lane_bank2) &&
+                                  !(req_write[1] && req_write[2] && (req_lane_index1 == req_lane_index2));
+    wire prior0_uses_lane3_port = req_valid[0] &&
+                                  (req_lane_bank0 == req_lane_bank3) &&
+                                  !(req_write[0] && req_write[3] && (req_lane_index0 == req_lane_index3));
+    wire prior1_uses_lane3_port = req_valid[1] &&
+                                  (req_lane_bank1 == req_lane_bank3) &&
+                                  !(req_write[1] && req_write[3] && (req_lane_index1 == req_lane_index3));
+    wire prior2_uses_lane3_port = req_valid[2] &&
+                                  (req_lane_bank2 == req_lane_bank3) &&
+                                  !(req_write[2] && req_write[3] && (req_lane_index2 == req_lane_index3));
+
+    wire [1:0] lane1_prior_port_count = {1'b0, prior0_uses_lane1_port};
+    wire [1:0] lane2_prior_port_count = {1'b0, prior0_uses_lane2_port} + {1'b0, prior1_uses_lane2_port};
+    wire [1:0] lane3_prior_port_count = {1'b0, prior0_uses_lane3_port} + {1'b0, prior1_uses_lane3_port} + {1'b0, prior2_uses_lane3_port};
+
     reg [3:0] pipe_valid;
     reg [3:0] pipe_write;
     reg [(4*ADDR_WIDTH)-1:0] pipe_addr;
@@ -213,9 +236,9 @@ module memory #(
 
     always @* begin
         req_ready[0] = req_valid[0];
-        req_ready[1] = req_valid[1] && (same_prior_count(1) < 2);
-        req_ready[2] = req_valid[2] && (same_prior_count(2) < 2);
-        req_ready[3] = req_valid[3] && (same_prior_count(3) < 2);
+        req_ready[1] = req_valid[1] && (lane1_prior_port_count < 2);
+        req_ready[2] = req_valid[2] && (lane2_prior_port_count < 2);
+        req_ready[3] = req_valid[3] && (lane3_prior_port_count < 2);
 
         clear_ports();
 
@@ -385,52 +408,6 @@ module memory #(
             end
         end
     endtask
-
-    function [1:0] same_prior_count;
-        input [1:0] lane_id;
-        begin
-            case (lane_id)
-                2'd0: same_prior_count = 2'd0;
-                2'd1: same_prior_count = prior_port_count(2'd1, req_lane_bank1, req_lane_index1, req_write[1]);
-                2'd2: same_prior_count = prior_port_count(2'd2, req_lane_bank2, req_lane_index2, req_write[2]);
-                default: same_prior_count = prior_port_count(2'd3, req_lane_bank3, req_lane_index3, req_write[3]);
-            endcase
-        end
-    endfunction
-
-    function [1:0] prior_port_count;
-        input [1:0] lane_id;
-        input [1:0] bank_id;
-        input [BANK_ADDR_WIDTH-1:0] bank_index;
-        input write;
-        begin
-            prior_port_count = 2'd0;
-            if (lane_id > 2'd0 && prior_uses_port(req_valid[0], req_write[0], req_lane_bank0, req_lane_index0, write, bank_id, bank_index)) begin
-                prior_port_count = prior_port_count + 2'd1;
-            end
-            if (lane_id > 2'd1 && prior_uses_port(req_valid[1], req_write[1], req_lane_bank1, req_lane_index1, write, bank_id, bank_index)) begin
-                prior_port_count = prior_port_count + 2'd1;
-            end
-            if (lane_id > 2'd2 && prior_uses_port(req_valid[2], req_write[2], req_lane_bank2, req_lane_index2, write, bank_id, bank_index)) begin
-                prior_port_count = prior_port_count + 2'd1;
-            end
-        end
-    endfunction
-
-    function prior_uses_port;
-        input prior_valid;
-        input prior_write;
-        input [1:0] prior_bank;
-        input [BANK_ADDR_WIDTH-1:0] prior_index;
-        input current_write;
-        input [1:0] current_bank;
-        input [BANK_ADDR_WIDTH-1:0] current_index;
-        begin
-            prior_uses_port = prior_valid &&
-                              (prior_bank == current_bank) &&
-                              !(prior_write && current_write && (prior_index == current_index));
-        end
-    endfunction
 
     function integer clog2;
         input integer value;

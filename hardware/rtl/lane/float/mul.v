@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-`include "minigpu_isa.vh"
+`include "../../include/minigpu_isa.vh"
 
 module float_mul #(
     parameter FP32_ONLY = 0
