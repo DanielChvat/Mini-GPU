@@ -464,31 +464,38 @@ module basys3_security_top_tb;
 
     // Validate the loaded kernel with a given kernel_id, expect ACK
     task validate_kernel_expect_ack;
-        input [5:0] kernel_id;
+        input [6:0] kernel_id;
         begin
             clear_payload();
-            transact(COM_CMD_VALIDATE, {10'b0, kernel_id}, 16'd0,
-                     COM_CMD_ACK, {10'b0, kernel_id}, 16'd0);
+            transact(COM_CMD_VALIDATE, {9'b0, kernel_id}, 16'd0,
+                     COM_CMD_ACK, {9'b0, kernel_id}, 16'd0);
         end
     endtask
 
     // Validate the loaded kernel with a given kernel_id, expect NAK
     task validate_kernel_expect_nak;
-        input [5:0] kernel_id;
+        input [6:0] kernel_id;
         begin
             clear_payload();
-            transact(COM_CMD_VALIDATE, {10'b0, kernel_id}, 16'd0,
-                     COM_CMD_NAK, {10'b0, kernel_id}, 16'd0);
+            transact(COM_CMD_VALIDATE, {9'b0, kernel_id}, 16'd0,
+                     COM_CMD_NAK, {9'b0, kernel_id}, 16'd0);
         end
     endtask
 
-    task launch_kernel;
+    task launch_kernel_expect;
+        input [7:0] expected_cmd;
         begin
             clear_payload();
             put_word_le(0, 32'd1);
             put_word_le(4, 32'd4);
             put_word_le(8, 32'h0000000f);
-            transact(COM_CMD_LAUNCH, 16'h0000, 16'd12, COM_CMD_ACK, 16'h0000, 16'd0);
+            transact(COM_CMD_LAUNCH, 16'h0000, 16'd12, expected_cmd, 16'h0000, 16'd0);
+        end
+    endtask
+
+    task launch_kernel;
+        begin
+            launch_kernel_expect(COM_CMD_ACK);
         end
     endtask
 
@@ -576,7 +583,7 @@ module basys3_security_top_tb;
         // Upload vector-add kernel (kernel_vfy goes IDLE→LOAD)
         load_vector_add_kernel();
         // Validate with kernel_id=0 (golden hash matches) → expect ACK
-        validate_kernel_expect_ack(6'd0);
+        validate_kernel_expect_ack(7'd0);
         // Check kernel_vfy reached EXECUTE state (state=5) and is verified
         if (dut.u_kernel_vfy.state_reg !== 3'd5) begin
             $display("TEST%0d FAIL: kernel_vfy state got=%0d expected=5 (EXECUTE)",
@@ -618,7 +625,7 @@ module basys3_security_top_tb;
         $display("TEST%0d: Kernel validation mismatch (NAK)", test_num);
         // Upload kernel, validate with wrong kernel_id (id=1 has wrong hash)
         load_vector_add_kernel();
-        validate_kernel_expect_nak(6'd1);
+        validate_kernel_expect_nak(7'd1);
         // kernel_vfy should be in ERROR state (state=6)
         if (dut.u_kernel_vfy.state_reg !== 3'd6) begin
             $display("TEST%0d FAIL: kernel_vfy state got=%0d expected=6 (ERROR)",
@@ -644,9 +651,8 @@ module basys3_security_top_tb;
         write_const_word(16'd2, 32'd32);
         write_words(16'h0000, 4, 32'd100);
         write_words(16'h0040, 4, 32'd7);
-        // Launch should get ACK from comm_controller but gpu_launch_valid should be gated
-        // (launch_valid passes through comm but kernel_vfy blocks gpu_launch_valid)
-        launch_kernel();
+        // Launch should be rejected before validation.
+        launch_kernel_expect(COM_CMD_NAK);
         // GPU should NOT have started since launch was gated
         repeat (100) @(posedge CLK100MHZ);
         read_status();
@@ -666,7 +672,7 @@ module basys3_security_top_tb;
         // Upload vector-add kernel
         load_vector_add_kernel();
         // Validate with correct hash (kernel_id=0)
-        validate_kernel_expect_ack(6'd0);
+        validate_kernel_expect_ack(7'd0);
         // Set up constants and data
         write_const_word(16'd0, 32'd0);
         write_const_word(16'd1, 32'd16);

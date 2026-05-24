@@ -140,6 +140,7 @@ uart_gpu_comm/_uart_gpu_comm*.dylib
 
 # Generated kernel id and hash mappings
 runtime/src/generated/
+hardware/rtl/security/gate/kernel_vfy/kernel_golden_hashes.mem
 
 # Python cache / packaging
 __pycache__/

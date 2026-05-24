@@ -636,7 +636,10 @@ void Context::launch_kernel(const Kernel &kernel) {
         write_program(kernel.program_addr, kernel.program, kernel.program_size);
     }
 
-    if(kernel.program_size > 0){
+    if (kernel.program_size > 0) {
+        if (!transport_.validate_kernel) {
+            throw Error(Status::Unsupported);
+        }
         check(transport_.validate_kernel(kernel.kernel_id));
     }
 

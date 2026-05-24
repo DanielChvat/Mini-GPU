@@ -11,7 +11,8 @@ module basys3_security_top #(
     parameter NUM_CORES = 1,
     parameter NUM_WARPS_PER_CORE = 1,
     parameter WARP_ID_WIDTH = 1,
-    parameter KERNEL_ID_WIDTH = 7
+    parameter KERNEL_ID_WIDTH = 7,
+    parameter NUM_GOLDEN_HASHES = 128
 ) (
     input  wire        CLK100MHZ,
     input  wire        btnC,
@@ -44,7 +45,7 @@ module basys3_security_top #(
     wire [7:0]  dbg_rx_cmd;
     wire [15:0] dbg_rx_addr;
     wire [15:0] dbg_rx_len;
-    wire [5:0]  validate_kernel_id;
+    wire [KERNEL_ID_WIDTH-1:0]  validate_kernel_id;
     wire        validate_triggered;
     wire security_reset_triggered;
     wire security_error;
@@ -57,6 +58,7 @@ module basys3_security_top #(
     wire [PROG_ADDR_WIDTH-1:0] kv_prog_addr;
     wire [31:0] kv_prog_wdata;
     wire        kv_launch_valid;
+    wire        kv_launch_ready;
     wire        kv_prog_write_blocked;
     wire        kv_validate_done;
     wire        kv_validate_fail;
@@ -173,6 +175,7 @@ module basys3_security_top #(
         .launch_block_dim(launch_block_dim),
         .launch_active_mask(launch_active_mask_full),
         .status_word(status_word),
+        .launch_ready(kv_launch_ready),
         .validate_kernel_id(validate_kernel_id),
         .validate_triggered(validate_triggered),
         .prog_write_blocked(kv_prog_write_blocked),
@@ -189,7 +192,7 @@ module basys3_security_top #(
         .ADDR_WIDTH(ADDR_WIDTH),
         .PROG_ADDR_WIDTH(PROG_ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
-        .NUM_GOLDEN_HASHES(128),
+        .NUM_GOLDEN_HASHES(NUM_GOLDEN_HASHES),
         .KERNEL_ID_WIDTH(KERNEL_ID_WIDTH)
     ) u_kernel_vfy (
         .clk(CLK100MHZ),
@@ -203,6 +206,7 @@ module basys3_security_top #(
         .gpu_prog_addr(kv_prog_addr),
         .gpu_prog_wdata(kv_prog_wdata),
         .cc_launch_valid(launch_valid),
+        .cc_launch_ready(kv_launch_ready),
         .gpu_launch_valid(kv_launch_valid),
         .validate_triggered(validate_triggered),
         .validate_kernel_id(validate_kernel_id),
@@ -381,6 +385,7 @@ module basys3_security_top #(
     end
 
     wire [15:0] display_word =
+        (kv_kernel_fault) ? {8'b0, 8'he0} :    // display "E" for kernel error/fault
         (sw[1:0] == 2'd0) ? {8'b0, dbg_rx_cmd} :
         (sw[1:0] == 2'd1) ? dbg_rx_addr :
         (sw[1:0] == 2'd2) ? dbg_rx_len :

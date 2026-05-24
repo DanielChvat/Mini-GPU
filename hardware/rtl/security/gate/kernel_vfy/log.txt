@@ -182,3 +182,12 @@ Software design notes
 - there are 65 bin files, we will need to make the verify address 7 bits instead of 6
 
 - I also don't think that the current software supports security reset, so we should probably add that
+- potential future feature: validation state for multiple kernels, right now the board state is only based on the latest uploaded kernel, maybe we can support validated regions
+    - this will use up significantly more logic, so it might not be possible on the basys3
+    - if a user uploades relu, validates, relu, uploads sigmoid, validate sigmoid, and launch cached relu, board is in validated state, but the state is in reference to the sigmoid
+    - a potential attack vector is that a user uploads a corrupted relu, then sends a correct sigmoid, get's sigmoid validated, and run corrupted relu, but this is attack is protected against because the second relu get's attempted to be verified the board will be in an error state
+    - however there are 2 other attacks that can be used:
+        - right now, we don't have zeroization when a security reset occurs; therefore an attacker can uploaded corrupted kernel, fail validation, security reset, upload good kernel in different address, validate, but launch from the corrupted kernel's address
+        - another vulnerability is that an attacker can overwrite the instruction memory in a way that puzzles together there own kernel: an attack uploads/validates kernel at 0x0000; then uploads/validates kernel at 0x0002, overwriting most of the previous kernel; repeat this many times to create a malicious instruction stream, then launch at address 0x0000
+    - an easy solution for both problems is to force it so that program writes must start at address 0x0000 and when hashing salt the hash with the address, and launch can only be done from this address
+        - this significantly improves security, but performance takes a huge hit, because we can't cache kernels, and kernel uploads take a long time

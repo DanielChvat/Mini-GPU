@@ -29,18 +29,26 @@ if(MINIGPU_BUILD_TORCH)
 endif()
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/generated)
+file(GLOB MINIGPU_KERNEL_BINARIES
+    CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels/bin/*.bin
+)
 
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/generated/kernel_id_map.hpp
            ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/generated/kernel_hashes.hpp
-    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/runtime/scripts/generate_kernel_metadata.py
+           ${CMAKE_CURRENT_SOURCE_DIR}/hardware/rtl/security/gate/kernel_vfy/kernel_golden_hashes.mem
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/runtime/scripts/generate_kernel_metadata.py
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels/kernels.yaml
+            ${CMAKE_CURRENT_SOURCE_DIR}/runtime/scripts/generate_kernel_metadata.py
+            ${MINIGPU_KERNEL_BINARIES}
     COMMENT "Generating kernel metadata from kernels.yaml"
 )
 
 add_custom_target(generate_kernel_metadata ALL
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/generated/kernel_id_map.hpp
             ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/generated/kernel_hashes.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/hardware/rtl/security/gate/kernel_vfy/kernel_golden_hashes.mem
 )
 
 add_library(minigpu_runtime

@@ -195,13 +195,11 @@ module kernel_vfy #(
                 sha_needs_start <= 1'b0;
             end
 
-            // security_error from communication_controller handling
             if (security_error) begin
                 fault_reg <= 1'b1;
                 state_reg <= S_ERROR;
-            end
-
-            case (state_reg)
+            end else begin
+                case (state_reg)
 
                 S_IDLE: begin
                     if (cc_prog_we) begin
@@ -279,6 +277,13 @@ module kernel_vfy #(
                 end
 
                 S_EXECUTE: begin
+                    if(validate_triggered) begin
+                        // Validation is invalid in this state
+                        // fault_reg <= 1'b1;
+                        // state_reg <= S_ERROR;
+                        validate_fail <= 1'b1;
+                    end
+
                     if (cc_prog_we) begin
                         if (!core_busy) begin
                             // EXECUTE→LOAD transition
@@ -291,13 +296,6 @@ module kernel_vfy #(
                             state_reg          <= S_LOAD;
                         end
                         // core_busy case: write is blocked combinationally via prog_write_blocked
-
-                        if(validate_triggered) begin
-                            // Validation is invalid in this state
-                            // fault_reg <= 1'b1;
-                            // state_reg <= S_ERROR;
-                            validate_fail <= 1'b1;
-                        end
                     end
                 end
 
@@ -312,7 +310,8 @@ module kernel_vfy #(
                     fault_reg <= 1'b1;
                 end
 
-            endcase
+                endcase
+            end
         end
     end
 

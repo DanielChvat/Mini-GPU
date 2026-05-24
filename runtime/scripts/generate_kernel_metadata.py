@@ -1,13 +1,51 @@
 #!/usr/bin/env python3
-"""Generate kernel metadata (IDs and hashes) from kernels.yaml"""
+"""Generate kernel metadata (IDs and hashes) from kernels.yaml."""
 
-import yaml
 import hashlib
 from pathlib import Path
 
-def generate_kernel_metadata(kernels_yaml_path, output_dir):
-    with open(kernels_yaml_path) as f:
-        manifest = yaml.safe_load(f)
+try:
+    import yaml
+except ModuleNotFoundError:
+    yaml = None
+
+
+def load_manifest(kernels_yaml_path):
+    if yaml is not None:
+        with open(kernels_yaml_path) as f:
+            return yaml.safe_load(f)
+
+    artifacts = []
+    current_artifact = None
+    current_kernel = None
+
+    for raw_line in kernels_yaml_path.read_text().splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        if stripped.startswith("- file:"):
+            current_artifact = {
+                "file": stripped.split(":", 1)[1].strip(),
+                "kernels": [],
+            }
+            artifacts.append(current_artifact)
+            current_kernel = None
+        elif stripped.startswith("map:") and current_artifact is not None:
+            current_artifact["map"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("- name:") and current_artifact is not None:
+            current_kernel = {"name": stripped.split(":", 1)[1].strip()}
+            current_artifact["kernels"].append(current_kernel)
+        elif current_kernel is not None and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current_kernel[key.strip()] = value.strip()
+
+    return {"artifacts": artifacts}
+
+
+def generate_kernel_metadata(kernels_yaml_path, output_dir, hardware_mem_path):
+    manifest = load_manifest(kernels_yaml_path)
     
     kernel_id_map = {}
     kernel_hashes = {}
@@ -54,6 +92,10 @@ static const std::unordered_map<std::string, uint8_t> KERNEL_ID_MAP = {
 #endif
 ''')
     
+    hashes_by_id = [None] * 128
+    for name, kid in kernel_id_map.items():
+        hashes_by_id[kid] = kernel_hashes[name]
+
     # Generate kernel_hashes.hpp
     hashes_hpp = output_dir / "kernel_hashes.hpp"
     with open(hashes_hpp, 'w') as f:
@@ -69,18 +111,12 @@ namespace minigpu {
 // clang-format off
 static const std::array<std::array<uint8_t, 32>, 128> KERNEL_GOLDEN_HASHES = {{
 ''')
-        # Create array indexed by kernel_id
-        hashes_by_id = [None] * 128
-        for name, kid in kernel_id_map.items():
-            hash_bytes = bytes.fromhex(kernel_hashes[name])
-            hash_str = ', '.join(f'0x{b:02x}' for b in hash_bytes)
-            hashes_by_id[kid] = hash_str
-        
-        for i, hash_str in enumerate(hashes_by_id):
-            if hash_str is None:
+        for i, hash_hex in enumerate(hashes_by_id):
+            if hash_hex is None:
                 # Empty slot
                 f.write(f'    {{{", ".join(["0x00"] * 32)}}},  // Slot {i} (unused)\n')
             else:
+                hash_str = ', '.join(f'0x{b:02x}' for b in bytes.fromhex(hash_hex))
                 f.write(f'    {{{hash_str}}},  // {i}\n')
         
         f.write('''}};
@@ -90,14 +126,23 @@ static const std::array<std::array<uint8_t, 32>, 128> KERNEL_GOLDEN_HASHES = {{
 
 #endif
 ''')
+
+    # Generate Verilog $readmemh contents for kernel_hash_bram.
+    hardware_mem_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(hardware_mem_path, 'w') as f:
+        for hash_hex in hashes_by_id:
+            f.write(f"{hash_hex if hash_hex is not None else '0' * 64}\n")
     
     print(f"Generated {id_map_hpp}")
     print(f"Generated {hashes_hpp}")
+    print(f"Generated {hardware_mem_path}")
     print(f"Total kernels: {kernel_id}")
 
 if __name__ == '__main__':
     kernels_dir = Path(__file__).parent.parent / 'kernels'
     output_dir = kernels_dir.parent / 'src' / 'generated'
+    repo_root = Path(__file__).resolve().parents[2]
+    hardware_mem_path = repo_root / 'hardware' / 'rtl' / 'security' / 'gate' / 'kernel_vfy' / 'kernel_golden_hashes.mem'
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    generate_kernel_metadata(kernels_dir / 'kernels.yaml', output_dir)
+    generate_kernel_metadata(kernels_dir / 'kernels.yaml', output_dir, hardware_mem_path)
