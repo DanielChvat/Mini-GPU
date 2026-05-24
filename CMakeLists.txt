@@ -28,6 +28,14 @@ if(MINIGPU_BUILD_TORCH)
     separate_arguments(TORCH_CXX_FLAGS_LIST UNIX_COMMAND "${TORCH_CXX_FLAGS}")
 endif()
 
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/generated/kernel_id_map.hpp
+           ${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/generated/kernel_hashes.hpp
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/runtime/scripts/generate_kernel_metadata.py
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/runtime/kernels/kernels.yaml
+    COMMENT "Generating kernel metadata..."
+)
+
 add_library(minigpu_runtime
     runtime/src/minigpu_runtime.cpp
     runtime/src/minigpu_kernels.cpp
