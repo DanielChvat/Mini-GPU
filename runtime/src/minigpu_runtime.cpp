@@ -1,4 +1,5 @@
 #include "minigpu_runtime.hpp"
+#include "generated/kernel_id_map.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -635,6 +636,13 @@ void Context::launch_kernel(const Kernel &kernel) {
         write_program(kernel.program_addr, kernel.program, kernel.program_size);
     }
 
+    if (kernel.program_size > 0) {
+        if (!transport_.validate_kernel) {
+            throw Error(Status::Unsupported);
+        }
+        check(transport_.validate_kernel(kernel.kernel_id));
+    }
+
     if (kernel.constants && kernel.constants_size) {
         write_constants(kernel.constants_addr, kernel.constants, kernel.constants_size);
     }
@@ -732,6 +740,13 @@ void Context::launch_kernel(
         throw Error(Status::NotFound);
     }
 
+    // get registered kernel ID from generated map
+    auto kernel_id_it = KERNEL_ID_MAP.find(std::string(name));
+    if (kernel_id_it == KERNEL_ID_MAP.end()) {
+        throw Error(Status::NotFound);
+    }
+    uint8_t kernel_id = kernel_id_it->second;
+
     const LaunchConfig defaults{
         registered->default_grid_dim,
         registered->default_block_dim,
@@ -764,6 +779,7 @@ void Context::launch_kernel(
     kernel.block_dim = launch.block_dim;
     kernel.active_mask = launch.active_mask;
     kernel.timeout_ms = launch.timeout_ms;
+    kernel.kernel_id = kernel_id;
     std::ostringstream log;
     log << "launch_kernel name=" << name << " args=" << args.size();
     for (std::size_t i = 0; i < args.size(); ++i) {

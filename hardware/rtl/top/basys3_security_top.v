@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-module basys3_comm_top #(
+module basys3_security_top #(
     parameter CLK_FREQ = 100_000_000,
     parameter BAUD_RATE = 115200,
     parameter ADDR_WIDTH = 16,
@@ -11,7 +11,8 @@ module basys3_comm_top #(
     parameter NUM_CORES = 1,
     parameter NUM_WARPS_PER_CORE = 1,
     parameter WARP_ID_WIDTH = 1,
-    parameter KERNEL_ID_WIDTH = 7
+    parameter KERNEL_ID_WIDTH = 7,
+    parameter NUM_GOLDEN_HASHES = 128
 ) (
     input  wire        CLK100MHZ,
     input  wire        btnC,
@@ -47,9 +48,23 @@ module basys3_comm_top #(
     wire [KERNEL_ID_WIDTH-1:0]  validate_kernel_id;
     wire        validate_triggered;
     wire security_reset_triggered;
+    wire security_error;
     wire        prog_we_full;
     wire [ADDR_WIDTH-1:0] prog_addr_full;
     wire [31:0] prog_wdata;
+
+    // kernel_vfy signals
+    wire        kv_prog_we;
+    wire [PROG_ADDR_WIDTH-1:0] kv_prog_addr;
+    wire [31:0] kv_prog_wdata;
+    wire        kv_launch_valid;
+    wire        kv_launch_ready;
+    wire        kv_prog_write_blocked;
+    wire        kv_validate_done;
+    wire        kv_validate_fail;
+    wire [2:0]  kv_kernel_state;
+    wire        kv_kernel_verified;
+    wire        kv_kernel_fault;
     wire        const_we_full;
     wire [ADDR_WIDTH-1:0] const_addr_full;
     wire [31:0] const_wdata;
@@ -160,12 +175,48 @@ module basys3_comm_top #(
         .launch_block_dim(launch_block_dim),
         .launch_active_mask(launch_active_mask_full),
         .status_word(status_word),
+        .launch_ready(kv_launch_ready),
         .validate_kernel_id(validate_kernel_id),
         .validate_triggered(validate_triggered),
+        .prog_write_blocked(kv_prog_write_blocked),
+        .validate_done(kv_validate_done),
+        .validate_fail(kv_validate_fail),
         .security_reset_triggered(security_reset_triggered),
+        .security_error(security_error),
         .dbg_rx_cmd(dbg_rx_cmd),
         .dbg_rx_addr(dbg_rx_addr),
         .dbg_rx_len(dbg_rx_len)
+    );
+
+    kernel_vfy #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .PROG_ADDR_WIDTH(PROG_ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .NUM_GOLDEN_HASHES(NUM_GOLDEN_HASHES),
+        .KERNEL_ID_WIDTH(KERNEL_ID_WIDTH)
+    ) u_kernel_vfy (
+        .clk(CLK100MHZ),
+        .rst(rst),
+        .security_reset(security_reset_triggered),
+        .security_error(security_error),
+        .cc_prog_we(prog_we_full),
+        .cc_prog_addr(prog_addr_full),
+        .cc_prog_wdata(prog_wdata),
+        .gpu_prog_we(kv_prog_we),
+        .gpu_prog_addr(kv_prog_addr),
+        .gpu_prog_wdata(kv_prog_wdata),
+        .cc_launch_valid(launch_valid),
+        .cc_launch_ready(kv_launch_ready),
+        .gpu_launch_valid(kv_launch_valid),
+        .validate_triggered(validate_triggered),
+        .validate_kernel_id(validate_kernel_id),
+        .core_busy(gpu_busy),
+        .prog_write_blocked(kv_prog_write_blocked),
+        .validate_done(kv_validate_done),
+        .validate_fail(kv_validate_fail),
+        .kernel_state(kv_kernel_state),
+        .kernel_verified(kv_kernel_verified),
+        .kernel_fault(kv_kernel_fault)
     );
 
     mini_gpu #(
@@ -187,13 +238,13 @@ module basys3_comm_top #(
     ) gpu (
         .clk(CLK100MHZ),
         .rst(rst),
-        .prog_we(prog_we_full),
-        .prog_addr(prog_addr_full[PROG_ADDR_WIDTH-1:0]),
-        .prog_wdata(prog_wdata),
+        .prog_we(kv_prog_we),
+        .prog_addr(kv_prog_addr),
+        .prog_wdata(kv_prog_wdata),
         .const_we(const_we_full),
         .const_addr(const_addr_full[CONST_ADDR_WIDTH-1:0]),
         .const_wdata(const_wdata),
-        .launch(launch_valid),
+        .launch(kv_launch_valid),
         .base_pc(launch_base_pc_full[PROG_ADDR_WIDTH-1:0]),
         .active_mask(launch_active_mask_full[WARP_SIZE-1:0]),
         .block_dim(gpu_block_dim),
@@ -334,6 +385,7 @@ module basys3_comm_top #(
     end
 
     wire [15:0] display_word =
+        (kv_kernel_fault) ? {8'b0, 8'he0} :    // display "E" for kernel error/fault
         (sw[1:0] == 2'd0) ? {8'b0, dbg_rx_cmd} :
         (sw[1:0] == 2'd1) ? dbg_rx_addr :
         (sw[1:0] == 2'd2) ? dbg_rx_len :

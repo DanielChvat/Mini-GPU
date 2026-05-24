@@ -176,3 +176,6 @@ Main security gate design
             - reduced number of adders in design when updating the digest
             - instead of 8 parallel adds getting processed in 1 cycle, they share 1 adder across 8 cycles
             - this is done by using a MUX
+
+
+

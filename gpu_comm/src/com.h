@@ -14,7 +14,7 @@ typedef enum {
     COM_CMD_WRITE_PROGRAM = 0x03,  /* write LEN bytes to instr BRAM at ADDR */
     COM_CMD_LAUNCH        = 0x04,  /* start execution (ADDR = base PC)      */
     COM_CMD_READ_STATUS   = 0x05,  /* read status register (no payload)     */
-    COM_CMD_WRITE_HASH    = 0x06,  /* load expected SHA256 hash (32 bytes)  */
+    COM_CMD_SECURITY_RESET= 0x06,  /* reset security gate                   */
     COM_CMD_VALIDATE      = 0x07,  /* trigger hash validation               */
     COM_CMD_ACK           = 0x08,  /* data was recieved properly            */
     COM_CMD_NAK           = 0x09,  /* data was not recieved properly.       */

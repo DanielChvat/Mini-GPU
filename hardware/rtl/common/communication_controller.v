@@ -3,7 +3,8 @@ module communication_controller #(
     parameter BAUD_RATE = 115200,
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,
-    parameter MEMORY_BANK_DEPTH = 8192
+    parameter MEMORY_BANK_DEPTH = 8192,
+    parameter KERNEL_ID_WIDTH = 7
 )(
     input  wire clk,
     input  wire rst,
@@ -44,13 +45,20 @@ module communication_controller #(
     output reg  [31:0]                 launch_block_dim,
     output reg  [31:0]                 launch_active_mask,
     input  wire [31:0]                 status_word,
+    input wire                         launch_ready,
 
     // ================= Validate interface =================
-    output reg [3:0]   validate_model_id,
+    output reg [KERNEL_ID_WIDTH-1:0]   validate_kernel_id,
     output reg         validate_triggered,
+
+    // ================= Kernel verification status =================
+    input  wire        prog_write_blocked,
+    input  wire        validate_done,
+    input  wire        validate_fail,
 
     // ================= Security reset interface =================
     output reg         security_reset_triggered,
+    output reg         security_error,
 
     // ================= Debug / observability =================
     output wire [7:0]  dbg_rx_cmd,
@@ -190,6 +198,7 @@ module communication_controller #(
     localparam STATUS_SEND     = 4'd11; // present status word to TX
     localparam STATUS_WAIT     = 4'd12; // wait for status response to finish
     localparam WAIT_WRITE_RESPONSE = 4'd13; // wait for write_done or write_fail from memory
+    localparam WAIT_VALIDATE_KERNEL_RESPONSE = 4'd14; // wait for kernel_vfy validate_done or validate_fail
 
     reg [3:0] state;
 
@@ -274,7 +283,8 @@ module communication_controller #(
             read_resp_len <= 0;
             read_payload_requested <= 0;
             read_sending_word <= 0;
-            validate_model_id <= 4'b0;
+            validate_kernel_id <= {KERNEL_ID_WIDTH{1'b0}};
+            security_error <= 0;
         end else begin
 
             // defaults
@@ -293,6 +303,7 @@ module communication_controller #(
             launch_valid <= 1'b0;
             validate_triggered <= 1'b0;
             security_reset_triggered <= 1'b0;
+            security_error <= 1'b0;
 
             // Remember when TX asks for read payload before memory data is ready.
             if ((state == READ_START) || (state == READ_WAIT) ||
@@ -360,20 +371,28 @@ module communication_controller #(
                 write_words_seen <= 16'd0;
                 state <= WAIT_WRITE_RESPONSE;
             end else if (packet_done && (rx_cmd == COM_CMD_WRITE_PROGRAM)) begin
-                write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
+                if (prog_write_blocked) begin
+                    write_fail_hold <= 1'b1;
+                end else begin
+                    write_done_hold <= 1'b1;
+                end
             end else if (packet_done && (rx_cmd == COM_CMD_WRITE_CONSTANTS)) begin
                 write_done_hold <= 1'b1;
                 write_words_seen <= 16'd0;
             end else if (packet_done && (rx_cmd == COM_CMD_LAUNCH)) begin
-                launch_valid <= 1'b1;
-                launch_base_pc <= rx_addr[ADDR_WIDTH-1:0];
-                write_done_hold <= 1'b1;
-                write_words_seen <= 16'd0;
+                if(!launch_ready) begin
+                    write_fail_hold <= 1'b1;
+                end else begin
+                    launch_valid <= 1'b1;
+                    launch_base_pc <= rx_addr[ADDR_WIDTH-1:0];
+                    write_done_hold <= 1'b1;
+                    write_words_seen <= 16'd0;
+                end
             end else if (packet_done && (rx_cmd == COM_CMD_VALIDATE)) begin
-                validate_model_id <= rx_addr[3:0];
+                validate_kernel_id <= rx_addr[KERNEL_ID_WIDTH-1:0];
                 validate_triggered <= 1'b1;
-                write_done_hold <= 1'b1;
+                state <= WAIT_VALIDATE_KERNEL_RESPONSE;
             end else if (packet_done && (rx_cmd == COM_CMD_SECURITY_RESET)) begin
                 security_reset_triggered <= 1'b1;
                 write_done_hold <= 1'b1;
@@ -403,6 +422,8 @@ module communication_controller #(
                     pending_addr <= rx_addr;
                     pending_len <= 0;
                     req_valid   <= 1;
+
+                    security_error <= 1'b1;
                 end
                 else if (ack_edge && (rx_cmd != COM_CMD_READ_DATA) &&
                          (rx_cmd != COM_CMD_READ_STATUS)) begin
@@ -593,6 +614,17 @@ module communication_controller #(
             // ----------------------------------------------------
             STATUS_WAIT: begin
                 if (!tx_busy) begin
+                    state <= IDLE;
+                end
+            end
+
+            // ----------------------------------------------------
+            WAIT_VALIDATE_KERNEL_RESPONSE: begin
+                if (validate_done) begin
+                    write_done_hold <= 1'b1;
+                    state <= IDLE;
+                end else if (validate_fail) begin
+                    write_fail_hold <= 1'b1;
                     state <= IDLE;
                 end
             end

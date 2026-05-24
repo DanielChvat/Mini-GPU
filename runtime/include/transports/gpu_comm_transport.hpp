@@ -43,6 +43,10 @@ Status gpu_comm_write_constants(
     com_dev_t *dev, const GpuCommTransportConfig &config,
     DeviceAddress dst_addr, const void *src, std::size_t size);
 
+/* Validate loaded kernel via it's ID*/
+Status gpu_validate_kernel(
+    com_dev_t *dev, std::uint8_t kernel_id);
+
 /* Send a launch command through gpu_comm. */
 Status gpu_comm_launch(
     com_dev_t *dev,
