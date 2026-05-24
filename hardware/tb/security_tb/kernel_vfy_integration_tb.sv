@@ -9,6 +9,7 @@ module kernel_vfy_integration_tb();
     localparam PROG_ADDR_WIDTH = 12;
     localparam MEMORY_BANK_DEPTH = 64;
     localparam BAUD_PERIOD = 100;
+    localparam KERNEL_ID_WIDTH = 7;
 
     localparam COM_CMD_WRITE_PROGRAM  = 8'h03;
     localparam COM_CMD_VALIDATE       = 8'h07;
@@ -48,7 +49,7 @@ module kernel_vfy_integration_tb();
     wire [7:0]  dbg_rx_cmd;
     wire [15:0] dbg_rx_addr;
     wire [15:0] dbg_rx_len;
-    wire [5:0]  validate_kernel_id;
+    wire [KERNEL_ID_WIDTH-1:0]  validate_kernel_id;
     wire        validate_triggered;
     wire        security_reset_triggered;
 
@@ -103,7 +104,8 @@ module kernel_vfy_integration_tb();
         .BAUD_RATE(BAUD_RATE),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
-        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH)
+        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH),
+        .KERNEL_ID_WIDTH(KERNEL_ID_WIDTH)
     ) comm (
         .clk(clk),
         .rst(rst),
@@ -153,7 +155,7 @@ module kernel_vfy_integration_tb();
         .PROG_ADDR_WIDTH(PROG_ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
         .NUM_GOLDEN_HASHES(4),
-        .KERNEL_ID_WIDTH(6)
+        .KERNEL_ID_WIDTH(KERNEL_ID_WIDTH)
     ) u_kernel_vfy (
         .clk(clk),
         .rst(rst),

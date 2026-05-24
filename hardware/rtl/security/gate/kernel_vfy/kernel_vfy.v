@@ -6,7 +6,7 @@ module kernel_vfy #(
     parameter PROG_ADDR_WIDTH  = 12,
     parameter DATA_WIDTH       = 32,
     parameter NUM_GOLDEN_HASHES = 64,
-    parameter KERNEL_ID_WIDTH  = 6
+    parameter KERNEL_ID_WIDTH  = 7
 ) (
     input  wire        clk,
     input  wire        rst,

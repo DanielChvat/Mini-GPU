@@ -10,7 +10,8 @@ module basys3_comm_top #(
     parameter WARP_SIZE = 4,
     parameter NUM_CORES = 1,
     parameter NUM_WARPS_PER_CORE = 1,
-    parameter WARP_ID_WIDTH = 1
+    parameter WARP_ID_WIDTH = 1,
+    parameter KERNEL_ID_WIDTH = 7
 ) (
     input  wire        CLK100MHZ,
     input  wire        btnC,
@@ -43,7 +44,7 @@ module basys3_comm_top #(
     wire [7:0]  dbg_rx_cmd;
     wire [15:0] dbg_rx_addr;
     wire [15:0] dbg_rx_len;
-    wire [5:0]  validate_kernel_id;
+    wire [KERNEL_ID_WIDTH-1:0]  validate_kernel_id;
     wire        validate_triggered;
     wire security_reset_triggered;
     wire        prog_we_full;
@@ -127,7 +128,8 @@ module basys3_comm_top #(
         .BAUD_RATE(BAUD_RATE),
         .ADDR_WIDTH(ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
-        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH)
+        .MEMORY_BANK_DEPTH(MEMORY_BANK_DEPTH),
+        .KERNEL_ID_WIDTH(KERNEL_ID_WIDTH)
     ) comm (
         .clk(CLK100MHZ),
         .rst(rst),

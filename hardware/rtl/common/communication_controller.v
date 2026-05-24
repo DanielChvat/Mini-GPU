@@ -3,7 +3,8 @@ module communication_controller #(
     parameter BAUD_RATE = 115200,
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,
-    parameter MEMORY_BANK_DEPTH = 8192
+    parameter MEMORY_BANK_DEPTH = 8192,
+    parameter KERNEL_ID_WIDTH = 7
 )(
     input  wire clk,
     input  wire rst,
@@ -47,7 +48,7 @@ module communication_controller #(
     input wire                         launch_ready,
 
     // ================= Validate interface =================
-    output reg [5:0]   validate_kernel_id,
+    output reg [KERNEL_ID_WIDTH-1:0]   validate_kernel_id,
     output reg         validate_triggered,
 
     // ================= Kernel verification status =================
@@ -282,7 +283,7 @@ module communication_controller #(
             read_resp_len <= 0;
             read_payload_requested <= 0;
             read_sending_word <= 0;
-            validate_kernel_id <= 6'b0;
+            validate_kernel_id <= {KERNEL_ID_WIDTH{1'b0}};
             security_error <= 0;
         end else begin
 
@@ -389,7 +390,7 @@ module communication_controller #(
                     write_words_seen <= 16'd0;
                 end
             end else if (packet_done && (rx_cmd == COM_CMD_VALIDATE)) begin
-                validate_kernel_id <= rx_addr[5:0];
+                validate_kernel_id <= rx_addr[KERNEL_ID_WIDTH-1:0];
                 validate_triggered <= 1'b1;
                 state <= WAIT_VALIDATE_KERNEL_RESPONSE;
             end else if (packet_done && (rx_cmd == COM_CMD_SECURITY_RESET)) begin

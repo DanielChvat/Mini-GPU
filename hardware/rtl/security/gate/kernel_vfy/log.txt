@@ -137,3 +137,47 @@ Kernel Verification Design (kernel_vfy):
         - EXECUTE and IDLE states will return a validate_fail pulse if the validate is validate_triggered
     - Issue 5 patched
         - NACK is sent when the kernel is unable to launch
+
+Software design notes
+- Current software stack:
+    launch_kernel() [minigpu_kernels.cpp]
+    → context.launch_kernel(...) [minigpu_runtime.cpp:626]
+        → ensure_program_loaded(*kernel) [minigpu_runtime.cpp:594]
+        → write_program(addr, program, size) [minigpu_runtime.cpp:463]
+            → transport_.write_program(...) [minigpu_runtime.cpp:479]
+            → gpu_comm_write_program(...) [gpu_comm_transport.cpp:416]
+                → write_chunked_command(COM_CMD_WRITE_PROGRAM, ...) [gpu_comm_transport.cpp:425]
+                → (loops over chunks)
+                    → send_packet(COM_CMD_WRITE_PROGRAM, chunk_addr, chunk_payload) [x N times]
+                    → com_build_packet() [gpu_comm C library]
+
+- We will send the verify message packet in the gpu_comm_write_program layer after all the chunks are written
+- need to map the kernel to a respective number
+    - input into gpu_comm_write_program 
+        com_dev_t *dev, DeviceAddress dst_addr, const void *src, std::size_t size
+        - packet contents found in *src, comes from *program in context::write_program
+        - *program origniates in context:ensure_program_loaded
+        - const void *program = kernel.program_bytes.empty()
+    - if we try to send the verify message in the gpu_comm_write function, we will only have the *src and size as a way to determine the kernel
+        - this is difficult, the other method is to change the functions to pass the kernel number as an argument, but this requires changing multiple layers, which isn't good 
+        - therefore we will scrap the idea of sending the verification in this layer, we will need to do it in a layer where we still have the kernel id
+
+- new method:
+    - kernel_id inside the Kernel struct 
+    - create kernel name to id mapping 
+    - inside Context:launch_kernel(name, arg, ...) use the mapping to assign the kernel_id to the kernel object
+    - inside launch_kernel(kernel) call a validate_kernel(kernel.kernel_id) function implemented in the transport layer
+    - the validate_kernel function will call the send_packet with the validate command the kernel id in the address field
+- for generating the mapping I will create a script that does the following:
+    - generate the kernel id mapping 
+    - generate the golden hashes used by the hardware 
+    - this will read the kernels.yaml file and do the mapping from that 
+- benefits: 
+    - no manual mapping maintenance when making changes
+    - no manual hashing of kernels, everything can be automated to push automatically
+    - easily scalable
+    - we can gitignore the generated files 
+    - CMake can automatically call the script to generate the files 
+- there are 65 bin files, we will need to make the verify address 7 bits instead of 6
+!!!!still need to change sw!!!!!!!
+- I also don't think that the current software supports security reset, so we should probably add that
