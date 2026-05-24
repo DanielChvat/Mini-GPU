@@ -191,3 +191,16 @@ Software design notes
         - another vulnerability is that an attacker can overwrite the instruction memory in a way that puzzles together there own kernel: an attack uploads/validates kernel at 0x0000; then uploads/validates kernel at 0x0002, overwriting most of the previous kernel; repeat this many times to create a malicious instruction stream, then launch at address 0x0000
     - an easy solution for both problems is to force it so that program writes must start at address 0x0000 and when hashing salt the hash with the address, and launch can only be done from this address
         - this significantly improves security, but performance takes a huge hit, because we can't cache kernels, and kernel uploads take a long time
+
+- current kernel count is set to 128
+
+- yosys summary for size:
+    - basys3_comm_top:
+        - 36 BRAM blocks
+        - 59,900 cells 
+        - 32,631 LUT cells
+    - basys3_security_top:
+        - 40 BRAM blocks
+        - 64,405 cells
+        - 34,554 LUT cells
+    - security increased LUT count by ~6%
