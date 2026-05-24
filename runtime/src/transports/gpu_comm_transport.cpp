@@ -426,6 +426,16 @@ Status gpu_comm_write_program(
         dev, COM_CMD_WRITE_PROGRAM, dst_addr, packet_words.data(), packet_words.size());
 }
 
+/* Validate loaded kernel via its ID. */
+Status gpu_validate_kernel(
+    com_dev_t *dev, std::uint8_t kernel_id) {
+    if (!dev) {
+        return Status::BadArgument;
+    }
+
+    return send_packet(dev, COM_CMD_VALIDATE, kernel_id, nullptr, 0);
+}
+
 /* Write constant bytes using the configured constant-memory transport behavior. */
 Status gpu_comm_write_constants(
     com_dev_t *dev,
@@ -563,6 +573,10 @@ Transport make_gpu_comm_transport(com_dev_t *dev, GpuCommTransportConfig config)
             }
             return gpu_comm_write_program(dev, dst_addr, src, size);
     };
+    transport.validate_kernel =
+        [dev](std::uint8_t kernel_id) {
+            return gpu_validate_kernel(dev, kernel_id);
+        };
     transport.write_constants =
         [dev, config](DeviceAddress dst_addr, const void *src, std::size_t size) {
             return gpu_comm_write_constants(dev, config, dst_addr, src, size);

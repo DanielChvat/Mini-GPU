@@ -166,8 +166,9 @@ Software design notes
     - kernel_id inside the Kernel struct 
     - create kernel name to id mapping 
     - inside Context:launch_kernel(name, arg, ...) use the mapping to assign the kernel_id to the kernel object
-    - inside launch_kernel(kernel) call a validate_kernel(kernel.kernel_id) function implemented in the transport layer
-    - the validate_kernel function will call the send_packet with the validate command the kernel id in the address field
+    - inside launch_kernel(kernel) call a transport_.validate_kernel(kernel.kernel_id) function implemented in the transport layer
+    - transport_.validate_kernel(kernel_id) calls gpu_validate_kernel(dev, kernel_id)
+    - gpu_validate_kernel will call send_packet with the COM_CMD_VALIDATE add the kernel id attached to the address
 - for generating the mapping I will create a script that does the following:
     - generate the kernel id mapping 
     - generate the golden hashes used by the hardware 
@@ -179,5 +180,5 @@ Software design notes
     - we can gitignore the generated files 
     - CMake can automatically call the script to generate the files 
 - there are 65 bin files, we will need to make the verify address 7 bits instead of 6
-!!!!still need to change sw!!!!!!!
+
 - I also don't think that the current software supports security reset, so we should probably add that

@@ -62,6 +62,10 @@ struct Transport {
     std::function<Status(DeviceAddress dst_addr, const void *src, std::size_t size)>
         write_program;
 
+    /* Validate loaded kernel via its ID. */
+    std::function<Status(std::uint8_t kernel_id)>
+        validate_kernel;
+
     /* Write constant data for LDC-style kernel operands. */
     std::function<Status(DeviceAddress dst_addr, const void *src, std::size_t size)>
         write_constants;
@@ -100,6 +104,7 @@ struct Kernel {
     std::uint32_t block_dim = 1;
     std::uint32_t active_mask = 0xffffffffu;
     std::uint32_t timeout_ms = 0;
+    std::uint8_t kernel_id = 0;
 };
 
 /* A precompiled instruction stream that can be launched by registry name. */
