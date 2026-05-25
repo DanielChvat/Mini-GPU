@@ -5,7 +5,7 @@ module kernel_vfy #(
     parameter ADDR_WIDTH       = 16,
     parameter PROG_ADDR_WIDTH  = 12,
     parameter DATA_WIDTH       = 32,
-    parameter NUM_GOLDEN_HASHES = 64,
+    parameter NUM_GOLDEN_HASHES = 128,
     parameter KERNEL_ID_WIDTH  = 7
 ) (
     input  wire        clk,
@@ -56,6 +56,7 @@ module kernel_vfy #(
     localparam S_LOCK     = 3'd4;
     localparam S_EXECUTE  = 3'd5;
     localparam S_ERROR    = 3'd6;
+    localparam S_RESET    = 3'd7;
 
     // =========================================================================
     // Internal Registers
@@ -70,6 +71,11 @@ module kernel_vfy #(
     // First-word buffering for EXECUTE→LOAD transition
     reg                        first_word_pending;
     reg [31:0]                 first_word_buf;
+
+    // reset zeroization address tracking register
+    reg [ADDR_WIDTH-1:0]       reset_zeroization_addr;
+    reg                        reset_addr_hold;
+    localparam RESET_ZEROIZATION_ADDR_MAX = (1 << ADDR_WIDTH) - 1;
 
     // =========================================================================
     // SHA-256 Engine
@@ -123,9 +129,9 @@ module kernel_vfy #(
     wire allow_prog_write = ((state_reg == S_IDLE || state_reg == S_LOAD) && !program_locked_reg)
                             || execute_accept;
 
-    assign gpu_prog_we    = allow_prog_write && cc_prog_we;
-    assign gpu_prog_addr  = cc_prog_addr[PROG_ADDR_WIDTH-1:0];
-    assign gpu_prog_wdata = cc_prog_wdata;
+    assign gpu_prog_we    = allow_prog_write && cc_prog_we || (state_reg == S_RESET);
+    assign gpu_prog_addr  = (state_reg == S_RESET) ? reset_zeroization_addr : cc_prog_addr[PROG_ADDR_WIDTH-1:0];
+    assign gpu_prog_wdata = (state_reg == S_RESET) ? {32{1'b0}} : cc_prog_wdata;
 
     // Launch gated by verification
     assign cc_launch_ready = (state_reg == S_EXECUTE) && verified_reg;
@@ -148,7 +154,9 @@ module kernel_vfy #(
     // =========================================================================
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            state_reg          <= S_IDLE;
+            state_reg          <= S_RESET;
+            reset_zeroization_addr <= {ADDR_WIDTH{1'b0}};
+            reset_addr_hold    <= 1'b0;
             kernel_id_reg      <= {KERNEL_ID_WIDTH{1'b0}};
             verified_reg       <= 1'b0;
             fault_reg          <= 1'b0;
@@ -164,7 +172,9 @@ module kernel_vfy #(
             first_word_pending <= 1'b0;
             first_word_buf     <= 32'b0;
         end else if (security_reset) begin
-            state_reg          <= S_IDLE;
+            state_reg          <= S_RESET;
+            reset_zeroization_addr <= {ADDR_WIDTH{1'b0}};
+            reset_addr_hold    <= 1'b0;
             kernel_id_reg      <= {KERNEL_ID_WIDTH{1'b0}};
             verified_reg       <= 1'b0;
             fault_reg          <= 1'b0;
@@ -300,6 +310,31 @@ module kernel_vfy #(
                 end
 
                 S_ERROR: begin
+                    if (validate_triggered) begin
+                        validate_fail <= 1'b1;
+                    end
+                end
+
+                S_RESET: begin
+                    if(reset_zeroization_addr < RESET_ZEROIZATION_ADDR_MAX) begin
+                        if(!reset_addr_hold) begin
+                            // Hold the first address for one cycle to ensure it gets written
+                            reset_addr_hold <= 1'b1;
+                        end else begin
+                            reset_addr_hold <= 1'b0;
+                            reset_zeroization_addr <= reset_zeroization_addr + 1'b1;
+                        end
+                    end else begin
+                        if(!reset_addr_hold) begin
+                            // After the last address, hold to ensure the final write completes
+                            reset_addr_hold <= 1'b1;
+                        end else begin
+                            reset_addr_hold <= 1'b0;
+                            reset_zeroization_addr <= {ADDR_WIDTH{1'b0}};
+                            state_reg <= S_IDLE;
+                        end
+                    end
+
                     if (validate_triggered) begin
                         validate_fail <= 1'b1;
                     end

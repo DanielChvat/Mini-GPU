@@ -5,8 +5,8 @@ module kernel_vfy_tb;
     localparam ADDR_WIDTH       = 16;
     localparam PROG_ADDR_WIDTH  = 12;
     localparam DATA_WIDTH       = 32;
-    localparam NUM_GOLDEN_HASHES = 4;
-    localparam KERNEL_ID_WIDTH  = 6;
+    localparam NUM_GOLDEN_HASHES = 128;
+    localparam KERNEL_ID_WIDTH  = 7;
 
     // SHA-256 of 8 big-endian 32-bit words [0,1,2,...,7]
     localparam [255:0] HASH_8_WORDS =
@@ -117,7 +117,7 @@ module kernel_vfy_tb;
         @(posedge clk);
         @(posedge clk);
         rst = 1'b0;
-        @(posedge clk);
+        repeat (150000)@(posedge clk);
         @(posedge clk);
         #1;
     end
@@ -359,7 +359,7 @@ module kernel_vfy_tb;
         security_reset <= 1'b1;
         @(posedge clk);
         security_reset <= 1'b0;
-        @(posedge clk);
+        repeat (150000)@(posedge clk);
         @(posedge clk);
         #1;
         check("Back to IDLE after security reset", kernel_state == 3'd0);

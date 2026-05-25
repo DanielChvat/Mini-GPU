@@ -573,7 +573,7 @@ module basys3_security_top_tb;
         // Security reset should clear error state
         transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
         // Allow a few cycles for security_reset to propagate
-        repeat (10) @(posedge CLK100MHZ);
+        repeat (150000) @(posedge CLK100MHZ);
 
         // =====================================================================
         // Test 4: Kernel verification - upload, validate (ACK), security reset
@@ -594,7 +594,7 @@ module basys3_security_top_tb;
         // Security reset should clear verification state
         transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
         // Allow a few cycles for security_reset to propagate
-        repeat (10) @(posedge CLK100MHZ);
+        repeat (150000) @(posedge CLK100MHZ);
         if (dut.u_kernel_vfy.state_reg !== 3'd0) begin
             $display("TEST%0d FAIL: kernel_vfy state after security reset got=%0d expected=0 (IDLE)",
                      test_num, dut.u_kernel_vfy.state_reg);
@@ -635,7 +635,7 @@ module basys3_security_top_tb;
         if (dut.u_kernel_vfy.fault_reg !== 1'b1) fail("kernel_fault should be set after mismatch");
         // Recover via security reset
         transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
-        repeat (10) @(posedge CLK100MHZ);
+        repeat (150000) @(posedge CLK100MHZ);
 
         // =====================================================================
         // Test 7: Launch gating - launch blocked without verification
@@ -662,7 +662,7 @@ module basys3_security_top_tb;
         end
         // Security reset to clean up
         transact(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0, COM_CMD_ACK, 16'h0000, 16'd0);
-        repeat (10) @(posedge CLK100MHZ);
+        repeat (150000) @(posedge CLK100MHZ);
 
         // =====================================================================
         // Test 8: Full vector addition with kernel verification

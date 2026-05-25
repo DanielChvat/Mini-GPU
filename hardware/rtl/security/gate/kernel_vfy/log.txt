@@ -194,6 +194,9 @@ Software design notes
 
 - current kernel count is set to 128
 
+- one issue Daniel fixed was that endian was different between the host and the hash generator, so this was causing issues because the hash wasn't matching
+    - the issue was easy to diagnose thanks to the display showing E and he was able to fix it without an issue
+
 - yosys summary for size:
     - basys3_comm_top:
         - 36 BRAM blocks
@@ -204,3 +207,57 @@ Software design notes
         - 64,405 cells
         - 34,554 LUT cells
     - security increased LUT count by ~6%
+
+- 5/25
+    - !== Security Issue 1 ==#
+        - Issue: Residual instruction memory after security reset
+            - A security reset originally cleared verification state but did not clear instruction memory. This could allow stale or corrupted instructions to remain resident after fault recovery
+        - Attack: an attacker can upload corrupter kernel, do a security reset, upload good kernel, validate, launch from corrupted kernel's address
+        - Solution: 
+            - 1.1: Add zeroization on reset/security reset
+                - pros: fixes the no-zeroization attack vector, easy to implementation, and not too much new logic
+                - cons: slight overhead during reset/security reset, but shouldn't be a huge issue
+            - 1.2: Address othe security vulnerabilities that allow attackers to exploit the zeroization vulnerability (invalid launch)
+                - pros: patches multiple vulnerabilities with one fixes
+                - cons: there could be ways to exploit the zeroization vulnerability that I haven't discovered yet 
+    - !== Security Issue 2 ==#
+        - Issue: we don't enforce validated regions
+        - Attack: an attacker uploads/validates kernel at 0x0000; then uploads/validates kernel at 0x0002, overwriting most of the previous kernel; repeat this many times to create a malicious instruction stream, then launch at address 0x0000
+        - Solution:
+            - 2.1: Program writes must start at address 0x0000 and we will salt the hash with the write address
+                - pros: very tight security and can be easily implemented on the hardware
+                - cons: performance will take a huge hit, because this effectively removes the caching ability, and only 1 kernel can be stored on the board
+            - 2.2: Hash/verify when a new kernel is launched. We will read the kernel instructions from the instruction memory and verify that the kernel is still valid when launching new kernel
+                - pros: allows us to continue storing multiple kernels in the insutrction memory
+                - cons: the overhead to launch a new kernel is significant, because we will need to read all the instructions for the kernel from instruction memory, and some of them are really huge
+                    - this will likely also introduce a lot of new logic 
+            - 2.3: Track metadata for validation regions. Track which regions are validated, only the first address in the region is launchable, if any write occurs inside the region then region becomes invalidated
+                - pros: allows multiple kernels to live in the cache, significantly less overhead compared to other solutions
+                - cons: a lot of new and complex logic but also a completely new design document with brand new modules and concepts 
+            - 2.4: Instruction memory blocks. Very similar to 2.3, but instead of dynamic regions we have set block of data (ie 512 bytes)
+                - pros: same pros as 2.3, it will likely be easier to manage because there is a set number of blocks, we could also add the salted hash feature if we write_constants
+                - cons: same cons as 2.3
+            - all these solution address the issue of invalid launch address, overwriting of kernel, these solutions also help to protect against the no zeroization vulnerability
+    - for future work, the first thing we should do is implement solution 1.1, assuming we have enough resources
+        - to handle security flaw 2, the only option that is viable to keep performance is 2.3 or 2.4, but we don't have enough resources on the Basys 3 FPGA to implement it 
+
+- current design has 60 LUTs left
+    - attempt to implement zeroization with 60 LUTs
+    - create an additional state inside kernel_vfy (S_RESET)
+    - in this state it will iterate through the entire instruction memory and assign 0s
+    - new reg of size [PROG_ADDR_WIDTH-1:0] as reset_zeroization_addr
+    - new localparam RESET_ZEROIZATION_ADDR_MAX = (1 << ADDR_WIDTH) - 1
+    - it will iterate till reset_zeroization_addr == RESET_ZEROIZATION_ADDR_MAX
+    - need to adjust gpu_prog_we, gpu_prog_addr, and gpu_prog_wdata
+        - will use a ternary oepration where condition is (state_reg == S_RESET) for the later 2  
+    - during testing we had to add a lot of extra delays to let the reset propogate
+    - yosys synthesis of kernel_vfy:
+        - old:
+            - 5,139 cells
+            - 2,137 LUTs
+        - new: 
+            - 5,232 cells
+            - 2,189 LUTs
+        - update uses 93 more logic cells (+1.8%)
+        - update uses 52 more LUTs (+2.4%)
+- Patched security issue 1 via method 1.1 

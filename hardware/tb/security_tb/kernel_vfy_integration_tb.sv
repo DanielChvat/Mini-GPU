@@ -332,7 +332,7 @@ module kernel_vfy_integration_tb();
 
         #20;
         rst = 0;
-        #1000;
+        repeat (150000)@(posedge clk);
 
         // ==============================================================
         // Test 1: Upload 4-word kernel, validate → ACK, verify EXECUTE
@@ -385,6 +385,9 @@ module kernel_vfy_integration_tb();
             send_packet(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0);
             expect_tx_done(COM_CMD_ACK);
         join
+
+        repeat (150000)@(posedge clk);
+
         wait_tx_idle();
         repeat (10) @(posedge clk);
 
@@ -422,6 +425,7 @@ module kernel_vfy_integration_tb();
             send_packet(COM_CMD_SECURITY_RESET, 16'h0000, 16'd0);
             expect_tx_done(COM_CMD_ACK);
         join
+        repeat (150000)@(posedge clk);
         wait_tx_idle();
         repeat (10) @(posedge clk);
 
