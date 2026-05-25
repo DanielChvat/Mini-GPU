@@ -44,6 +44,16 @@ def load_manifest(kernels_yaml_path):
     return {"artifacts": artifacts}
 
 
+def rtl_program_stream_bytes(raw_bytes):
+    if len(raw_bytes) % 4 != 0:
+        raise ValueError("Kernel binary size must be a multiple of 4 bytes")
+
+    stream = bytearray()
+    for offset in range(0, len(raw_bytes), 4):
+        stream.extend(raw_bytes[offset:offset + 4][::-1])
+    return bytes(stream)
+
+
 def generate_kernel_metadata(kernels_yaml_path, output_dir, hardware_mem_path):
     manifest = load_manifest(kernels_yaml_path)
     
@@ -55,8 +65,8 @@ def generate_kernel_metadata(kernels_yaml_path, output_dir, hardware_mem_path):
         bin_file = artifact['file']
         bin_path = kernels_yaml_path.parent / bin_file
         
-        # Compute hash of kernel binary
-        sha256_hash = hashlib.sha256(bin_path.read_bytes()).hexdigest()
+        # Compute the digest over the word stream observed by kernel_vfy.
+        sha256_hash = hashlib.sha256(rtl_program_stream_bytes(bin_path.read_bytes())).hexdigest()
         
         for kernel in artifact['kernels']:
             kernel_name = kernel['name']
