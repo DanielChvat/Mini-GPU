@@ -402,6 +402,28 @@ at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking) {
     return self;
 }
 
+at::Tensor &fill_scalar_(at::Tensor &self, const at::Scalar &value) {
+    if (!is_minigpu_tensor(self)) {
+        throw std::runtime_error("Mini-GPU fill_ called without a Mini-GPU tensor");
+    }
+    require_contiguous(self, "destination");
+
+    const auto nbytes = tensor_nbytes(self);
+    if (nbytes == 0) {
+        return self;
+    }
+
+    auto cpu = at::empty(self.sizes(), self.options().device(c10::DeviceType::CPU));
+    cpu.fill_(value);
+    runtime_context().copy_to_device(
+        MiniGpuDataPtr::decode(self.data_ptr()), cpu.contiguous().data_ptr(), nbytes);
+    return self;
+}
+
+at::Tensor &zero_(at::Tensor &self) {
+    return fill_scalar_(self, 0);
+}
+
 at::Tensor to_copy(
     const at::Tensor &self,
     c10::optional<c10::ScalarType> dtype,

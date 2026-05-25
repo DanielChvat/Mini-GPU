@@ -7,17 +7,11 @@
       "name": "expf"
     },
     {
-      "name": "minigpu_mask_u32"
-    },
-    {
-      "name": "minigpu_select_u32"
-    },
-    {
       "name": "rcpf"
     },
     {
       "name": "sigmoidf"
     }
   ],
-  "instruction_words": 1289
+  "instruction_words": 1522
 }

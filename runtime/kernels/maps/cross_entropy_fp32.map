@@ -1,0 +1,14 @@
+{
+  "symbols": [
+    {
+      "name": "cross_entropy_loss_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "logf"
+    }
+  ],
+  "instruction_words": 1941
+}

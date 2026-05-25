@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "mse_loss_fp32"
+    }
+  ],
+  "instruction_words": 150
+}

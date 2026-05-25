@@ -9,6 +9,9 @@ compile_commands.json
 CTestTestfile.cmake
 Testing/
 
+# Data
+data/
+
 # Ninja / Make
 .ninja_deps
 .ninja_log

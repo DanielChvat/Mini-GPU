@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "conv2d_backward_input_fp32"
+    }
+  ],
+  "instruction_words": 743
+}

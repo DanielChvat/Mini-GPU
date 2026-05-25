@@ -48,8 +48,8 @@ FLOAT_PREFIX_OPS = {
     "mul": "FMUL",
     "div": "FDIV",
 }
-SHARED_HELPER_SPILL_SLOT_BASE = 256
-SHARED_HELPER_SPILL_SLOT_STRIDE = 32
+SHARED_HELPER_SPILL_SLOT_BASE = 512
+SHARED_HELPER_SPILL_SLOT_STRIDE = 64
 
 CONVERT_OPS = {
     "ftoi": "FTOI",
@@ -90,6 +90,7 @@ class RegisterAllocator:
         old_reg = self.value_regs.pop(value, None)
         if old_reg is not None:
             self.value_regs[value] = old_reg
+            self.value_depths[value] = self.pred_depth
             return old_reg
 
         if value not in self.memory_backed_values:
@@ -228,6 +229,9 @@ class RegisterAllocator:
         """Track that following instructions execute under the restored lane mask."""
         if self.pred_depth > 0:
             self.pred_depth -= 1
+        for value, depth in list(self.value_depths.items()):
+            if depth > self.pred_depth:
+                self.value_depths[value] = self.pred_depth
 
 
 def split_operands(text: str | None) -> list[str]:

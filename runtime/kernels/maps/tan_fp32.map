@@ -13,19 +13,10 @@
       "name": "minigpu_cos_poly"
     },
     {
-      "name": "minigpu_mask_u32"
-    },
-    {
       "name": "minigpu_nearest_quadrant"
     },
     {
       "name": "minigpu_round_i32"
-    },
-    {
-      "name": "minigpu_select_f32"
-    },
-    {
-      "name": "minigpu_select_u32"
     },
     {
       "name": "minigpu_sin_poly"
@@ -43,5 +34,5 @@
       "name": "tanf"
     }
   ],
-  "instruction_words": 1320
+  "instruction_words": 1467
 }

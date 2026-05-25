@@ -88,6 +88,15 @@ bool sym_array_all(c10::SymIntArrayRef values, std::int64_t expected) {
     return true;
 }
 
+bool int_array_all(at::IntArrayRef values, std::int64_t expected) {
+    for (const auto value : values) {
+        if (value != expected) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::vector<std::int64_t> scalar_or_keepdim_shape(const at::Tensor &tensor, bool keepdim) {
     if (!keepdim) {
         return {};
@@ -240,11 +249,36 @@ at::Tensor transpose_weight_to_device(const at::Tensor &weight) {
 }
 
 at::Tensor add_tensor(const at::Tensor &a, const at::Tensor &b, const at::Scalar &alpha) {
+    require_minigpu_contiguous(a, "aten::add.Tensor self");
+    require_minigpu_contiguous(b, "aten::add.Tensor other");
+    if (a.sizes() != b.sizes()) {
+        throw std::runtime_error("aten::add.Tensor on Mini-GPU requires matching shapes");
+    }
+    if (a.scalar_type() != b.scalar_type()) {
+        throw std::runtime_error("aten::add.Tensor on Mini-GPU requires matching dtypes");
+    }
     if (alpha.toDouble() != 1.0) {
-        throw std::runtime_error("aten::add.Tensor on Mini-GPU currently requires alpha=1");
+        if (a.scalar_type() != at::kFloat) {
+            throw std::runtime_error("aten::add.Tensor on Mini-GPU currently supports alpha!=1 for fp32 only");
+        }
+        return axpy(b, a, alpha);
     }
 
     return detail::run_vector_add_kernel(a, b, "aten::add.Tensor");
+}
+
+at::Tensor &add_tensor_(at::Tensor &a, const at::Tensor &b, const at::Scalar &alpha) {
+    require_minigpu_contiguous(a, "aten::add_.Tensor self");
+    require_minigpu_contiguous(b, "aten::add_.Tensor other");
+    if (a.sizes() != b.sizes()) {
+        throw std::runtime_error("aten::add_.Tensor on Mini-GPU requires matching shapes");
+    }
+    if (a.scalar_type() != b.scalar_type()) {
+        throw std::runtime_error("aten::add_.Tensor on Mini-GPU requires matching dtypes");
+    }
+    auto updated = add_tensor(a, b, alpha);
+    copy_(a, updated, false);
+    return a;
 }
 
 at::Tensor vector_add(const at::Tensor &a, const at::Tensor &b) {
@@ -728,15 +762,15 @@ at::Tensor exp(const at::Tensor &a) {
 }
 
 at::Tensor log(const at::Tensor &a) {
-    return to_minigpu_tensor(at::log(to_cpu_tensor(a, "aten::log")), a.options());
+    return run_fp32_unary_kernel(a, "log", "aten::log");
 }
 
 at::Tensor log2(const at::Tensor &a) {
-    return to_minigpu_tensor(at::log2(to_cpu_tensor(a, "aten::log2")), a.options());
+    return run_fp32_unary_kernel(a, "log2", "aten::log2");
 }
 
 at::Tensor log10(const at::Tensor &a) {
-    return to_minigpu_tensor(at::log10(to_cpu_tensor(a, "aten::log10")), a.options());
+    return run_fp32_unary_kernel(a, "log10", "aten::log10");
 }
 
 at::Tensor sqrt(const at::Tensor &a) {
@@ -1058,6 +1092,150 @@ at::Tensor adaptive_avg_pool2d(const at::Tensor &a, c10::SymIntArrayRef output_s
     return out;
 }
 
+at::Tensor mse_loss(const at::Tensor &input, const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(input, "minigpu::mse_loss input");
+    require_fp32_minigpu_contiguous(target, "minigpu::mse_loss target");
+    if (input.sizes() != target.sizes()) {
+        throw std::runtime_error("minigpu::mse_loss requires matching shapes");
+    }
+    if (input.numel() <= 0) {
+        throw std::runtime_error("minigpu::mse_loss requires non-empty input");
+    }
+    const auto count = checked_u32(input.numel(), "mse_loss input size");
+    auto out = at::empty({}, input.options());
+    runtime_context().launch_kernel(
+        "mse_loss.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(input)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(count),
+            minigpu::KernelArg::f32(1.0f / static_cast<float>(count)),
+        });
+    return out;
+}
+
+at::Tensor l1_loss(const at::Tensor &input, const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(input, "minigpu::l1_loss input");
+    require_fp32_minigpu_contiguous(target, "minigpu::l1_loss target");
+    if (input.sizes() != target.sizes()) {
+        throw std::runtime_error("minigpu::l1_loss requires matching shapes");
+    }
+    if (input.numel() <= 0) {
+        throw std::runtime_error("minigpu::l1_loss requires non-empty input");
+    }
+    const auto count = checked_u32(input.numel(), "l1_loss input size");
+    auto out = at::empty({}, input.options());
+    runtime_context().launch_kernel(
+        "l1_loss.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(input)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(count),
+            minigpu::KernelArg::f32(1.0f / static_cast<float>(count)),
+        });
+    return out;
+}
+
+at::Tensor l2_loss(const at::Tensor &input, const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(input, "minigpu::l2_loss input");
+    require_fp32_minigpu_contiguous(target, "minigpu::l2_loss target");
+    if (input.sizes() != target.sizes()) {
+        throw std::runtime_error("minigpu::l2_loss requires matching shapes");
+    }
+    if (input.numel() <= 0) {
+        throw std::runtime_error("minigpu::l2_loss requires non-empty input");
+    }
+    auto out = at::empty({}, input.options());
+    runtime_context().launch_kernel(
+        "l2_loss.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(input)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(input.numel(), "l2_loss input size")),
+        });
+    return out;
+}
+
+at::Tensor cross_entropy_loss(const at::Tensor &logits, const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(logits, "minigpu::cross_entropy logits");
+    require_minigpu_contiguous(target, "minigpu::cross_entropy target");
+    if (target.scalar_type() != at::kInt) {
+        throw std::runtime_error("minigpu::cross_entropy target must be int32 class indices");
+    }
+    if (logits.dim() != 2) {
+        throw std::runtime_error("minigpu::cross_entropy logits must have shape [batch, classes]");
+    }
+    if (target.dim() != 1 || target.size(0) != logits.size(0)) {
+        throw std::runtime_error("minigpu::cross_entropy target must have shape [batch]");
+    }
+    if (logits.size(0) <= 0 || logits.size(1) <= 0) {
+        throw std::runtime_error("minigpu::cross_entropy requires non-empty logits");
+    }
+    const auto rows = checked_u32(logits.size(0), "cross_entropy batch");
+    const auto cols = checked_u32(logits.size(1), "cross_entropy classes");
+    auto stats = at::empty({logits.size(0), 3}, logits.options());
+    auto out = at::empty({}, logits.options());
+    runtime_context().launch_kernel(
+        "cross_entropy_stats.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(logits)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(stats)),
+            minigpu::KernelArg::u32(rows),
+            minigpu::KernelArg::u32(cols),
+        });
+    runtime_context().launch_kernel(
+        "cross_entropy_finish.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(stats)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(rows),
+            minigpu::KernelArg::f32(1.0f / static_cast<float>(rows)),
+        });
+    return out;
+}
+
+at::Tensor cross_entropy_debug(const at::Tensor &logits, const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(logits, "minigpu::cross_entropy_debug logits");
+    require_minigpu_contiguous(target, "minigpu::cross_entropy_debug target");
+    if (target.scalar_type() != at::kInt) {
+        throw std::runtime_error("minigpu::cross_entropy_debug target must be int32 class indices");
+    }
+    if (logits.dim() != 2) {
+        throw std::runtime_error("minigpu::cross_entropy_debug logits must have shape [batch, classes]");
+    }
+    if (target.dim() != 1 || target.size(0) != logits.size(0)) {
+        throw std::runtime_error("minigpu::cross_entropy_debug target must have shape [batch]");
+    }
+    if (logits.size(0) <= 0 || logits.size(1) <= 0) {
+        throw std::runtime_error("minigpu::cross_entropy_debug requires non-empty logits");
+    }
+    const auto rows = checked_u32(logits.size(0), "cross_entropy_debug batch");
+    const auto cols = checked_u32(logits.size(1), "cross_entropy_debug classes");
+    auto stats = at::empty({logits.size(0), 3}, logits.options());
+    auto out = at::empty({logits.size(0), 5}, logits.options());
+    runtime_context().launch_kernel(
+        "cross_entropy_stats.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(logits)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(stats)),
+            minigpu::KernelArg::u32(rows),
+            minigpu::KernelArg::u32(cols),
+        });
+    runtime_context().launch_kernel(
+        "cross_entropy_debug_finish.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(stats)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(rows),
+        });
+    return out;
+}
+
 at::Tensor threshold_backward(
     const at::Tensor &grad_output,
     const at::Tensor &self,
@@ -1076,6 +1254,124 @@ at::Tensor threshold_backward(
             minigpu::KernelArg::device_ptr(device_address(out)),
             minigpu::KernelArg::f32(threshold.toFloat()),
             minigpu::KernelArg::u32(checked_u32(self.numel(), "threshold_backward size")),
+        });
+    return out;
+}
+
+at::Tensor mse_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &input,
+    const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(grad_output, "minigpu::mse_loss_backward grad_output");
+    require_fp32_minigpu_contiguous(input, "minigpu::mse_loss_backward input");
+    require_fp32_minigpu_contiguous(target, "minigpu::mse_loss_backward target");
+    if (grad_output.numel() != 1) {
+        throw std::runtime_error("minigpu::mse_loss_backward requires scalar grad_output");
+    }
+    if (input.sizes() != target.sizes()) {
+        throw std::runtime_error("minigpu::mse_loss_backward requires matching shapes");
+    }
+    const auto count = checked_u32(input.numel(), "mse_loss_backward input size");
+    auto out = at::empty_like(input);
+    runtime_context().launch_kernel(
+        "mse_loss_backward.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(grad_output)),
+            minigpu::KernelArg::device_ptr(device_address(input)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(count),
+            minigpu::KernelArg::f32(2.0f / static_cast<float>(count)),
+        });
+    return out;
+}
+
+at::Tensor l1_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &input,
+    const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(grad_output, "minigpu::l1_loss_backward grad_output");
+    require_fp32_minigpu_contiguous(input, "minigpu::l1_loss_backward input");
+    require_fp32_minigpu_contiguous(target, "minigpu::l1_loss_backward target");
+    if (grad_output.numel() != 1) {
+        throw std::runtime_error("minigpu::l1_loss_backward requires scalar grad_output");
+    }
+    if (input.sizes() != target.sizes()) {
+        throw std::runtime_error("minigpu::l1_loss_backward requires matching shapes");
+    }
+    const auto count = checked_u32(input.numel(), "l1_loss_backward input size");
+    auto out = at::empty_like(input);
+    runtime_context().launch_kernel(
+        "l1_loss_backward.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(grad_output)),
+            minigpu::KernelArg::device_ptr(device_address(input)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(count),
+            minigpu::KernelArg::f32(1.0f / static_cast<float>(count)),
+        });
+    return out;
+}
+
+at::Tensor l2_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &input,
+    const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(grad_output, "minigpu::l2_loss_backward grad_output");
+    require_fp32_minigpu_contiguous(input, "minigpu::l2_loss_backward input");
+    require_fp32_minigpu_contiguous(target, "minigpu::l2_loss_backward target");
+    if (grad_output.numel() != 1) {
+        throw std::runtime_error("minigpu::l2_loss_backward requires scalar grad_output");
+    }
+    if (input.sizes() != target.sizes()) {
+        throw std::runtime_error("minigpu::l2_loss_backward requires matching shapes");
+    }
+    auto out = at::empty_like(input);
+    runtime_context().launch_kernel(
+        "l2_loss_backward.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(grad_output)),
+            minigpu::KernelArg::device_ptr(device_address(input)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(checked_u32(input.numel(), "l2_loss_backward input size")),
+        });
+    return out;
+}
+
+at::Tensor cross_entropy_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &logits,
+    const at::Tensor &target) {
+    require_fp32_minigpu_contiguous(grad_output, "minigpu::cross_entropy_backward grad_output");
+    require_fp32_minigpu_contiguous(logits, "minigpu::cross_entropy_backward logits");
+    require_minigpu_contiguous(target, "minigpu::cross_entropy_backward target");
+    if (target.scalar_type() != at::kInt) {
+        throw std::runtime_error("minigpu::cross_entropy_backward target must be int32 class indices");
+    }
+    if (grad_output.numel() != 1) {
+        throw std::runtime_error("minigpu::cross_entropy_backward requires scalar grad_output");
+    }
+    if (logits.dim() != 2) {
+        throw std::runtime_error("minigpu::cross_entropy_backward logits must have shape [batch, classes]");
+    }
+    if (target.dim() != 1 || target.size(0) != logits.size(0)) {
+        throw std::runtime_error("minigpu::cross_entropy_backward target must have shape [batch]");
+    }
+    const auto rows = checked_u32(logits.size(0), "cross_entropy_backward batch");
+    const auto cols = checked_u32(logits.size(1), "cross_entropy_backward classes");
+    auto out = at::empty_like(logits);
+    runtime_context().launch_kernel(
+        "cross_entropy_backward.fp32",
+        {
+            minigpu::KernelArg::device_ptr(device_address(grad_output)),
+            minigpu::KernelArg::device_ptr(device_address(logits)),
+            minigpu::KernelArg::device_ptr(device_address(target)),
+            minigpu::KernelArg::device_ptr(device_address(out)),
+            minigpu::KernelArg::u32(rows),
+            minigpu::KernelArg::u32(cols),
+            minigpu::KernelArg::f32(1.0f / static_cast<float>(rows)),
         });
     return out;
 }
@@ -1222,6 +1518,207 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_backward(
                 minigpu::KernelArg::device_ptr(device_address(grad_bias)),
                 minigpu::KernelArg::u32(batch),
                 minigpu::KernelArg::u32(out_features),
+            });
+    }
+    return std::make_tuple(grad_input, grad_weight, grad_bias);
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> convolution_backward(
+    const at::Tensor &input,
+    const at::Tensor &grad_output,
+    const at::Tensor &weight,
+    at::IntArrayRef stride,
+    at::IntArrayRef padding,
+    at::IntArrayRef dilation,
+    bool transposed,
+    at::IntArrayRef output_padding,
+    std::int64_t groups,
+    std::array<bool, 3> output_mask) {
+    require_fp32_minigpu_contiguous(input, "aten::convolution_backward input");
+    require_fp32_minigpu_contiguous(grad_output, "aten::convolution_backward grad_output");
+    require_fp32_minigpu_contiguous(weight, "aten::convolution_backward weight");
+    if (transposed) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU does not support transposed convolution yet");
+    }
+    if (groups != 1) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU currently supports groups=1 only");
+    }
+    if (input.dim() != 3 && input.dim() != 4) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU currently supports NCL and NCHW input");
+    }
+    if (weight.dim() != input.dim() || grad_output.dim() != input.dim()) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU requires matching input/weight/grad ranks");
+    }
+    if (!int_array_all(dilation, 1)) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU currently supports dilation=1 only");
+    }
+    if (!int_array_all(output_padding, 0)) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU requires output_padding=0");
+    }
+
+    const auto batch_size = checked_u32(input.size(0), "conv backward batch_size");
+    const auto in_channels = checked_u32(input.size(1), "conv backward in_channels");
+    const auto out_channels = checked_u32(weight.size(0), "conv backward out_channels");
+    if (weight.size(1) != static_cast<std::int64_t>(in_channels)) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU requires matching input channels");
+    }
+    if (grad_output.size(0) != input.size(0) || grad_output.size(1) != weight.size(0)) {
+        throw std::runtime_error("aten::convolution_backward on Mini-GPU requires compatible grad_output shape");
+    }
+
+    at::Tensor grad_input;
+    at::Tensor grad_weight;
+    at::Tensor grad_bias;
+    if (input.dim() == 3) {
+        if (stride.size() != 1 || padding.size() != 1 || dilation.size() != 1 ||
+            output_padding.size() != 1) {
+            throw std::runtime_error("aten::convolution_backward 1D expects one stride/padding/dilation value");
+        }
+        const auto input_width = checked_u32(input.size(2), "conv backward input_width");
+        const auto output_width = checked_u32(grad_output.size(2), "conv backward output_width");
+        const auto kernel_width = checked_u32(weight.size(2), "conv backward kernel_width");
+        const auto stride_w = checked_u32(stride[0], "conv backward stride");
+        const auto padding_w = checked_u32(padding[0], "conv backward padding");
+        if (padding_w != 0) {
+            throw std::runtime_error("aten::convolution_backward 1D on Mini-GPU currently supports padding=0 only");
+        }
+        if (stride_w == 0) {
+            throw std::runtime_error("aten::convolution_backward 1D on Mini-GPU requires nonzero stride");
+        }
+
+        if (output_mask[0]) {
+            grad_input = at::empty_like(input);
+            runtime_context().launch_kernel(
+                "conv1d_backward_input.fp32",
+                {
+                    minigpu::KernelArg::device_ptr(device_address(grad_output)),
+                    minigpu::KernelArg::device_ptr(device_address(weight)),
+                    minigpu::KernelArg::device_ptr(device_address(grad_input)),
+                    minigpu::KernelArg::u32(checked_u32(input.numel(), "conv1d backward input size")),
+                    minigpu::KernelArg::u32(batch_size),
+                    minigpu::KernelArg::u32(in_channels),
+                    minigpu::KernelArg::u32(out_channels),
+                    minigpu::KernelArg::u32(input_width),
+                    minigpu::KernelArg::u32(output_width),
+                    minigpu::KernelArg::u32(kernel_width),
+                    minigpu::KernelArg::u32(stride_w),
+                    minigpu::KernelArg::u32(padding_w),
+                });
+        }
+        if (output_mask[1]) {
+            grad_weight = at::empty_like(weight);
+            runtime_context().launch_kernel(
+                "conv1d_backward_weight.fp32",
+                {
+                    minigpu::KernelArg::device_ptr(device_address(input)),
+                    minigpu::KernelArg::device_ptr(device_address(grad_output)),
+                    minigpu::KernelArg::device_ptr(device_address(grad_weight)),
+                    minigpu::KernelArg::u32(checked_u32(weight.numel(), "conv1d backward weight size")),
+                    minigpu::KernelArg::u32(batch_size),
+                    minigpu::KernelArg::u32(in_channels),
+                    minigpu::KernelArg::u32(out_channels),
+                    minigpu::KernelArg::u32(input_width),
+                    minigpu::KernelArg::u32(output_width),
+                    minigpu::KernelArg::u32(kernel_width),
+                    minigpu::KernelArg::u32(stride_w),
+                    minigpu::KernelArg::u32(padding_w),
+                });
+        }
+        if (output_mask[2]) {
+            grad_bias = at::empty({out_channels}, grad_output.options());
+            runtime_context().launch_kernel(
+                "conv1d_backward_bias.fp32",
+                {
+                    minigpu::KernelArg::device_ptr(device_address(grad_output)),
+                    minigpu::KernelArg::device_ptr(device_address(grad_bias)),
+                    minigpu::KernelArg::u32(batch_size),
+                    minigpu::KernelArg::u32(out_channels),
+                    minigpu::KernelArg::u32(output_width),
+                });
+        }
+        return std::make_tuple(grad_input, grad_weight, grad_bias);
+    }
+
+    if (stride.size() != 2 || padding.size() != 2 || dilation.size() != 2 ||
+        output_padding.size() != 2) {
+        throw std::runtime_error("aten::convolution_backward 2D expects two stride/padding/dilation values");
+    }
+    const auto input_height = checked_u32(input.size(2), "conv backward input_height");
+    const auto input_width = checked_u32(input.size(3), "conv backward input_width");
+    const auto output_height = checked_u32(grad_output.size(2), "conv backward output_height");
+    const auto output_width = checked_u32(grad_output.size(3), "conv backward output_width");
+    const auto kernel_height = checked_u32(weight.size(2), "conv backward kernel_height");
+    const auto kernel_width = checked_u32(weight.size(3), "conv backward kernel_width");
+    const auto stride_h = checked_u32(stride[0], "conv backward stride_h");
+    const auto stride_w = checked_u32(stride[1], "conv backward stride_w");
+    const auto padding_h = checked_u32(padding[0], "conv backward padding_h");
+    const auto padding_w = checked_u32(padding[1], "conv backward padding_w");
+    if (padding_h != 0 || padding_w != 0) {
+        throw std::runtime_error("aten::convolution_backward 2D on Mini-GPU currently supports padding=0 only");
+    }
+    if (stride_h == 0 || stride_w == 0) {
+        throw std::runtime_error("aten::convolution_backward 2D on Mini-GPU requires nonzero stride");
+    }
+
+    if (output_mask[0]) {
+        grad_input = at::empty_like(input);
+        runtime_context().launch_kernel(
+            "conv2d_backward_input.fp32",
+            {
+                minigpu::KernelArg::device_ptr(device_address(grad_output)),
+                minigpu::KernelArg::device_ptr(device_address(weight)),
+                minigpu::KernelArg::device_ptr(device_address(grad_input)),
+                minigpu::KernelArg::u32(checked_u32(input.numel(), "conv2d backward input size")),
+                minigpu::KernelArg::u32(batch_size),
+                minigpu::KernelArg::u32(in_channels),
+                minigpu::KernelArg::u32(out_channels),
+                minigpu::KernelArg::u32(input_height),
+                minigpu::KernelArg::u32(input_width),
+                minigpu::KernelArg::u32(output_height),
+                minigpu::KernelArg::u32(output_width),
+                minigpu::KernelArg::u32(kernel_height),
+                minigpu::KernelArg::u32(kernel_width),
+                minigpu::KernelArg::u32(stride_h),
+                minigpu::KernelArg::u32(stride_w),
+                minigpu::KernelArg::u32(padding_h),
+                minigpu::KernelArg::u32(padding_w),
+            });
+    }
+    if (output_mask[1]) {
+        grad_weight = at::empty_like(weight);
+        runtime_context().launch_kernel(
+            "conv2d_backward_weight.fp32",
+            {
+                minigpu::KernelArg::device_ptr(device_address(input)),
+                minigpu::KernelArg::device_ptr(device_address(grad_output)),
+                minigpu::KernelArg::device_ptr(device_address(grad_weight)),
+                minigpu::KernelArg::u32(checked_u32(weight.numel(), "conv2d backward weight size")),
+                minigpu::KernelArg::u32(batch_size),
+                minigpu::KernelArg::u32(in_channels),
+                minigpu::KernelArg::u32(out_channels),
+                minigpu::KernelArg::u32(input_height),
+                minigpu::KernelArg::u32(input_width),
+                minigpu::KernelArg::u32(output_height),
+                minigpu::KernelArg::u32(output_width),
+                minigpu::KernelArg::u32(kernel_height),
+                minigpu::KernelArg::u32(kernel_width),
+                minigpu::KernelArg::u32(stride_h),
+                minigpu::KernelArg::u32(stride_w),
+                minigpu::KernelArg::u32(padding_h),
+                minigpu::KernelArg::u32(padding_w),
+            });
+    }
+    if (output_mask[2]) {
+        grad_bias = at::empty({out_channels}, grad_output.options());
+        runtime_context().launch_kernel(
+            "conv2d_backward_bias.fp32",
+            {
+                minigpu::KernelArg::device_ptr(device_address(grad_output)),
+                minigpu::KernelArg::device_ptr(device_address(grad_bias)),
+                minigpu::KernelArg::u32(batch_size),
+                minigpu::KernelArg::u32(out_channels),
+                minigpu::KernelArg::u32(output_height),
+                minigpu::KernelArg::u32(output_width),
             });
     }
     return std::make_tuple(grad_input, grad_weight, grad_bias);

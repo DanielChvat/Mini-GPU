@@ -4,5 +4,5 @@
       "name": "relu_backward_fp32"
     }
   ],
-  "instruction_words": 173
+  "instruction_words": 138
 }

@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "l2_loss_fp32"
+    }
+  ],
+  "instruction_words": 143
+}

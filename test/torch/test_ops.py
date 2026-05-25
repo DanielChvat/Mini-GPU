@@ -15,7 +15,6 @@ MEMORY_SIZE = int(os.environ.get("MINIGPU_TEST_MEMORY_SIZE", "65536"))
 
 if os.environ.get("MINIGPU_TEST_DEBUG", "").lower() not in {"1", "true", "yes", "on"}:
     os.environ.pop("MINIGPU_COMM_DEBUG", None)
-    os.environ.pop("MINIGPU_RUNTIME_LOG", None)
 
 
 @unittest.skipUnless(PORT, "set MINIGPU_TEST_PORT=/dev/ttyUSB* to run hardware tests")
@@ -34,11 +33,11 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
     def to_minigpu(self, tensor):
         return tensor.contiguous().to("minigpu")
 
-    def assert_tensor_close(self, actual, expected, *, rtol=1e-3, atol=1e-3):
+    def assert_tensor_close(self, actual, expected, *, rtol=1e-3, atol=1e-3, msg=None):
         actual_cpu = actual.to("cpu")
         self.assertEqual(actual_cpu.shape, expected.shape)
         self.assertEqual(actual_cpu.dtype, expected.dtype)
-        torch.testing.assert_close(actual_cpu, expected, rtol=rtol, atol=atol)
+        torch.testing.assert_close(actual_cpu, expected, rtol=rtol, atol=atol, msg=msg)
 
     def test_cpu_to_minigpu_and_back(self):
         x = torch.tensor([-3, -1, 0, 2, 4], dtype=torch.int8)
@@ -128,6 +127,10 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
         self.assert_tensor_close(torch.pow(gx, gy), torch.pow(x, y), rtol=5e-2, atol=5e-2)
         self.assert_tensor_close(torch.pow(gx, 2.0), torch.pow(x, 2.0), rtol=1e-3, atol=1e-3)
 
+    def test_log_cross_entropy_range(self):
+        x = torch.tensor([1.135376, 1.223322, 8.935, 23.535], dtype=torch.float32)
+        self.assert_tensor_close(torch.log(self.to_minigpu(x)), torch.log(x), rtol=5e-2, atol=5e-2)
+
     def test_log10_and_trig(self):
         pi = torch.pi
         x = torch.tensor([0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0], dtype=torch.float32)
@@ -209,6 +212,85 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
         torch.nn.functional.softmax(cpu_x, dim=-1).backward(grad)
         torch.nn.functional.softmax(gpu_x, dim=-1).backward(self.to_minigpu(grad))
         self.assert_tensor_close(gpu_x.grad, cpu_x.grad, rtol=7e-2, atol=7e-2)
+
+    def test_loss_kernels_and_backward(self):
+        x = torch.tensor([[0.25, -1.0, 2.0], [3.0, -0.5, 0.75]], dtype=torch.float32)
+        target = torch.tensor([[0.0, -0.25, 1.5], [2.5, 0.25, -1.0]], dtype=torch.float32)
+
+        cases = (
+            ("mse_loss", lambda a, b: torch.mean((a - b) * (a - b)), torch.ops.minigpu.mse_loss),
+            ("l1_loss", lambda a, b: torch.mean(torch.abs(a - b)), torch.ops.minigpu.l1_loss),
+            ("l2_loss", lambda a, b: 0.5 * torch.sum((a - b) * (a - b)), torch.ops.minigpu.l2_loss),
+        )
+
+        for name, cpu_fn, gpu_fn in cases:
+            with self.subTest(loss=name):
+                cpu_x = x.clone().requires_grad_(True)
+                gpu_x = self.to_minigpu(x).detach().requires_grad_(True)
+                cpu_target = target.clone()
+                gpu_target = self.to_minigpu(target)
+
+                cpu_loss = cpu_fn(cpu_x, cpu_target)
+                gpu_loss = gpu_fn(gpu_x, gpu_target)
+                self.assert_tensor_close(gpu_loss, cpu_loss, rtol=3e-2, atol=3e-2)
+
+                cpu_loss.backward()
+                gpu_loss.backward()
+                self.assert_tensor_close(gpu_x.grad, cpu_x.grad, rtol=3e-2, atol=3e-2)
+
+    def test_cross_entropy_backward(self):
+        logits = torch.tensor([[0.25, -1.0, 2.0], [3.0, -0.5, 0.75]], dtype=torch.float32)
+        target = torch.tensor([2, 0], dtype=torch.int64)
+        cpu_x = logits.clone().requires_grad_(True)
+        gpu_x = self.to_minigpu(logits).detach().requires_grad_(True)
+
+        cpu_loss = torch.nn.functional.cross_entropy(cpu_x, target)
+        gpu_loss = torch.ops.minigpu.cross_entropy(gpu_x, self.to_minigpu(target.to(torch.int32)))
+        self.assert_tensor_close(gpu_loss, cpu_loss, rtol=5e-2, atol=5e-2)
+
+        cpu_loss.backward()
+        gpu_loss.backward()
+        self.assert_tensor_close(gpu_x.grad, cpu_x.grad, rtol=7e-2, atol=7e-2)
+
+    def test_cross_entropy_debug_intermediates(self):
+        logits = torch.tensor([[0.25, -1.0, 2.0], [3.0, -0.5, 0.75]], dtype=torch.float32)
+        target = torch.tensor([2, 0], dtype=torch.int32)
+        rows = []
+        for row, label in zip(logits, target):
+            max_value = torch.max(row)
+            exp_sum = torch.sum(torch.exp(row - max_value))
+            log_sum = torch.log(exp_sum)
+            target_logit = row[int(label)]
+            rows.append(torch.stack((max_value, exp_sum, log_sum, target_logit, log_sum + max_value - target_logit)))
+        expected = torch.stack(rows)
+
+        actual = torch.ops.minigpu.cross_entropy_debug(self.to_minigpu(logits), self.to_minigpu(target))
+        self.assert_tensor_close(
+            actual,
+            expected,
+            rtol=5e-2,
+            atol=5e-2,
+            msg=f"\nactual={actual.to('cpu')}\nexpected={expected}",
+        )
+
+    def test_sgd_optimizer_step(self):
+        x = torch.tensor([0.25, -1.0, 2.0, -0.5], dtype=torch.float32)
+        target = torch.tensor([0.0, -0.25, 1.5, 0.75], dtype=torch.float32)
+
+        cpu_param = torch.nn.Parameter(x.clone())
+        gpu_param = torch.nn.Parameter(self.to_minigpu(x).detach())
+        cpu_opt = torch.optim.SGD([cpu_param], lr=0.1, foreach=False)
+        gpu_opt = torch.optim.SGD([gpu_param], lr=0.1, foreach=False)
+
+        torch.mean((cpu_param - target) * (cpu_param - target)).backward()
+        torch.ops.minigpu.mse_loss(gpu_param, self.to_minigpu(target)).backward()
+        cpu_opt.step()
+        gpu_opt.step()
+        self.assert_tensor_close(gpu_param, cpu_param, rtol=3e-2, atol=3e-2)
+
+        cpu_opt.zero_grad(set_to_none=False)
+        gpu_opt.zero_grad(set_to_none=False)
+        self.assert_tensor_close(gpu_param.grad, cpu_param.grad, rtol=0, atol=0)
 
     def test_pool2d_kernels(self):
         x = torch.tensor(
@@ -416,6 +498,109 @@ class MiniGpuTorchOpsTest(unittest.TestCase):
             torch.nn.functional.conv2d(self.to_minigpu(x), self.to_minigpu(weight), self.to_minigpu(bias), stride=1),
             torch.nn.functional.conv2d(x, weight, bias, stride=1),
         )
+
+    def test_conv_backward(self):
+        x1 = torch.tensor(
+            [[[1.0, -2.0, 0.5, 3.0, -1.0], [0.25, 1.5, -0.5, 2.0, 1.0]]],
+            dtype=torch.float32,
+        )
+        w1 = torch.tensor(
+            [[[0.5, -1.0, 0.25], [1.0, 0.5, -0.5]], [[-0.25, 0.75, 1.0], [0.5, -1.0, 0.25]]],
+            dtype=torch.float32,
+        )
+        b1 = torch.tensor([0.25, -0.5], dtype=torch.float32)
+        g1 = torch.tensor([[[1.0, -0.5], [0.25, 1.5]]], dtype=torch.float32)
+
+        cpu_x1 = x1.clone().requires_grad_(True)
+        cpu_w1 = w1.clone().requires_grad_(True)
+        cpu_b1 = b1.clone().requires_grad_(True)
+        gpu_x1 = self.to_minigpu(x1).detach().requires_grad_(True)
+        gpu_w1 = self.to_minigpu(w1).detach().requires_grad_(True)
+        gpu_b1 = self.to_minigpu(b1).detach().requires_grad_(True)
+
+        torch.nn.functional.conv1d(cpu_x1, cpu_w1, cpu_b1, stride=2).backward(g1)
+        torch.nn.functional.conv1d(gpu_x1, gpu_w1, gpu_b1, stride=2).backward(self.to_minigpu(g1))
+        self.assert_tensor_close(gpu_x1.grad, cpu_x1.grad)
+        self.assert_tensor_close(gpu_w1.grad, cpu_w1.grad)
+        self.assert_tensor_close(gpu_b1.grad, cpu_b1.grad)
+
+        x2 = torch.tensor(
+            [[[[1.0, -1.0, 2.0], [0.5, 3.0, -0.5], [2.0, -2.0, 1.5]]]],
+            dtype=torch.float32,
+        )
+        w2 = torch.tensor(
+            [[[[0.5, -1.0], [1.5, 0.25]]], [[[-0.5, 0.75], [1.0, -0.25]]]],
+            dtype=torch.float32,
+        )
+        b2 = torch.tensor([0.125, -0.25], dtype=torch.float32)
+        g2 = torch.tensor([[[[1.0, -0.5], [0.25, 1.5]], [[-1.0, 0.75], [0.5, -0.25]]]], dtype=torch.float32)
+
+        cpu_x2 = x2.clone().requires_grad_(True)
+        cpu_w2 = w2.clone().requires_grad_(True)
+        cpu_b2 = b2.clone().requires_grad_(True)
+        gpu_x2 = self.to_minigpu(x2).detach().requires_grad_(True)
+        gpu_w2 = self.to_minigpu(w2).detach().requires_grad_(True)
+        gpu_b2 = self.to_minigpu(b2).detach().requires_grad_(True)
+
+        torch.nn.functional.conv2d(cpu_x2, cpu_w2, cpu_b2, stride=1).backward(g2)
+        torch.nn.functional.conv2d(gpu_x2, gpu_w2, gpu_b2, stride=1).backward(self.to_minigpu(g2))
+        self.assert_tensor_close(gpu_x2.grad, cpu_x2.grad)
+        self.assert_tensor_close(gpu_w2.grad, cpu_w2.grad)
+        self.assert_tensor_close(gpu_b2.grad, cpu_b2.grad)
+
+    def test_mnist_conv_model_backward_from_dataset(self):
+        try:
+            from torchvision import datasets, transforms
+        except ImportError as exc:
+            raise unittest.SkipTest(f"torchvision is required for MNIST trainability test: {exc}") from exc
+
+        root = os.environ.get("MINIGPU_MNIST_ROOT", "data")
+        try:
+            mnist = datasets.MNIST(root=root, train=True, download=False, transform=transforms.ToTensor())
+        except RuntimeError as exc:
+            raise unittest.SkipTest(
+                f"MNIST dataset not found under {root}; set MINIGPU_MNIST_ROOT or download it first"
+            ) from exc
+        image, label = mnist[0]
+        image = image.unsqueeze(0).to(torch.float32)
+
+        model_cpu = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 2, kernel_size=3, stride=4, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Flatten(),
+            torch.nn.Linear(2 * 7 * 7, 10, bias=True),
+        ).eval()
+        with torch.no_grad():
+            model_cpu[0].weight.copy_(
+                torch.linspace(-0.2, 0.2, 2 * 1 * 3 * 3, dtype=torch.float32).view(2, 1, 3, 3)
+            )
+            model_cpu[0].bias.copy_(torch.tensor([0.05, -0.1], dtype=torch.float32))
+            model_cpu[3].weight.copy_(
+                torch.linspace(-0.03, 0.03, 10 * 2 * 7 * 7, dtype=torch.float32).view(10, 2 * 7 * 7)
+            )
+            model_cpu[3].bias.copy_(torch.linspace(-0.1, 0.1, 10, dtype=torch.float32))
+
+        model_gpu = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 2, kernel_size=3, stride=4, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Flatten(),
+            torch.nn.Linear(2 * 7 * 7, 10, bias=True),
+        ).eval()
+        model_gpu.load_state_dict(model_cpu.state_dict())
+        model_gpu = model_gpu.to("minigpu")
+
+        grad = torch.zeros(1, 10, dtype=torch.float32)
+        grad[0, int(label)] = 1.0
+        grad[0] -= 0.1
+
+        cpu_out = model_cpu(image)
+        gpu_out = model_gpu(self.to_minigpu(image))
+        cpu_out.backward(grad)
+        gpu_out.backward(self.to_minigpu(grad))
+
+        for cpu_param, gpu_param in zip(model_cpu.parameters(), model_gpu.parameters()):
+            self.assertIsNotNone(gpu_param.grad)
+            self.assert_tensor_close(gpu_param.grad, cpu_param.grad, rtol=8e-2, atol=8e-2)
 
 
 if __name__ == "__main__":

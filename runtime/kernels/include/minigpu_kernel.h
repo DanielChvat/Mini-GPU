@@ -61,15 +61,15 @@ extern __device__ float minigpu_as_f32(uint32_t value);
 extern __device__ uint32_t __float_as_uint(float value);
 extern __device__ float __uint_as_float(uint32_t value);
 
-MINIGPU_SHARED uint32_t minigpu_mask_u32(int pred) {
+MINIGPU_INLINE uint32_t minigpu_mask_u32(int pred) {
   return 0u - (uint32_t)pred;
 }
 
-MINIGPU_SHARED uint32_t minigpu_select_u32(uint32_t mask, uint32_t if_set, uint32_t if_clear) {
+MINIGPU_INLINE uint32_t minigpu_select_u32(uint32_t mask, uint32_t if_set, uint32_t if_clear) {
   return (mask & if_set) | ((~mask) & if_clear);
 }
 
-MINIGPU_SHARED float minigpu_select_f32(uint32_t mask, float if_set, float if_clear) {
+MINIGPU_INLINE float minigpu_select_f32(uint32_t mask, float if_set, float if_clear) {
   return __uint_as_float(minigpu_select_u32(mask, __float_as_uint(if_set), __float_as_uint(if_clear)));
 }
 
@@ -251,47 +251,116 @@ MINIGPU_SHARED float sqrt(float x) {
   return sqrtf(x);
 }
 
-MINIGPU_SHARED float log2f(float x) {
-  uint32_t raw = __float_as_uint(x);
-  uint32_t ix = raw & 0x7fffffffu;
-  uint32_t sign = raw & 0x80000000u;
-  if (ix == 0u) {
-    return __uint_as_float(0xff800000u);
-  }
-  int subnormal_shift = 0;
-  if (ix < 0x00800000u) {
-    x = x * 8388608.0f;
-    ix = __float_as_uint(x) & 0x7fffffffu;
-    subnormal_shift = -23;
+MINIGPU_INLINE float logf(float x) {
+  float y = x;
+  float scale = 0.0f;
+
+  if (y >= 18446744073709551616.0f) {
+    y *= 5.421010862427522e-20f;
+    scale += 44.3614195558365f;
   }
 
-  int k = (int)(ix >> 23) - 127 + subnormal_shift;
-  float y = __uint_as_float((ix & 0x007fffffu) | 0x3f800000u);
+  if (y >= 4294967296.0f) {
+    y *= 2.3283064365386963e-10f;
+    scale += 22.18070977791825f;
+  }
+
+  if (y >= 65536.0f) {
+    y *= 0.0000152587890625f;
+    scale += 11.090354888959125f;
+  }
+
+  if (y >= 256.0f) {
+    y *= 0.00390625f;
+    scale += 5.545177444479562f;
+  }
+
+  if (y >= 16.0f) {
+    y *= 0.0625f;
+    scale += 2.772588722239781f;
+  }
+
+  if (y >= 4.0f) {
+    y *= 0.25f;
+    scale += 1.3862943611198906f;
+  }
+
+  if (y > 1.4142135623730951f) {
+    y *= 0.5f;
+    scale += 0.6931471805599453f;
+  }
+
+  if (y < 5.421010862427522e-20f) {
+    y *= 18446744073709551616.0f;
+    scale -= 44.3614195558365f;
+  }
+
+  if (y < 2.3283064365386963e-10f) {
+    y *= 4294967296.0f;
+    scale -= 22.18070977791825f;
+  }
+
+  if (y < 0.0000152587890625f) {
+    y *= 65536.0f;
+    scale -= 11.090354888959125f;
+  }
+
+  if (y < 0.00390625f) {
+    y *= 256.0f;
+    scale -= 5.545177444479562f;
+  }
+
+  if (y < 0.0625f) {
+    y *= 16.0f;
+    scale -= 2.772588722239781f;
+  }
+
+  if (y < 0.25f) {
+    y *= 4.0f;
+    scale -= 1.3862943611198906f;
+  }
+
+  if (y < 0.7071067811865476f) {
+    y *= 2.0f;
+    scale -= 0.6931471805599453f;
+  }
 
   float z = (y - 1.0f) * rcpf(y + 1.0f);
   float z2 = z * z;
-  float z3 = z * z2;
-  float z5 = z3 * z2;
-  float z7 = z5 * z2;
-  float ln_y = 2.0f * (z + 0.333333333333f * z3 +
-      0.2f * z5 + 0.142857142857f * z7);
-  float result_f = (float)k + 1.4426950408889634f * ln_y;
-  uint32_t neg_mask = minigpu_mask_u32((sign != 0u) & (ix != 0u));
-  uint32_t inf_mask = minigpu_mask_u32(ix == 0x7f800000u);
-  uint32_t nan_mask = minigpu_mask_u32(ix > 0x7f800000u);
-  uint32_t result = __float_as_uint(result_f);
+  float term = z;
+  float series = term;
+  term = term * z2;
+  series += 0.3333333333333333f * term;
+  term = term * z2;
+  series += 0.2f * term;
+  term = term * z2;
+  series += 0.14285714285714285f * term;
+  term = term * z2;
+  series += 0.1111111111111111f * term;
+  term = term * z2;
+  series += 0.09090909090909091f * term;
+
+  uint32_t ix = __float_as_uint(x);
+  uint32_t mag = ix & 0x7fffffffu;
+  uint32_t sign = ix & 0x80000000u;
+  uint32_t result = __float_as_uint(scale + 2.0f * series);
+  uint32_t zero_mask = minigpu_mask_u32(mag == 0u);
+  uint32_t neg_mask = minigpu_mask_u32((sign != 0u) & (mag != 0u));
+  uint32_t inf_mask = minigpu_mask_u32((sign == 0u) & (mag == 0x7f800000u));
+  uint32_t nan_mask = minigpu_mask_u32(mag > 0x7f800000u);
+  result = minigpu_select_u32(zero_mask, 0xff800000u, result);
   result = minigpu_select_u32(neg_mask, 0x7fc00000u, result);
-  result = minigpu_select_u32(inf_mask, 0x7f800000u, result);
-  result = minigpu_select_u32(nan_mask, raw, result);
+  result = minigpu_select_u32(inf_mask, ix, result);
+  result = minigpu_select_u32(nan_mask, ix, result);
   return __uint_as_float(result);
+}
+
+MINIGPU_SHARED float log2f(float x) {
+  return 1.4426950408889634f * logf(x);
 }
 
 MINIGPU_SHARED float log2(float x) {
   return log2f(x);
-}
-
-MINIGPU_SHARED float logf(float x) {
-  return 0.6931471805599453f * log2f(x);
 }
 
 MINIGPU_SHARED float log(float x) {

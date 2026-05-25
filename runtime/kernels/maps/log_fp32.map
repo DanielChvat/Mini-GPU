@@ -4,20 +4,8 @@
       "name": "log_fp32"
     },
     {
-      "name": "log2f"
-    },
-    {
-      "name": "logf"
-    },
-    {
-      "name": "minigpu_mask_u32"
-    },
-    {
-      "name": "minigpu_select_u32"
-    },
-    {
       "name": "rcpf"
     }
   ],
-  "instruction_words": 1174
+  "instruction_words": 2053
 }

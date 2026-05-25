@@ -1,0 +1,17 @@
+{
+  "symbols": [
+    {
+      "name": "l1_loss_backward_fp32"
+    },
+    {
+      "name": "minigpu_float_gt"
+    },
+    {
+      "name": "minigpu_float_lt"
+    },
+    {
+      "name": "minigpu_float_order_key"
+    }
+  ],
+  "instruction_words": 388
+}

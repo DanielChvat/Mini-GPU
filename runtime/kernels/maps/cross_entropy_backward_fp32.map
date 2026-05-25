@@ -1,0 +1,11 @@
+{
+  "symbols": [
+    {
+      "name": "cross_entropy_backward_fp32"
+    },
+    {
+      "name": "expf"
+    }
+  ],
+  "instruction_words": 1147
+}

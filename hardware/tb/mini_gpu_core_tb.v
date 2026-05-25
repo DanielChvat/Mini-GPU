@@ -492,6 +492,8 @@ module mini_gpu_core_tb;
                 `MGPU_OP_LDS:   instr_name = "LDS";
                 `MGPU_OP_STS:   instr_name = "STS";
                 `MGPU_OP_FDIV:  instr_name = "FDIV";
+                `MGPU_OP_FTOI:  instr_name = "FTOI";
+                `MGPU_OP_ITOF:  instr_name = "ITOF";
                 `MGPU_OP_TID:   instr_name = "TID";
                 `MGPU_OP_TIDX:  instr_name = "TIDX";
                 `MGPU_OP_BID:   instr_name = "BID";
@@ -549,6 +551,8 @@ module mini_gpu_core_tb;
                 `MGPU_OP_FSUB,
                 `MGPU_OP_FMUL,
                 `MGPU_OP_FDIV,
+                `MGPU_OP_FTOI,
+                `MGPU_OP_ITOF,
                 `MGPU_OP_LDG,
                 `MGPU_OP_LDS,
                 `MGPU_OP_TID,

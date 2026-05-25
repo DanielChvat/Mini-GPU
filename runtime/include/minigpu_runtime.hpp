@@ -310,7 +310,7 @@ private:
     void coalesce_program_blocks();
 
     /* Ensure a registered program artifact is resident in instruction memory. */
-    DeviceAddress ensure_program_loaded(const PrecompiledKernel &kernel);
+    DeviceAddress ensure_program_loaded(const PrecompiledKernel &kernel, std::uint8_t kernel_id);
 
     /* Allocate instruction memory, evicting least-recently-used artifacts as needed. */
     DeviceAddress allocate_program_slot(std::string_view name, std::size_t size);

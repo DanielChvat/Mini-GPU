@@ -82,6 +82,12 @@ at::Tensor reshape_alias(
 /* Copy data between CPU and Mini-GPU tensors. */
 at::Tensor &copy_(at::Tensor &self, const at::Tensor &src, bool non_blocking);
 
+/* Fill a Mini-GPU tensor with a scalar value. */
+at::Tensor &fill_scalar_(at::Tensor &self, const at::Scalar &value);
+
+/* Fill a Mini-GPU tensor with zeros. */
+at::Tensor &zero_(at::Tensor &self);
+
 /* Materialize a dtype/device converted copy for Tensor.to(), .float(), .half(), etc. */
 at::Tensor to_copy(
     const at::Tensor &self,
@@ -97,6 +103,9 @@ minigpu::DeviceAddress device_address(const at::Tensor &tensor);
 
 /* Elementwise add operation for Mini-GPU tensors. */
 at::Tensor add_tensor(const at::Tensor &a, const at::Tensor &b, const at::Scalar &alpha);
+
+/* In-place elementwise add operation for Mini-GPU tensors. */
+at::Tensor &add_tensor_(at::Tensor &a, const at::Tensor &b, const at::Scalar &alpha);
 
 /* Two-input custom vector-add op wrapper for torch.ops.minigpu.vector_add. */
 at::Tensor vector_add(const at::Tensor &a, const at::Tensor &b);
@@ -221,6 +230,11 @@ at::Tensor avg_pool2d(
     bool count_include_pad,
     ::std::optional<std::int64_t> divisor_override);
 at::Tensor adaptive_avg_pool2d(const at::Tensor &a, c10::SymIntArrayRef output_size);
+at::Tensor mse_loss(const at::Tensor &input, const at::Tensor &target);
+at::Tensor l1_loss(const at::Tensor &input, const at::Tensor &target);
+at::Tensor l2_loss(const at::Tensor &input, const at::Tensor &target);
+at::Tensor cross_entropy_loss(const at::Tensor &logits, const at::Tensor &target);
+at::Tensor cross_entropy_debug(const at::Tensor &logits, const at::Tensor &target);
 
 /* Backward kernels used by PyTorch autograd formulas. */
 at::Tensor threshold_backward(
@@ -229,6 +243,22 @@ at::Tensor threshold_backward(
     const at::Scalar &threshold);
 at::Tensor sigmoid_backward(const at::Tensor &grad_output, const at::Tensor &output);
 at::Tensor tanh_backward(const at::Tensor &grad_output, const at::Tensor &output);
+at::Tensor mse_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &input,
+    const at::Tensor &target);
+at::Tensor l1_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &input,
+    const at::Tensor &target);
+at::Tensor l2_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &input,
+    const at::Tensor &target);
+at::Tensor cross_entropy_loss_backward(
+    const at::Tensor &grad_output,
+    const at::Tensor &logits,
+    const at::Tensor &target);
 at::Tensor softmax_backward_data(
     const at::Tensor &grad_output,
     const at::Tensor &output,
@@ -238,6 +268,17 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_backward(
     const at::Tensor &self,
     const at::Tensor &grad_output,
     const at::Tensor &weight,
+    std::array<bool, 3> output_mask);
+std::tuple<at::Tensor, at::Tensor, at::Tensor> convolution_backward(
+    const at::Tensor &input,
+    const at::Tensor &grad_output,
+    const at::Tensor &weight,
+    at::IntArrayRef stride,
+    at::IntArrayRef padding,
+    at::IntArrayRef dilation,
+    bool transposed,
+    at::IntArrayRef output_padding,
+    std::int64_t groups,
     std::array<bool, 3> output_mask);
 
 } // namespace minigpu::torch_backend

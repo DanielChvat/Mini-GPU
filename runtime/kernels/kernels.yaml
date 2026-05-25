@@ -88,34 +88,6 @@ artifacts:
     op: relu
     dtype: fp8_e4m3fn
     entry: relu_kernel_fp8
-- file: bin/softmax_backward_fp32.bin
-  map: maps/softmax_backward_fp32.map
-  kernels:
-  - name: softmax_backward.fp32
-    op: softmax_backward
-    dtype: fp32
-    entry: softmax_backward_fp32
-- file: bin/linear_backward_input_fp32.bin
-  map: maps/linear_backward_input_fp32.map
-  kernels:
-  - name: linear_backward_input.fp32
-    op: linear_backward_input
-    dtype: fp32
-    entry: linear_backward_input_fp32
-- file: bin/linear_backward_weight_fp32.bin
-  map: maps/linear_backward_weight_fp32.map
-  kernels:
-  - name: linear_backward_weight.fp32
-    op: linear_backward_weight
-    dtype: fp32
-    entry: linear_backward_weight_fp32
-- file: bin/linear_backward_bias_fp32.bin
-  map: maps/linear_backward_bias_fp32.map
-  kernels:
-  - name: linear_backward_bias.fp32
-    op: linear_backward_bias
-    dtype: fp32
-    entry: linear_backward_bias_fp32
 - file: bin/scal_fp32.bin
   map: maps/scal_fp32.map
   kernels:
@@ -193,6 +165,48 @@ artifacts:
     op: conv2d_bias
     dtype: fp32
     entry: conv2d_bias_kernel_fp32
+- file: bin/conv1d_backward_input_fp32.bin
+  map: maps/conv1d_backward_input_fp32.map
+  kernels:
+  - name: conv1d_backward_input.fp32
+    op: conv1d_backward_input
+    dtype: fp32
+    entry: conv1d_backward_input_fp32
+- file: bin/conv1d_backward_weight_fp32.bin
+  map: maps/conv1d_backward_weight_fp32.map
+  kernels:
+  - name: conv1d_backward_weight.fp32
+    op: conv1d_backward_weight
+    dtype: fp32
+    entry: conv1d_backward_weight_fp32
+- file: bin/conv1d_backward_bias_fp32.bin
+  map: maps/conv1d_backward_bias_fp32.map
+  kernels:
+  - name: conv1d_backward_bias.fp32
+    op: conv1d_backward_bias
+    dtype: fp32
+    entry: conv1d_backward_bias_fp32
+- file: bin/conv2d_backward_input_fp32.bin
+  map: maps/conv2d_backward_input_fp32.map
+  kernels:
+  - name: conv2d_backward_input.fp32
+    op: conv2d_backward_input
+    dtype: fp32
+    entry: conv2d_backward_input_fp32
+- file: bin/conv2d_backward_weight_fp32.bin
+  map: maps/conv2d_backward_weight_fp32.map
+  kernels:
+  - name: conv2d_backward_weight.fp32
+    op: conv2d_backward_weight
+    dtype: fp32
+    entry: conv2d_backward_weight_fp32
+- file: bin/conv2d_backward_bias_fp32.bin
+  map: maps/conv2d_backward_bias_fp32.map
+  kernels:
+  - name: conv2d_backward_bias.fp32
+    op: conv2d_backward_bias
+    dtype: fp32
+    entry: conv2d_backward_bias_fp32
 - file: bin/reciprocal_fp32.bin
   map: maps/reciprocal_fp32.map
   kernels:
@@ -207,6 +221,27 @@ artifacts:
     op: div
     dtype: fp32
     entry: div_fp32
+- file: bin/linear_backward_input_fp32.bin
+  map: maps/linear_backward_input_fp32.map
+  kernels:
+  - name: linear_backward_input.fp32
+    op: linear_backward_input
+    dtype: fp32
+    entry: linear_backward_input_fp32
+- file: bin/linear_backward_weight_fp32.bin
+  map: maps/linear_backward_weight_fp32.map
+  kernels:
+  - name: linear_backward_weight.fp32
+    op: linear_backward_weight
+    dtype: fp32
+    entry: linear_backward_weight_fp32
+- file: bin/linear_backward_bias_fp32.bin
+  map: maps/linear_backward_bias_fp32.map
+  kernels:
+  - name: linear_backward_bias.fp32
+    op: linear_backward_bias
+    dtype: fp32
+    entry: linear_backward_bias_fp32
 - file: bin/linear_i32.bin
   map: maps/linear_i32.map
   kernels:
@@ -235,6 +270,83 @@ artifacts:
     op: linear_bias
     dtype: fp32
     entry: linear_bias_kernel_fp32
+- file: bin/mse_loss_fp32.bin
+  map: maps/mse_loss_fp32.map
+  kernels:
+  - name: mse_loss.fp32
+    op: mse_loss
+    dtype: fp32
+    entry: mse_loss_fp32
+- file: bin/mse_loss_backward_fp32.bin
+  map: maps/mse_loss_backward_fp32.map
+  kernels:
+  - name: mse_loss_backward.fp32
+    op: mse_loss_backward
+    dtype: fp32
+    entry: mse_loss_backward_fp32
+- file: bin/l1_loss_fp32.bin
+  map: maps/l1_loss_fp32.map
+  kernels:
+  - name: l1_loss.fp32
+    op: l1_loss
+    dtype: fp32
+    entry: l1_loss_fp32
+- file: bin/l1_loss_backward_fp32.bin
+  map: maps/l1_loss_backward_fp32.map
+  kernels:
+  - name: l1_loss_backward.fp32
+    op: l1_loss_backward
+    dtype: fp32
+    entry: l1_loss_backward_fp32
+- file: bin/l2_loss_fp32.bin
+  map: maps/l2_loss_fp32.map
+  kernels:
+  - name: l2_loss.fp32
+    op: l2_loss
+    dtype: fp32
+    entry: l2_loss_fp32
+- file: bin/l2_loss_backward_fp32.bin
+  map: maps/l2_loss_backward_fp32.map
+  kernels:
+  - name: l2_loss_backward.fp32
+    op: l2_loss_backward
+    dtype: fp32
+    entry: l2_loss_backward_fp32
+- file: bin/cross_entropy_stats_fp32.bin
+  map: maps/cross_entropy_stats_fp32.map
+  kernels:
+  - name: cross_entropy_stats.fp32
+    op: cross_entropy_stats
+    dtype: fp32
+    entry: cross_entropy_stats_fp32
+- file: bin/cross_entropy_finish_fp32.bin
+  map: maps/cross_entropy_finish_fp32.map
+  kernels:
+  - name: cross_entropy_finish.fp32
+    op: cross_entropy_finish
+    dtype: fp32
+    entry: cross_entropy_finish_fp32
+- file: bin/cross_entropy_debug_fp32.bin
+  map: maps/cross_entropy_debug_fp32.map
+  kernels:
+  - name: cross_entropy_debug.fp32
+    op: cross_entropy_debug
+    dtype: fp32
+    entry: cross_entropy_debug_fp32
+- file: bin/cross_entropy_debug_finish_fp32.bin
+  map: maps/cross_entropy_debug_finish_fp32.map
+  kernels:
+  - name: cross_entropy_debug_finish.fp32
+    op: cross_entropy_debug_finish
+    dtype: fp32
+    entry: cross_entropy_debug_finish_fp32
+- file: bin/cross_entropy_backward_fp32.bin
+  map: maps/cross_entropy_backward_fp32.map
+  kernels:
+  - name: cross_entropy_backward.fp32
+    op: cross_entropy_backward
+    dtype: fp32
+    entry: cross_entropy_backward_fp32
 - file: bin/log_fp32.bin
   map: maps/log_fp32.map
   kernels:
@@ -410,6 +522,13 @@ artifacts:
     op: softmax
     dtype: fp32
     entry: softmax_fp32
+- file: bin/softmax_backward_fp32.bin
+  map: maps/softmax_backward_fp32.map
+  kernels:
+  - name: softmax_backward.fp32
+    op: softmax_backward
+    dtype: fp32
+    entry: softmax_backward_fp32
 - file: bin/sqrt_fp32.bin
   map: maps/sqrt_fp32.map
   kernels:

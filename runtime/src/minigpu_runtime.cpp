@@ -592,7 +592,7 @@ DeviceAddress Context::allocate_program_slot(std::string_view name, std::size_t 
 }
 
 /* Upload a registered artifact on cache miss and return its loaded byte address. */
-DeviceAddress Context::ensure_program_loaded(const PrecompiledKernel &kernel) {
+DeviceAddress Context::ensure_program_loaded(const PrecompiledKernel &kernel, std::uint8_t kernel_id) {
     const std::string_view cache_name =
         kernel.program_id.empty() ? std::string_view(kernel.name) : std::string_view(kernel.program_id);
     for (auto &entry : program_cache_) {
@@ -614,6 +614,10 @@ DeviceAddress Context::ensure_program_loaded(const PrecompiledKernel &kernel) {
 
     const DeviceAddress addr = allocate_program_slot(cache_name, program_size);
     write_program(addr, program, program_size);
+    if (!transport_.validate_kernel) {
+        throw Error(Status::Unsupported);
+    }
+    check(transport_.validate_kernel(kernel_id));
     program_cache_.push_back(ProgramCacheEntry{
         std::string(cache_name),
         addr,
@@ -765,7 +769,7 @@ void Context::launch_kernel(
     }
     constants[32] = compiler_spill_base_ / 4u;
 
-    const DeviceAddress loaded_program_addr = ensure_program_loaded(*registered);
+    const DeviceAddress loaded_program_addr = ensure_program_loaded(*registered, kernel_id);
 
     Kernel kernel;
     kernel.program = nullptr;

@@ -1,0 +1,11 @@
+{
+  "symbols": [
+    {
+      "name": "cross_entropy_finish_fp32"
+    },
+    {
+      "name": "rcpf"
+    }
+  ],
+  "instruction_words": 2139
+}

@@ -16,12 +16,6 @@
       "name": "minigpu_round_i32"
     },
     {
-      "name": "minigpu_select_f32"
-    },
-    {
-      "name": "minigpu_select_u32"
-    },
-    {
       "name": "minigpu_sin_poly"
     },
     {
@@ -31,5 +25,5 @@
       "name": "sinf"
     }
   ],
-  "instruction_words": 712
+  "instruction_words": 699
 }

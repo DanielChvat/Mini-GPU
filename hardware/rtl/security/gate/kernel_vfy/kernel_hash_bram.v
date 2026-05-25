@@ -4,7 +4,7 @@
 module kernel_hash_bram #(
     parameter NUM_HASHES = 64,
     parameter ADDR_WIDTH = 6,
-    parameter HASH_MEM_FILE = "hardware/rtl/security/gate/kernel_vfy/kernel_golden_hashes.mem"
+    parameter HASH_MEM_FILE = "kernel_golden_hashes.mem"
 ) (
     input  wire                  clk,
     input  wire [ADDR_WIDTH-1:0] addr,

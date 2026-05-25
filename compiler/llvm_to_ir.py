@@ -630,15 +630,20 @@ def has_backedge_to(label: str, blocks: dict[str, list[str]]) -> bool:
 def common_merge(left: str, right: str, blocks: dict[str, list[str]]) -> str | None:
     if left == right:
         return left
-    left_reachable = reachable_labels(left, blocks)
-    right_reachable = reachable_labels(right, blocks)
-    common = left_reachable & right_reachable
+    left_distances = reachable_label_distances(left, blocks)
+    right_distances = reachable_label_distances(right, blocks)
+    common = set(left_distances) & set(right_distances)
     if not common:
         return None
-    for label in blocks:
-        if label in common:
-            return label
-    return None
+    order = {label: index for index, label in enumerate(blocks)}
+    return min(
+        common,
+        key=lambda label: (
+            max(left_distances[label], right_distances[label]),
+            left_distances[label] + right_distances[label],
+            order.get(label, len(order)),
+        ),
+    )
 
 
 def reachable_labels(start: str, blocks: dict[str, list[str]]) -> set[str]:
@@ -656,6 +661,28 @@ def reachable_labels(start: str, blocks: dict[str, list[str]]) -> set[str]:
             stack.append(term[1])
         else:
             stack.extend([term[2], term[3]])
+    return out
+
+
+def reachable_label_distances(start: str, blocks: dict[str, list[str]]) -> dict[str, int]:
+    """Return the shortest CFG edge distance from start to each reachable block."""
+    out: dict[str, int] = {}
+    queue: list[tuple[str, int]] = [(start, 0)]
+    index = 0
+    while index < len(queue):
+        label, distance = queue[index]
+        index += 1
+        if label in out or label not in blocks:
+            continue
+        out[label] = distance
+        _, term = split_block(blocks[label])
+        if term is None or term[0] == "ret":
+            continue
+        if term[0] == "br":
+            queue.append((term[1], distance + 1))
+        else:
+            queue.append((term[2], distance + 1))
+            queue.append((term[3], distance + 1))
     return out
 
 

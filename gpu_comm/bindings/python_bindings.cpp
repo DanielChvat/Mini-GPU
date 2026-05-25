@@ -176,7 +176,7 @@ PYBIND11_MODULE(_gpu_comm, m) {
         .value("WRITE_PROGRAM", COM_CMD_WRITE_PROGRAM)
         .value("LAUNCH", COM_CMD_LAUNCH)
         .value("READ_STATUS", COM_CMD_READ_STATUS)
-        .value("WRITE_HASH", COM_CMD_WRITE_HASH)
+        .value("SECURITY_RESET", COM_CMD_SECURITY_RESET)
         .value("VALIDATE", COM_CMD_VALIDATE)
         .value("WRITE_CONSTANTS", COM_CMD_WRITE_CONSTANTS);
 

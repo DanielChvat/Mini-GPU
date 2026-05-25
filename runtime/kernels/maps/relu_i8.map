@@ -4,5 +4,5 @@
       "name": "relu_kernel_i8"
     }
   ],
-  "instruction_words": 162
+  "instruction_words": 123
 }

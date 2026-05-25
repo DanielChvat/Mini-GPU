@@ -1,0 +1,11 @@
+{
+  "symbols": [
+    {
+      "name": "l1_loss_fp32"
+    },
+    {
+      "name": "fabsf"
+    }
+  ],
+  "instruction_words": 172
+}

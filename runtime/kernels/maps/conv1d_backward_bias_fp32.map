@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    {
+      "name": "conv1d_backward_bias_fp32"
+    }
+  ],
+  "instruction_words": 245
+}

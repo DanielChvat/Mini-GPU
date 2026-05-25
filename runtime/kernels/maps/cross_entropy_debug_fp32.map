@@ -1,0 +1,14 @@
+{
+  "symbols": [
+    {
+      "name": "cross_entropy_debug_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "rcpf"
+    }
+  ],
+  "instruction_words": 3006
+}

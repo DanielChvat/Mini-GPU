@@ -1,0 +1,14 @@
+{
+  "symbols": [
+    {
+      "name": "log_after_exp_debug_fp32"
+    },
+    {
+      "name": "expf"
+    },
+    {
+      "name": "logf"
+    }
+  ],
+  "instruction_words": 1701
+}

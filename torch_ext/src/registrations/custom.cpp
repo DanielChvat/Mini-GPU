@@ -1,9 +1,104 @@
 #include "minigpu_torch.hpp"
 
+#include <ATen/core/LegacyTypeDispatch.h>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 
+#include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
+
+namespace {
+
+enum class MiniGpuLossKind {
+    Mse,
+    L1,
+    L2,
+    CrossEntropy,
+};
+
+at::Tensor run_loss_forward(
+    MiniGpuLossKind kind,
+    const at::Tensor &input,
+    const at::Tensor &target) {
+    switch (kind) {
+    case MiniGpuLossKind::Mse:
+        return minigpu::torch_backend::mse_loss(input, target);
+    case MiniGpuLossKind::L1:
+        return minigpu::torch_backend::l1_loss(input, target);
+    case MiniGpuLossKind::L2:
+        return minigpu::torch_backend::l2_loss(input, target);
+    case MiniGpuLossKind::CrossEntropy:
+        return minigpu::torch_backend::cross_entropy_loss(input, target);
+    }
+    throw std::runtime_error("unknown Mini-GPU loss kind");
+}
+
+at::Tensor run_loss_backward(
+    MiniGpuLossKind kind,
+    const at::Tensor &grad_output,
+    const at::Tensor &input,
+    const at::Tensor &target) {
+    switch (kind) {
+    case MiniGpuLossKind::Mse:
+        return minigpu::torch_backend::mse_loss_backward(grad_output, input, target);
+    case MiniGpuLossKind::L1:
+        return minigpu::torch_backend::l1_loss_backward(grad_output, input, target);
+    case MiniGpuLossKind::L2:
+        return minigpu::torch_backend::l2_loss_backward(grad_output, input, target);
+    case MiniGpuLossKind::CrossEntropy:
+        return minigpu::torch_backend::cross_entropy_loss_backward(grad_output, input, target);
+    }
+    throw std::runtime_error("unknown Mini-GPU loss kind");
+}
+
+struct MiniGpuLossAutograd : public torch::autograd::Function<MiniGpuLossAutograd> {
+    static at::Tensor forward(
+        torch::autograd::AutogradContext *ctx,
+        const at::Tensor &input,
+        const at::Tensor &target,
+        std::int64_t kind_value) {
+        ctx->saved_data["kind"] = kind_value;
+        ctx->save_for_backward({input, target});
+        at::AutoDispatchBelowAutograd guard;
+        return run_loss_forward(static_cast<MiniGpuLossKind>(kind_value), input, target);
+    }
+
+    static torch::autograd::variable_list backward(
+        torch::autograd::AutogradContext *ctx,
+        torch::autograd::variable_list grad_outputs) {
+        auto saved = ctx->get_saved_variables();
+        const auto kind = static_cast<MiniGpuLossKind>(ctx->saved_data["kind"].toInt());
+        at::AutoDispatchBelowAutograd guard;
+        at::Tensor grad_input;
+        at::Tensor grad_target;
+        if (ctx->needs_input_grad(0) || ctx->needs_input_grad(1)) {
+            grad_input = run_loss_backward(kind, grad_outputs[0], saved[0], saved[1]);
+        }
+        if (ctx->needs_input_grad(1) && kind != MiniGpuLossKind::CrossEntropy) {
+            grad_target = minigpu::torch_backend::scal(grad_input, -1.0);
+        }
+        return {ctx->needs_input_grad(0) ? grad_input : at::Tensor(), grad_target, at::Tensor()};
+    }
+};
+
+at::Tensor minigpu_autograd_mse_loss(const at::Tensor &input, const at::Tensor &target) {
+    return MiniGpuLossAutograd::apply(input, target, static_cast<std::int64_t>(MiniGpuLossKind::Mse));
+}
+
+at::Tensor minigpu_autograd_l1_loss(const at::Tensor &input, const at::Tensor &target) {
+    return MiniGpuLossAutograd::apply(input, target, static_cast<std::int64_t>(MiniGpuLossKind::L1));
+}
+
+at::Tensor minigpu_autograd_l2_loss(const at::Tensor &input, const at::Tensor &target) {
+    return MiniGpuLossAutograd::apply(input, target, static_cast<std::int64_t>(MiniGpuLossKind::L2));
+}
+
+at::Tensor minigpu_autograd_cross_entropy(const at::Tensor &input, const at::Tensor &target) {
+    return MiniGpuLossAutograd::apply(input, target, static_cast<std::int64_t>(MiniGpuLossKind::CrossEntropy));
+}
+
+} // namespace
 
 TORCH_LIBRARY(minigpu, m) {
     m.def("vector_add(Tensor a, Tensor b) -> Tensor");
@@ -38,6 +133,11 @@ TORCH_LIBRARY(minigpu, m) {
     m.def("max_pool2d(Tensor a, int[] kernel_size, int[] stride=[]) -> Tensor");
     m.def("avg_pool2d(Tensor a, int[] kernel_size, int[] stride=[]) -> Tensor");
     m.def("adaptive_avg_pool2d(Tensor a, SymInt[] output_size) -> Tensor");
+    m.def("mse_loss(Tensor input, Tensor target) -> Tensor");
+    m.def("l1_loss(Tensor input, Tensor target) -> Tensor");
+    m.def("l2_loss(Tensor input, Tensor target) -> Tensor");
+    m.def("cross_entropy(Tensor input, Tensor target) -> Tensor");
+    m.def("cross_entropy_debug(Tensor input, Tensor target) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(minigpu, PrivateUse1, m) {
@@ -91,4 +191,16 @@ TORCH_LIBRARY_IMPL(minigpu, PrivateUse1, m) {
         return minigpu::torch_backend::avg_pool2d(a, kernel_size, stride, {0, 0}, false, true, std::nullopt);
     });
     m.impl("adaptive_avg_pool2d", TORCH_FN(minigpu::torch_backend::adaptive_avg_pool2d));
+    m.impl("mse_loss", TORCH_FN(minigpu::torch_backend::mse_loss));
+    m.impl("l1_loss", TORCH_FN(minigpu::torch_backend::l1_loss));
+    m.impl("l2_loss", TORCH_FN(minigpu::torch_backend::l2_loss));
+    m.impl("cross_entropy", TORCH_FN(minigpu::torch_backend::cross_entropy_loss));
+    m.impl("cross_entropy_debug", TORCH_FN(minigpu::torch_backend::cross_entropy_debug));
+}
+
+TORCH_LIBRARY_IMPL(minigpu, AutogradPrivateUse1, m) {
+    m.impl("mse_loss", TORCH_FN(minigpu_autograd_mse_loss));
+    m.impl("l1_loss", TORCH_FN(minigpu_autograd_l1_loss));
+    m.impl("l2_loss", TORCH_FN(minigpu_autograd_l2_loss));
+    m.impl("cross_entropy", TORCH_FN(minigpu_autograd_cross_entropy));
 }

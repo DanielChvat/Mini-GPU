@@ -7,12 +7,6 @@
       "name": "expf"
     },
     {
-      "name": "minigpu_mask_u32"
-    },
-    {
-      "name": "minigpu_select_u32"
-    },
-    {
       "name": "rcpf"
     },
     {
@@ -22,5 +16,5 @@
       "name": "tanhf"
     }
   ],
-  "instruction_words": 1528
+  "instruction_words": 1837
 }

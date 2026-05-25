@@ -4,5 +4,5 @@
       "name": "relu_kernel_fp16"
     }
   ],
-  "instruction_words": 150
+  "instruction_words": 115
 }

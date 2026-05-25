@@ -407,6 +407,8 @@ module thread #(
                 `MGPU_OP_FSUB,
                 `MGPU_OP_FMUL,
                 `MGPU_OP_FDIV,
+                `MGPU_OP_FTOI,
+                `MGPU_OP_ITOF,
                 `MGPU_OP_TID,
                 `MGPU_OP_TIDX,
                 `MGPU_OP_BID,
