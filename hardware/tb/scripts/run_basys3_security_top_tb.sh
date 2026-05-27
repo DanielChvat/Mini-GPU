@@ -33,7 +33,7 @@ iverilog -g2012 \
     hardware/rtl/security/gate/sha256/sha256_core.v \
     hardware/rtl/security/gate/sha256/sha256_k_constants.v \
     hardware/rtl/security/gate/sha256/sha256_w_mem.v \
-    hardware/rtl/security/gate/sha256_weight_stream.v \
+    hardware/rtl/security/gate/sha256_wrapper.v \
     hardware/rtl/security/gate/kernel_vfy/kernel_hash_bram.v \
     hardware/rtl/security/gate/kernel_vfy/kernel_vfy.v \
     hardware/rtl/top/basys3_security_top.v \

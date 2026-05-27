@@ -1,7 +1,7 @@
 #!/bin/bash
 
 yosys -Q -p "read_verilog \
-  hardware/rtl/security/gate/sha256_weight_stream.v \
+  hardware/rtl/security/gate/sha256_wrapper.v \
   hardware/rtl/security/gate/sha256/sha256_core.v \
   hardware/rtl/security/gate/sha256/sha256_w_mem.v \
   hardware/rtl/security/gate/sha256/sha256_k_constants.v 

@@ -1,0 +1,275 @@
+Security goals:
+- Host authentication
+    - only trusted host can communicate with accelerator (predetermined key)
+- device authentication
+    - allow for mutual authentication, with each sharing a hardcoded key
+- Confidentiality
+    - an attacker can't observe model weights or training data in transmission
+- integrity
+    - modifications to packets are detected before processing
+- Replay protection
+    - old packets from different sessions can't be used for replay attacks
+- Each session uses a fresh set of encyption keys
+- Hardware enforced trust
+    - authentication, key derivative, packet verification, are all enforced in hardware-controlled security FSM
+
+Threat model:
+- attacker can:
+    - has full control over communication channel (ie intercept, modify, inject, observe)
+    - send commands to accelerator
+    - has knowledge of entire protocol structure
+- attacker can't:
+    - extract keys from the hardware, ie doesn't have physical access to the hardware 
+
+- lightweight IPs that are usable:
+    - secworks AES IP
+    - secworks SHA256 IP
+    - secworks CHACHA IP
+    - secworks ROSC_ENTROPY IP
+- using all the IPs will take up ~11k LUTs
+- we can use these as building blocks for our system
+- an ECDH key exchange would be nice, but we don't have the resources both in terms of open-source IP and LUT count
+- instead of a ECDH key exchange we can do a hardware-rooted session key derivative
+- hardware session key derivative
+    - both the FPGA and host will have a predetermined root key (in reality this would likely be transfered using asymetric keys or ECDH)
+        - our security assumption is that an attacker has no way of knowing this key
+    - the FPGA and host each generate a personal nonce
+    - host sends nonce_host to FPGA, and FPGA send nonce_fpga to host
+    - when each party recieves the other party's key they will compute a new session key with the following formula: 
+        - session_key = SHA256({root_key, nonce_host, nonce_fpga})
+    - benefits:
+        - each session key is unique 
+        - easy to implement, can just build off of the current SHA256 implementation
+        - because the root_key and/or its children aren't transfered through the transmission line, it will make it difficult for an attacker to obtain hints on what the root_key may be
+        - a matching root_key is used for symmetric authentication
+- for generating the nonce_fpga, we will use the CHACHA algorithm as a CSPRNG (cryptographically secure pseudorandom number generator)
+    - will use a SHA256 to generate the key for the CHACHA algorithm (entropy conditioning), but this requires a strong entropy source
+        - entropy source: ring oscillator jitter (ROSC IP)
+    - entire flow for nonce generation: ROSC_ENTROPY -> SHA256 -> ChaCha CSPRNG
+    - risks: synthesis optimizations may break the ring oscillator, we may have to do some stuff when trying to synthesize to prevent over optimization
+- with the shared key, all payload will be encrypted using AES-CTR (stream cypher)
+    - AES-CTR is not really a stream cipher, it is a block cipher operating in stream mode
+- because we are using stream cypher, we need an integrity checker
+- to gurantee integrity, we will also use a MAC (message authentication code)
+    - never mind because apparently this isn't the most secure way of doing things
+        - MAC = SHA256({session_key, packet})
+            - the MAC will be computed from the RX and sent to the TX, and the MAC will be recomputed at the TX and it will check to see that the recieved MAC is the same a the calculated MAC
+    - a more secure method is using HMAC-SHA256
+        - 2 keys are used 
+        - basic formula: HMAC = SHA256({hmac_key_2, SHA256({hmac_key_1, ciphertext})})
+        - the 2 keys are derived from the root hmac key, and doing an XOR with a predetermined constant
+            - constants: inner pad (ipad) = 0x36; outter pad (opad) = 0x5c
+    - when the HMAC is calcualted by the TX it will be sent to the RX, and the RX will recalculate the HMAC and comapre the 2 HMAC values to verify integrity
+- overall the system will have 4 keys:
+    - root_key (hard-coded key that both FPGA and HOST have)
+    - session_key = SHA256({root_key, nonce_host, nonce_fpga})
+    - encryption_key = SHA256({session_key, encryption_constant})
+    - hmac_key = SHA256({session_key, hmac_constant})
+        - hmac_key will be used to derive the following inside the HMAC:
+            - hmac_key_1 = hmac_key ^ ipad
+            - hmac_key_2 = hmac_key ^ opad
+- the encryption constant, hmac constant, ipad, and opad values are open to the public
+
+- implementation of the security framework
+    - scratch all this, can't find a good way to implement this, and also everything that goes through the transmission line should be encrypted
+        - the encryption will only be appplied to the payload
+        - this security layer will live on top of the current implementation of the communication controller 
+        - the security enforcement will only be applied to the write data, write program, and RSP commands from the communication controller
+            - these are the commands that will likely contain important data
+    - instead we will implement the security architecture between the communication_controller and the UART controls
+        - ideally we implemented a layer between the serial packet management and the UART layer, and we add a layer between the packet manager and the UART layer, but at this point that is probably not ideal
+        - it is very likely that we build a layer beneth the current packet managers or we add the security features into the packet managers
+        - in terms of scalability and modularity, it would be best to add the base UART module
+        - but at this point modifiying the current packet parser will be easier 
+        - to allow for backwards compatibility, we can add a debug mode for the encryption so that we can run programs without an issue
+
+- 5/13
+    - implement the rosc entropy IP and its wrapper
+        - testbench needs to use a fake rosc.v implementation to simular randomness 
+    - implement the chacha CSPRNG
+        - will implement chacha20
+            - it will likely not use more LUTs, instead it will require more latency
+        - key is fresh everytime we generate the chacha key, therefore we can leave IV and CTR as constants 
+        - important design note:
+            - the input key must be stable when the core is active
+    - implement AES-CTR
+        - will use AES-128 instead of the AES-256 option
+        - the first 128 bits of the encryption key will be for the FPGA to use and the later 128 bits of the encryption key will be for the host
+        - effectively killed both the aes_decipher_block and the aes_inv_sbox blocks, because they will not be used
+            - however, in the future I plan on optimizing the blocks for area and we will be removing the modules from the declaration all together
+        - important design note: caller must hold data_in stable from load assertion until data_valid goes high
+            - the internal counter has no overflow protection, this must be addressed in the upper module
+    - in head security module, we may incorporate packet number, but we have not decided on that yet
+    - most of the wrappers didn't implement the enable line correctly, where even when enable was low, the module was able to be seeded and send the ack values, this issue has been patched
+
+- 5/14
+    - add packet_counter in the packet, this will be used as an additional component for encryption to prevent replay attacks
+    - an important change we have to enforce in the architecture is to only decrypt after HMAC is verified
+
+
+Encryption Controller module design
+- every encrypted packet has a packet_counter
+- RX decryption only occurs after the HMAC is verified
+- only the payload will be encrypted, but the entire header (except the SOF) will be fed into the HMAC to ensure nothing was modified
+- will add another piece to the header, but this will only be used by the security module 
+    - packet_number: these values will be tracked by FPGA and host separately and do not need be synced, it is just there to avoid replay attacks
+        - this packet number will be fed into the HMAC generator and the AES encrypter
+        - this number is only kept tracked and incremented by the TX
+        - RX will not be expecting a particular number, it will just recieve any value and use it for it's decryption and HMAC verification
+- new packet format:
+    SOF             1 byte   0xAA
+    cmd             1 byte
+    addr            2 bytes
+    len             2 bytes
+    packet_counter  2 bytes
+    ciphertext      len bytes
+    hmac_tag        16 bytes
+- HMAC
+    - HMAC(HMAC_key, text) = SHA256({hmac_key_2, SHA256({hmac_key_1, text})})
+        - hmac_key_1 = hmac_key ^ ipad
+        - hmac_key_2 = hmac_key ^ opad
+        - text = {cmd, addr, len, packet_counter, ciphertext}
+    - will be using a 16 byte HMAC
+        - the upper 16 bytes from the SHA256 output will be used, and the remaining bytes will be ignored
+- AES-CTR with 128 bit key
+    - first 128 bits of encryption key = FPGA encryption key = HOST decryption key = aes_key_f2h = encryption_key[127:0]
+    - later 128 bits of encryption key = FPGA decryption key = HOST encryption key = aes_key_h2f = encryption_key[255:128]
+    - nonce = {80{1'b0}, packet_counter}
+- needs to enforce:
+    - session establishment
+    - nonce exchange
+    - key derivation
+    - host authentication
+    - FPGA authentication
+    - packet counter tracking 
+    - HMAC verification
+    - AES-CTR encryption/decryption
+    - plaintext release after authentication
+    - error lockout 
+- communication_controller will mostly remain uncahnged, it will just be some new wiring changes
+    - however, with the new architecture, because we aren't stream words as they arrive, the writes will be significantly faster 
+    - The security controller presents decrypted packets to communication_controller using the same cmd/addr/len/word_valid/packet_done style interface as serial_packet_rx
+    - The security controller accepts plaintext TX packets from communication_controller using the same tx_start/cmd/addr/len/payload_data/payload_valid/payload_advance style interface as serial_packet_tx
+- security based CMD will be implemented but those will be eaten before the communication_controller sees them
+    - new security layer commands (will be sent via plain-text)
+        localparam SEC_CMD_INIT       = 8'hF0;
+        localparam SEC_CMD_INIT_RSP   = 8'hF1;
+        localparam SEC_CMD_HOST_AUTH  = 8'hF2;
+        localparam SEC_CMD_FPGA_AUTH  = 8'hF3;
+        localparam SEC_CMD_SEC_NAK    = 8'hF4;
+    - new security layer command that will be checked after decrypted:
+        localparam SEC_CMD_SESSION_CLOSE    = 8'hF5;
+- authentication handshake:
+    SEC_CMD_INIT
+        Host -> FPGA
+        payload = nonce_host
+
+    SEC_CMD_INIT_RSP
+        FPGA -> Host
+        payload = nonce_fpga
+
+    SEC_CMD_HOST_AUTH
+        Host -> FPGA
+        payload = HMAC(hmac_key, {HOST_AUTH, nonce_host, nonce_fpga})
+        note: HOST_AUTH is some constant that is hardcoded
+
+    FPGA Verify authentication code => authenticated = 1
+
+    SEC_CMD_FPGA_AUTH
+        FPGA -> Host
+        payload = HMAC(hmac_key, {FPGA_AUTH, nonce_host, nonce_fpga})
+        note: FPGA_AUTH is some constant that is hardcoded
+
+    Host Verify authentication code => authenticated = 1
+- all normal communication commands will be rejected before authentication, only the security handshake commands will be accepted 
+- only payload will be encrypted, I recognize this weakens security, but will be easier to implement, and integrate into our current system
+- the security reset that is sent to the communication_controller will only be for the security gate and will not apply to this encryption module        
+- option of building different modules for TX and RX, but this takes up more resources (SHA256 core and AES)
+    - therefore, we will be using one cerntral security module that shares a singular SHA256 core for the HMAC calculations and a single AES core for encryption
+    - we will need a scheduler for the SHA256 core
+    - priority will be given in the following:
+        1. handshake / authentication
+        2. RX HMAC verification
+        3. TX HMAC generation
+- the security controller will internally contain the serial_packet_rx and serial_packet_tx modules
+    - will need to buffer RX ciphertext to wait for HMAC verification
+- security keys:
+     - entire flow for nonce generation: ROSC_ENTROPY -> SHA256 -> ChaCha CSPRNG
+        - note: be careful of synthesis optimization that might damage the ROSC entropy generator
+    - overall the system will have 4 keys:
+        - root_key (hard-coded key that both FPGA and HOST have)
+        - session_key = SHA256({root_key, nonce_host, nonce_fpga})
+        - encryption_key = SHA256({session_key, encryption_constant})
+            - will be split into FPGA->HOST key and HOST->FPGA key
+                - aes_key_f2h = encryption_key[127:0]
+                - aes_key_h2f = encryption_key[255:128]
+        - hmac_key = SHA256({session_key, hmac_constant})
+            - hmac_key will be used to derive the following inside the HMAC:
+                - hmac_key_1 = hmac_key ^ ipad
+                - hmac_key_2 = hmac_key ^ opad
+    - the encryption_constant, hmac constant, ipad, and opad values are open to the public
+- FSM: 
+    localparam S_RESET              = 6'd0;
+
+    // entropy / nonce generation
+    localparam S_ENTROPY_COLLECT    = 6'd1;
+    localparam S_ENTROPY_CONDITION  = 6'd2;
+    localparam S_CHACHA_SEED        = 6'd3;
+    localparam S_GEN_FPGA_NONCE     = 6'd4;
+
+    // handshake
+    localparam S_WAIT_INIT          = 6'd5;
+    localparam S_SEND_INIT_RSP      = 6'd6;
+    localparam S_DERIVE_SESSION     = 6'd7;
+    localparam S_DERIVE_KEYS        = 6'd8;
+    localparam S_WAIT_HOST_AUTH     = 6'd9;
+    localparam S_VERIFY_HOST_AUTH   = 6'd10;
+    localparam S_SEND_FPGA_AUTH     = 6'd11;
+
+    // authenticated idle
+    localparam S_SECURE_IDLE        = 6'd12;
+
+    // RX path
+    localparam S_RX_HEADER          = 6'd13;
+    localparam S_RX_CIPHERTEXT      = 6'd14;
+    localparam S_RX_TAG             = 6'd15;
+    localparam S_RX_HMAC            = 6'd16;
+    localparam S_RX_COMPARE         = 6'd17;
+    localparam S_RX_DECRYPT         = 6'd18;
+    localparam S_RX_RELEASE         = 6'd19;
+
+    // TX path
+    localparam S_TX_COLLECT         = 6'd20;
+    localparam S_TX_ENCRYPT         = 6'd21;
+    localparam S_TX_HMAC            = 6'd22;
+    localparam S_TX_SEND            = 6'd23;
+
+    localparam S_ERROR              = 6'd63;
+
+    - when in security idle state, prioritize incoming RX UART over TX from controller
+    - to recover from the error state, a new INIT will need to be sent
+        - when in error state, the gate will not send any packets to the top communication_controller module
+
+
+- 5/22
+    - Will likely scrap this for the current project
+    - not enough resources to make this work even if fully implemented
+    - even with a single shared SHA256 core among all the different modules, we still don't have enough resources
+    - Yosys approximiations for different IPs and wrappers:
+        - AES: 8214 logic cells, 2857 LUTs
+        - ROSC: 578 LCs, 169 LUTs
+        - HMAC-SHA256: 2118 LCs, 1270 LUTs
+        - SHA256 byte stream: 6500 LCs, 3402 LUTs
+        - CHACHA: 5665 LCs, 2951 LUTs
+        - total: 23,075 Logic cells, 10,649 Look up tables
+    - Yosys approximation for current security controller:
+        - 235,817 logic cells and 172,607 LUTs
+        - however, this implementation was very unoptimal for area
+        - GPT's approximitation for how much area we can reduce:
+            -  ~20k-35k logic cells, ~12k-18k LUTs
+    - even with the huge reduction in area, it is questionable if the security system can be implemented on the Basys3 FPGA
+    - therefore, it will be almost impossible to implement the encryption and keep all the other functionality
+    - initially we thought that we could just prototype the subsystem by adding the bare-minimum modules (memory, communication controller etc.), but adding the actual GPU core would be impossible
+        - but now the reality doesn't look like we can even prototype the subsystem
+    - Considering the high likelihood that we won't be able to actually load this onto the physical hardware, I would be better off working on improving the current system
+    - therefore, for this project we will be scrapping the encryption security feature

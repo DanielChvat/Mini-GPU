@@ -6,7 +6,7 @@ iverilog -o ./tmp/security_gate_tb.vvp \
   -I hardware/rtl/include \
   hardware/tb/security_tb/security_gate_tb.v \
   hardware/rtl/security/gate/security_gate.v \
-  hardware/rtl/security/gate/sha256_weight_stream.v \
+  hardware/rtl/security/gate/sha256_wrapper.v \
   hardware/rtl/security/gate/sha256/sha256_core.v \
   hardware/rtl/security/gate/sha256/sha256_w_mem.v \
   hardware/rtl/security/gate/sha256/sha256_k_constants.v \

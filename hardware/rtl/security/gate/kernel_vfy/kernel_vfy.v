@@ -91,7 +91,7 @@ module kernel_vfy #(
     wire         sha_digest_valid;
     wire         sha_error;
 
-    sha256_weight_stream sha_engine (
+    sha256_wrapper sha_engine (
         .clk(clk),
         .rst(rst || security_reset || sha_reset_pulse),
         .start(sha_start),

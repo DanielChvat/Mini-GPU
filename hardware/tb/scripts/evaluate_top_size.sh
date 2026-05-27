@@ -11,7 +11,7 @@ yosys -Q -p "read_verilog \
     hardware/rtl/lane/float/*.v \
     hardware/rtl/lane/int/*.v \
     hardware/rtl/memory/*.v \
-    hardware/rtl/security/gate/sha256_weight_stream.v \
+    hardware/rtl/security/gate/sha256_wrapper.v \
     hardware/rtl/security/gate/sha256/*v \
     hardware/rtl/security/gate/kernel_vfy/*.v \
     hardware/rtl/top/basys3_security_top.v; \

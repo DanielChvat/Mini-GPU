@@ -3,7 +3,7 @@
 
 /*
 ------------------------------------------------------------------------------
-sha256_weight_stream
+sha256_wrapper
 ------------------------------------------------------------------------------
 Purpose:
     Streaming SHA-256 wrapper around the secworks SHA-256 core.
@@ -60,7 +60,7 @@ WAIT_CORE
 */
 
 
-module sha256_weight_stream (
+module sha256_wrapper (
     input  wire          clk,
     input  wire          rst,
     input  wire          start,             // Start the hashing 

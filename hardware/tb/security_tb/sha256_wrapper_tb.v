@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module sha256_weight_stream_tb;
+module sha256_wrapper_tb;
     reg clk;
     reg rst;
     reg start;
@@ -13,7 +13,7 @@ module sha256_weight_stream_tb;
     wire digest_valid;
     wire error;
 
-    sha256_weight_stream dut (
+    sha256_wrapper dut (
         .clk(clk),
         .rst(rst),
         .start(start),
@@ -149,7 +149,7 @@ module sha256_weight_stream_tb;
         run_backpressure_test();
         run_range_test(20, 256'hbaabd3d13233879a8b39e016f96247df17579c3a3900ceed9aae6831faf9da87);
 
-        $display("sha256_weight_stream_tb PASS");
+        $display("sha256_wrapper_tb PASS");
         $finish;
     end
 endmodule

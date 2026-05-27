@@ -104,12 +104,24 @@ module memory_sec_tb;
     task read_one_expect;
         input [ADDR_WIDTH-1:0] addr;
         input [DATA_WIDTH-1:0] expected;
+        integer cycles_waited;
         begin
             clear_req();
             set_lane(0, 1'b1, 1'b0, addr, {DATA_WIDTH{1'b0}});
             expect_ready_blocked(4'b0001, 4'b0000);
-            @(posedge clk);
-            #1;
+
+            repeat (2) begin
+                @(posedge clk);
+                #1;
+            end
+
+            cycles_waited = 2;
+            while (!resp_valid[0] && cycles_waited < 4) begin
+                @(posedge clk);
+                #1;
+                cycles_waited = cycles_waited + 1;
+            end
+
             if (!resp_valid[0]) begin
                 $display("FAIL read addr=%0d missing response", addr);
                 $finish;

@@ -139,7 +139,7 @@ Main security gate design
         - when in ERROR state, execution is disabled, protected region is inaccessible by anyone, writes blocked, only resets are allowed
         - therefore, all memory requests in this system must go through the security gate
         - to support the different memory access, we will create a very basic bus controller module
-            - this is honestly not neccesary, we're just doing this to help scalability 
+            - this is honestly not neccesary, we're just doing this to help scalability of our system
             - design specs:
                 - it will take in 2 memory bus interface and 2 set of memory status flags
                 - the output is 1 memory bus interface, 1 memory status flag set, and the id of where the memory request origniated from
@@ -176,6 +176,21 @@ Main security gate design
             - reduced number of adders in design when updating the digest
             - instead of 8 parallel adds getting processed in 1 cycle, they share 1 adder across 8 cycles
             - this is done by using a MUX
+    - new cell count = 4870 (54% logic cell reduction)
+    - number of cycles increased by 
 
+- 5/14
+    - some adjustments we will need to make are to allow for flexible weight sending
+    - we will probably need to create a new CMD in the communication_controller that lets us now when the host wants to send the weights 
 
-
+- 5/20
+    - weight verification will be scrapped for this project
+    - reasons:
+        - Initial security plan targeted inference, where model weights are static and can be hashed, verified, and locked before execution.
+        - After the PyTorch backend was extended to support training, weights were no longer a clean static asset because training intentionally updates weights, gradients, optimizer state, activations, and other tensors.
+        - Enforcing weight verification would require reliably distinguishing model weights from other tensors in the PyTorch/runtime memory flow.
+        - Separating weights from constants, inputs, gradients, activations, and scratch tensors would require invasive changes to the PyTorch/runtime internals and memory layout.
+        - The policy would also become inference-specific and would not naturally protect training workloads.
+        - Because of this complexity, we pivoted to kernel verification, which authenticates executable kernels rather than model data.
+        - Kernel verification works for both inference and training because all workloads still depend on uploaded kernels.
+        - The new security policy became: only authenticated kernels may execute, and verified instruction memory cannot be modified while execution is allowed.
