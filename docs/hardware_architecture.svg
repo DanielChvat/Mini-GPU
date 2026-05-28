@@ -1,0 +1,367 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1580 1065" font-family="Arial, sans-serif">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b"/>
+    </marker>
+    <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2980b9"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#27ae60"/>
+    </marker>
+    <linearGradient id="topGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c3e50;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#34495e;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="secGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#c0392b;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#e74c3c;stop-opacity:0.08"/>
+    </linearGradient>
+    <linearGradient id="gpuGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2980b9;stop-opacity:0.12"/>
+      <stop offset="100%" style="stop-color:#3498db;stop-opacity:0.06"/>
+    </linearGradient>
+    <linearGradient id="memGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#27ae60;stop-opacity:0.12"/>
+      <stop offset="100%" style="stop-color:#2ecc71;stop-opacity:0.06"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1580" height="1250" fill="#f8f9fa" rx="8"/>
+
+  <!-- Title -->
+  <rect x="0" y="0" width="1580" height="50" fill="url(#topGrad)"/>
+  <text x="790" y="33" text-anchor="middle" fill="white" font-size="20" font-weight="bold">Mini-GPU Hardware Architecture — basys3_security_top</text>
+
+  <!-- Top module boundary -->
+  <rect x="10" y="55" width="1560" height="1000" fill="none" stroke="#2c3e50" stroke-width="3" rx="10"/>
+  <text x="1460" y="1045" font-size="10" fill="#7f8c8d">basys3_security_top</text>
+
+  <!-- ============ EXTERNAL I/O (Top Left) ============ -->
+  <rect x="30" y="75" width="170" height="140" fill="#ecf0f1" stroke="#95a5a6" stroke-width="1.5" rx="6"/>
+  <text x="115" y="95" text-anchor="middle" font-size="11" font-weight="bold" fill="#7f8c8d">External I/O</text>
+  <text x="40" y="115" font-size="9" fill="#2c3e50">CLK100MHZ</text>
+  <text x="40" y="131" font-size="9" fill="#2c3e50">btnC (reset)</text>
+  <text x="40" y="147" font-size="9" fill="#2c3e50">sw[15:0]</text>
+  <text x="40" y="163" font-size="9" fill="#2c3e50">RsRx (UART in)</text>
+  <text x="40" y="179" font-size="9" fill="#2c3e50">RsTx (UART out)</text>
+  <text x="40" y="195" font-size="9" fill="#2c3e50">led[15:0], seg, an</text>
+
+  <!-- ============ COMMUNICATION CONTROLLER ============ -->
+  <rect x="280" y="75" width="400" height="170" fill="#fff3e0" stroke="#e67e22" stroke-width="2" rx="6"/>
+  <text x="480" y="95" text-anchor="middle" font-size="14" font-weight="bold" fill="#e67e22">communication_controller</text>
+  <text x="480" y="113" text-anchor="middle" font-size="9" fill="#666">UART Protocol Handler &amp; Command Decoder</text>
+
+  <!-- serial_packet_rx -->
+  <rect x="295" y="125" width="165" height="50" fill="white" stroke="#f39c12" stroke-width="1.5" rx="4"/>
+  <text x="377" y="146" text-anchor="middle" font-size="10" font-weight="bold" fill="#f39c12">serial_packet_rx</text>
+  <text x="377" y="163" text-anchor="middle" font-size="8" fill="#666">UART Deserialize (115200 baud)</text>
+
+  <!-- serial_packet_tx -->
+  <rect x="475" y="125" width="165" height="50" fill="white" stroke="#f39c12" stroke-width="1.5" rx="4"/>
+  <text x="557" y="146" text-anchor="middle" font-size="10" font-weight="bold" fill="#f39c12">serial_packet_tx</text>
+  <text x="557" y="163" text-anchor="middle" font-size="8" fill="#666">UART Serialize (115200 baud)</text>
+
+  <!-- Command list -->
+  <text x="295" y="195" font-size="8" fill="#555">Commands: WRITE_DATA | READ_DATA | WRITE_PROG | LAUNCH</text>
+  <text x="295" y="209" font-size="8" fill="#555">READ_STATUS | VALIDATE | SEC_RESET</text>
+  <text x="295" y="225" font-size="8" fill="#555">4-lane memory interface | Host arbitration</text>
+
+  <!-- ============ SECURITY GATE (kernel_vfy) ============ -->
+  <rect x="830" y="75" width="420" height="170" fill="url(#secGrad)" stroke="#c0392b" stroke-width="2.5" rx="6" stroke-dasharray="5,3"/>
+  <text x="1040" y="95" text-anchor="middle" font-size="14" font-weight="bold" fill="#c0392b">kernel_vfy (Security Gate)</text>
+  <text x="1040" y="113" text-anchor="middle" font-size="9" fill="#666">SHA-256 Kernel Authentication &amp; Launch Gating</text>
+
+  <!-- sha256_wrapper -->
+  <rect x="845" y="125" width="190" height="55" fill="white" stroke="#e74c3c" stroke-width="1.5" rx="4"/>
+  <text x="940" y="144" text-anchor="middle" font-size="10" font-weight="bold" fill="#c0392b">sha256_wrapper</text>
+  <text x="940" y="160" text-anchor="middle" font-size="8" fill="#666">Streaming SHA-256 Engine</text>
+  <text x="940" y="173" text-anchor="middle" font-size="8" fill="#666">(sha256_core inside)</text>
+
+  <!-- kernel_hash_bram -->
+  <rect x="1050" y="125" width="185" height="55" fill="white" stroke="#e74c3c" stroke-width="1.5" rx="4"/>
+  <text x="1142" y="144" text-anchor="middle" font-size="10" font-weight="bold" fill="#c0392b">kernel_hash_bram</text>
+  <text x="1142" y="160" text-anchor="middle" font-size="8" fill="#666">Golden Hash Storage</text>
+  <text x="1142" y="173" text-anchor="middle" font-size="8" fill="#666">128 x 256-bit entries</text>
+
+  <!-- Security FSM -->
+  <text x="845" y="200" font-size="9" fill="#c0392b" font-weight="bold">FSM: IDLE → LOAD → FINALIZE → VERIFY → LOCK → EXECUTE</text>
+  <text x="845" y="215" font-size="8" fill="#555">Gates: prog_write, kernel_launch</text>
+  <text x="845" y="229" font-size="8" fill="#555">Outputs: kernel_verified, kernel_fault, security_error</text>
+
+  <!-- ============ 7-SEGMENT DISPLAY ============ -->
+  <rect x="1290" y="75" width="220" height="90" fill="#f3e5f5" stroke="#8e24aa" stroke-width="1.5" rx="6"/>
+  <text x="1400" y="95" text-anchor="middle" font-size="11" font-weight="bold" fill="#8e24aa">basys3_comm_sevenseg</text>
+  <text x="1400" y="113" text-anchor="middle" font-size="9" fill="#666">7-Seg Display Driver</text>
+  <text x="1300" y="133" font-size="8" fill="#555">Debug: cmd, addr, len, mem_addr</text>
+  <text x="1300" y="148" font-size="8" fill="#555">seg[6:0], dp, an[3:0]</text>
+
+  <!-- ============ CONNECTION ARROWS (TOP SECTION) ============ -->
+
+  <!-- UART to Communication Controller (bidirectional) -->
+  <line x1="200" y1="145" x2="280" y2="145" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="280" y1="170" x2="200" y2="170" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="225" y="139" font-size="8" fill="#333">RsRx</text>
+  <text x="225" y="184" font-size="8" fill="#333">RsTx</text>
+
+  <!-- Comm Controller → kernel_vfy (prog_write + launch) -->
+  <path d="M 680 130 L 830 130" fill="none" stroke="#c0392b" stroke-width="2" marker-end="url(#arrowhead-red)"/>
+  <text x="700" y="122" font-size="8" fill="#c0392b">prog_we/addr/data, launch</text>
+
+  <!-- Comm Controller → kernel_vfy (validate) -->
+  <path d="M 680 165 L 830 165" fill="none" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arrowhead-red)"/>
+  <text x="700" y="160" font-size="8" fill="#c0392b">validate_trigger</text>
+
+  <!-- kernel_vfy → comm controller (status back) -->
+  <path d="M 830 205 L 680 205" fill="none" stroke="#c0392b" stroke-width="1.2" marker-end="url(#arrowhead-red)"/>
+  <text x="700" y="220" font-size="8" fill="#c0392b">verified, fault, done</text>
+
+  <!-- ============ INTER-SECTION ARROWS (between top and GPU) ============ -->
+
+  <!-- kernel_vfy → mini_gpu (gated prog_write + gated launch) -->
+  <path d="M 980 245 L 980 310 L 980 380" fill="none" stroke="#c0392b" stroke-width="2.5" marker-end="url(#arrowhead-red)"/>
+  <text x="990" y="325" font-size="9" fill="#c0392b" font-weight="bold">gated prog_we/addr/data</text>
+  <text x="990" y="343" font-size="9" fill="#c0392b" font-weight="bold">gated launch</text>
+
+  <!-- Comm Controller → mini_gpu (const_write — direct, not through security gate) -->
+  <path d="M 380 245 L 380 380" fill="none" stroke="#2980b9" stroke-width="1.8" marker-end="url(#arrowhead-blue)"/>
+  <text x="388" y="310" font-size="9" fill="#2980b9">const_we/addr/data</text>
+  <text x="388" y="325" font-size="7" fill="#888">(direct, not gated)</text>
+
+  <!-- Status path back from GPU to comm controller -->
+  <path d="M 560 380 L 560 245" fill="none" stroke="#7f8c8d" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="568" y="310" font-size="8" fill="#7f8c8d">status_word</text>
+  <text x="568" y="325" font-size="8" fill="#7f8c8d">busy, done, error</text>
+
+  <!-- kernel_vfy gets core_busy from GPU -->
+  <path d="M 1100 380 L 1100 245" fill="none" stroke="#7f8c8d" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+  <text x="1108" y="320" font-size="8" fill="#7f8c8d">core_busy</text>
+
+  <!-- Comm Controller → bus_controller (host mem req) -->
+  <path d="M 620 245 L 620 305 L 1340 305 L 1340 380" fill="none" stroke="#27ae60" stroke-width="1.8" marker-end="url(#arrowhead-green)"/>
+  <text x="800" y="318" font-size="9" fill="#27ae60">host_mem_req (4 lanes)</text>
+
+  <!-- bus_controller → Comm Controller (host mem resp) -->
+  <path d="M 1370 380 L 1370 290 L 650 290 L 650 245" fill="none" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrowhead-green)"/>
+  <text x="800" y="284" font-size="9" fill="#27ae60">host_mem_resp (4 lanes)</text>
+
+  <!-- ============ MINI GPU (Main Compute Block) ============ -->
+  <rect x="40" y="380" width="1100" height="580" fill="url(#gpuGrad)" stroke="#2980b9" stroke-width="2.5" rx="8"/>
+  <text x="570" y="402" text-anchor="middle" font-size="15" font-weight="bold" fill="#2980b9">mini_gpu</text>
+  <text x="570" y="418" text-anchor="middle" font-size="10" fill="#555">Parallel GPU Execution Engine (WARP_SIZE=4, NUM_CORES=1)</text>
+
+  <!-- mini_gpu_core -->
+  <rect x="60" y="430" width="1060" height="515" fill="white" stroke="#2471a3" stroke-width="2" rx="6" fill-opacity="0.7"/>
+  <text x="570" y="450" text-anchor="middle" font-size="13" font-weight="bold" fill="#2471a3">mini_gpu_core</text>
+  <text x="570" y="466" text-anchor="middle" font-size="9" fill="#555">Core Scheduler &amp; Instruction Fetch (FSM: IDLE → CLEAR → SCHEDULE → FETCH → ISSUE → WAIT_DONE → DONE)</text>
+
+  <!-- program_memory -->
+  <rect x="80" y="480" width="200" height="65" fill="#e8f4fd" stroke="#2980b9" stroke-width="1.5" rx="4"/>
+  <text x="180" y="502" text-anchor="middle" font-size="11" font-weight="bold" fill="#2980b9">program_memory</text>
+  <text x="180" y="518" text-anchor="middle" font-size="9" fill="#555">Dual-Port BRAM</text>
+  <text x="180" y="533" text-anchor="middle" font-size="9" fill="#555">4K instructions (12-bit addr)</text>
+
+  <!-- SM -->
+  <rect x="80" y="560" width="1020" height="370" fill="#eaf2f8" stroke="#2471a3" stroke-width="1.5" rx="6"/>
+  <text x="570" y="580" text-anchor="middle" font-size="12" font-weight="bold" fill="#2471a3">sm (Streaming Multiprocessor)</text>
+  <text x="570" y="596" text-anchor="middle" font-size="9" fill="#555">Instruction Issue &amp; Block Management</text>
+
+  <!-- Block -->
+  <rect x="100" y="608" width="980" height="307" fill="white" stroke="#5dade2" stroke-width="1.5" rx="5"/>
+  <text x="570" y="626" text-anchor="middle" font-size="11" font-weight="bold" fill="#5dade2">block</text>
+  <text x="570" y="640" text-anchor="middle" font-size="9" fill="#555">Warp Container (NUM_WARPS=1)</text>
+
+  <!-- Warp -->
+  <rect x="120" y="650" width="940" height="250" fill="#f0f7fd" stroke="#85c1e9" stroke-width="1.5" rx="5"/>
+  <text x="570" y="668" text-anchor="middle" font-size="11" font-weight="bold" fill="#2980b9">warp</text>
+  <text x="570" y="683" text-anchor="middle" font-size="9" fill="#555">4-Lane SIMD Execution (Float Arbitration: WARP_SIZE lanes → SHARED_FLOAT_UNITS FPUs)</text>
+
+  <!-- Thread 0 -->
+  <rect x="140" y="695" width="200" height="190" fill="white" stroke="#3498db" stroke-width="1.5" rx="4"/>
+  <text x="240" y="713" text-anchor="middle" font-size="10" font-weight="bold" fill="#2980b9">thread[0]</text>
+
+  <rect x="150" y="720" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="240" y="740" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">instruction_decode</text>
+
+  <rect x="150" y="756" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="240" y="773" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">regfile</text>
+  <text x="240" y="783" text-anchor="middle" font-size="7" fill="#555">16 x 32-bit regs</text>
+
+  <rect x="150" y="792" width="180" height="82" fill="#fef9e7" stroke="#f4d03f" stroke-width="1" rx="3"/>
+  <text x="240" y="808" text-anchor="middle" font-size="9" font-weight="bold" fill="#b7950b">execute</text>
+  <rect x="158" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="198" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_mul (4cyc)</text>
+  <rect x="244" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="284" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_div_mod (16c)</text>
+  <rect x="158" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="198" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_add_sub</text>
+  <rect x="244" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="284" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_mul/div</text>
+
+  <!-- Thread 1 -->
+  <rect x="355" y="695" width="200" height="190" fill="white" stroke="#3498db" stroke-width="1.5" rx="4"/>
+  <text x="455" y="713" text-anchor="middle" font-size="10" font-weight="bold" fill="#2980b9">thread[1]</text>
+
+  <rect x="365" y="720" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="455" y="740" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">instruction_decode</text>
+
+  <rect x="365" y="756" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="455" y="773" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">regfile</text>
+  <text x="455" y="783" text-anchor="middle" font-size="7" fill="#555">16 x 32-bit regs</text>
+
+  <rect x="365" y="792" width="180" height="82" fill="#fef9e7" stroke="#f4d03f" stroke-width="1" rx="3"/>
+  <text x="455" y="808" text-anchor="middle" font-size="9" font-weight="bold" fill="#b7950b">execute</text>
+  <rect x="373" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="413" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_mul (4cyc)</text>
+  <rect x="459" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="499" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_div_mod (16c)</text>
+  <rect x="373" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="413" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_add_sub</text>
+  <rect x="459" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="499" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_mul/div</text>
+
+  <!-- Thread 2 -->
+  <rect x="570" y="695" width="200" height="190" fill="white" stroke="#3498db" stroke-width="1.5" rx="4"/>
+  <text x="670" y="713" text-anchor="middle" font-size="10" font-weight="bold" fill="#2980b9">thread[2]</text>
+
+  <rect x="580" y="720" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="670" y="740" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">instruction_decode</text>
+
+  <rect x="580" y="756" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="670" y="773" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">regfile</text>
+  <text x="670" y="783" text-anchor="middle" font-size="7" fill="#555">16 x 32-bit regs</text>
+
+  <rect x="580" y="792" width="180" height="82" fill="#fef9e7" stroke="#f4d03f" stroke-width="1" rx="3"/>
+  <text x="670" y="808" text-anchor="middle" font-size="9" font-weight="bold" fill="#b7950b">execute</text>
+  <rect x="588" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="628" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_mul (4cyc)</text>
+  <rect x="674" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="714" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_div_mod (16c)</text>
+  <rect x="588" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="628" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_add_sub</text>
+  <rect x="674" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="714" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_mul/div</text>
+
+  <!-- Thread 3 -->
+  <rect x="785" y="695" width="200" height="190" fill="white" stroke="#3498db" stroke-width="1.5" rx="4"/>
+  <text x="885" y="713" text-anchor="middle" font-size="10" font-weight="bold" fill="#2980b9">thread[3]</text>
+
+  <rect x="795" y="720" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="885" y="740" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">instruction_decode</text>
+
+  <rect x="795" y="756" width="180" height="30" fill="#ebf5fb" stroke="#aed6f1" stroke-width="1" rx="3"/>
+  <text x="885" y="773" text-anchor="middle" font-size="9" font-weight="bold" fill="#2471a3">regfile</text>
+  <text x="885" y="783" text-anchor="middle" font-size="7" fill="#555">16 x 32-bit regs</text>
+
+  <rect x="795" y="792" width="180" height="82" fill="#fef9e7" stroke="#f4d03f" stroke-width="1" rx="3"/>
+  <text x="885" y="808" text-anchor="middle" font-size="9" font-weight="bold" fill="#b7950b">execute</text>
+  <rect x="803" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="843" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_mul (4cyc)</text>
+  <rect x="889" y="814" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="929" y="828" text-anchor="middle" font-size="7" fill="#7d6608">int_div_mod (16c)</text>
+  <rect x="803" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="843" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_add_sub</text>
+  <rect x="889" y="840" width="80" height="20" fill="white" stroke="#d4ac0d" stroke-width="0.8" rx="2"/>
+  <text x="929" y="854" text-anchor="middle" font-size="7" fill="#7d6608">float_mul/div</text>
+
+  <!-- Shared FPU -->
+  <rect x="1000" y="720" width="55" height="150" fill="#fdebd0" stroke="#e67e22" stroke-width="1.5" rx="4"/>
+  <text x="1027" y="790" text-anchor="middle" font-size="9" font-weight="bold" fill="#e67e22" transform="rotate(-90, 1027, 790)">shared_fpu</text>
+  <text x="1027" y="858" text-anchor="middle" font-size="7" fill="#666">32-cyc</text>
+
+  <!-- Dotted lines from threads to shared FPU -->
+  <line x1="985" y1="760" x2="1000" y2="760" stroke="#e67e22" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="985" y1="790" x2="1000" y2="790" stroke="#e67e22" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="985" y1="820" x2="1000" y2="820" stroke="#e67e22" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="985" y1="850" x2="1000" y2="850" stroke="#e67e22" stroke-width="1" stroke-dasharray="3,2"/>
+
+  <!-- Instruction flow: program_memory → SM -->
+  <path d="M 180 545 L 180 560 L 400 560 L 400 608" fill="none" stroke="#2471a3" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#arrowhead-blue)"/>
+  <text x="290" y="556" font-size="8" fill="#2471a3">instr_data</text>
+
+  <!-- ============ BUS CONTROLLER (Right side) ============ -->
+  <rect x="1300" y="380" width="220" height="140" fill="#e8f8f5" stroke="#1abc9c" stroke-width="2" rx="6"/>
+  <text x="1410" y="402" text-anchor="middle" font-size="12" font-weight="bold" fill="#1abc9c">bus_controller</text>
+  <text x="1410" y="418" text-anchor="middle" font-size="9" fill="#555">Memory Bus Arbiter</text>
+  <text x="1312" y="440" font-size="9" fill="#555">Host priority arbitration</text>
+  <text x="1312" y="458" font-size="9" fill="#555">Routes: host_mem ↔ core_mem</text>
+  <text x="1312" y="476" font-size="9" fill="#555">4-lane merged output</text>
+  <text x="1312" y="494" font-size="9" fill="#555">Response routing by origin</text>
+
+  <!-- ============ MEMORY SYSTEM ============ -->
+  <rect x="1300" y="555" width="220" height="220" fill="url(#memGrad)" stroke="#27ae60" stroke-width="2" rx="6"/>
+  <text x="1410" y="577" text-anchor="middle" font-size="12" font-weight="bold" fill="#27ae60">memory</text>
+  <text x="1410" y="595" text-anchor="middle" font-size="9" fill="#555">4-Bank Global Memory (128KB)</text>
+
+  <!-- Memory banks -->
+  <rect x="1315" y="610" width="90" height="40" fill="white" stroke="#2ecc71" stroke-width="1.2" rx="3"/>
+  <text x="1360" y="630" text-anchor="middle" font-size="8" font-weight="bold" fill="#27ae60">memory_bank[0]</text>
+  <text x="1360" y="644" text-anchor="middle" font-size="7" fill="#555">8192 words</text>
+
+  <rect x="1415" y="610" width="90" height="40" fill="white" stroke="#2ecc71" stroke-width="1.2" rx="3"/>
+  <text x="1460" y="630" text-anchor="middle" font-size="8" font-weight="bold" fill="#27ae60">memory_bank[1]</text>
+  <text x="1460" y="644" text-anchor="middle" font-size="7" fill="#555">8192 words</text>
+
+  <rect x="1315" y="660" width="90" height="40" fill="white" stroke="#2ecc71" stroke-width="1.2" rx="3"/>
+  <text x="1360" y="680" text-anchor="middle" font-size="8" font-weight="bold" fill="#27ae60">memory_bank[2]</text>
+  <text x="1360" y="694" text-anchor="middle" font-size="7" fill="#555">8192 words</text>
+
+  <rect x="1415" y="660" width="90" height="40" fill="white" stroke="#2ecc71" stroke-width="1.2" rx="3"/>
+  <text x="1460" y="680" text-anchor="middle" font-size="8" font-weight="bold" fill="#27ae60">memory_bank[3]</text>
+  <text x="1460" y="694" text-anchor="middle" font-size="7" fill="#555">8192 words</text>
+
+  <text x="1315" y="720" font-size="8" fill="#555">Bank interleaving: addr[1:0]</text>
+  <text x="1315" y="734" font-size="8" fill="#555">Word select: addr[15:2]</text>
+  <text x="1315" y="748" font-size="8" fill="#555">4-byte write mask per lane</text>
+  <text x="1315" y="762" font-size="8" fill="#555">RAMB36E1 BRAM primitives</text>
+
+  <!-- ============ BUS/MEMORY CONNECTION ARROWS ============ -->
+
+  <!-- mini_gpu → bus_controller (gpu mem req) -->
+  <path d="M 1140 470 L 1170 470 L 1170 430 L 1300 430" fill="none" stroke="#27ae60" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+  <text x="1180" y="425" font-size="9" fill="#27ae60">gpu_mem_req (4 lanes)</text>
+
+  <!-- bus_controller → mini_gpu (gpu mem resp) -->
+  <path d="M 1300 450 L 1250 450 L 1250 490 L 1140 490" fill="none" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrowhead-green)"/>
+  <text x="1160" y="500" font-size="9" fill="#27ae60">gpu_mem_resp (4 lanes)</text>
+
+  <!-- bus_controller → memory (merged req) -->
+  <path d="M 1380 520 L 1380 555" fill="none" stroke="#27ae60" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+  <text x="1320" y="541" font-size="8" fill="#27ae60">merged_req</text>
+
+  <!-- memory → bus_controller (merged resp) -->
+  <path d="M 1440 555 L 1440 520" fill="none" stroke="#27ae60" stroke-width="1.5" marker-end="url(#arrowhead-green)"/>
+  <text x="1445" y="541" font-size="8" fill="#27ae60">resp</text>
+
+  <!-- ============ LEGEND ============ -->
+  <rect x="1300" y="800" width="220" height="200" fill="white" stroke="#bdc3c7" stroke-width="1" rx="5"/>
+  <text x="1410" y="822" text-anchor="middle" font-size="11" font-weight="bold" fill="#2c3e50">Legend</text>
+
+  <line x1="1315" y1="840" x2="1355" y2="840" stroke="#c0392b" stroke-width="2"/>
+  <text x="1362" y="844" font-size="9" fill="#333">Security path</text>
+
+  <line x1="1315" y1="862" x2="1355" y2="862" stroke="#2980b9" stroke-width="2"/>
+  <text x="1362" y="866" font-size="9" fill="#333">Data/compute path</text>
+
+  <line x1="1315" y1="884" x2="1355" y2="884" stroke="#27ae60" stroke-width="2"/>
+  <text x="1362" y="888" font-size="9" fill="#333">Memory path</text>
+
+  <line x1="1315" y1="906" x2="1355" y2="906" stroke="#e67e22" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="1362" y="910" font-size="9" fill="#333">Float arbitration</text>
+
+  <line x1="1315" y1="928" x2="1355" y2="928" stroke="#7f8c8d" stroke-width="1.5"/>
+  <text x="1362" y="932" font-size="9" fill="#333">Status/control</text>
+
+  <line x1="1315" y1="950" x2="1355" y2="950" stroke="#333" stroke-width="1.5"/>
+  <text x="1362" y="954" font-size="9" fill="#333">UART I/O</text>
+
+  <rect x="1315" y="964" width="30" height="14" fill="none" stroke="#c0392b" stroke-width="2" stroke-dasharray="5,3" rx="2"/>
+  <text x="1352" y="976" font-size="9" fill="#333">Security boundary</text>
+
+  <text x="1315" y="995" font-size="8" fill="#555">Hierarchy depth: 8 levels</text>
+
+</svg>

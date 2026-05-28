@@ -1,0 +1,268 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 730" font-family="Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#555"/>
+    </marker>
+    <marker id="arr-red" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b"/>
+    </marker>
+    <marker id="arr-green" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#27ae60"/>
+    </marker>
+    <marker id="arr-purple" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#8e24aa"/>
+    </marker>
+    <marker id="arr-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2471a3"/>
+    </marker>
+    <linearGradient id="titleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#641E16;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#922B21;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="730" fill="#fdf2f2" rx="8"/>
+
+  <!-- Title -->
+  <rect x="0" y="0" width="1100" height="44" fill="url(#titleGrad)"/>
+  <text x="550" y="29" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Security Subsystem — Kernel Verification Flow</text>
+
+  <!-- ================================================================ -->
+  <!-- HOST                                                             -->
+  <!-- ================================================================ -->
+  <rect x="30" y="60" width="170" height="80" fill="#fff8e1" stroke="#e67e22" stroke-width="2" rx="8"/>
+  <text x="115" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#e67e22">Host</text>
+  <text x="115" y="98" text-anchor="middle" font-size="9" fill="#666">communication_controller</text>
+  <text x="115" y="115" text-anchor="middle" font-size="8" fill="#555">UART command interface</text>
+  <text x="115" y="130" text-anchor="middle" font-size="8" fill="#555">(WRITE_PROG, VALIDATE, LAUNCH)</text>
+
+  <!-- ================================================================ -->
+  <!-- KERNEL_VFY — the central gate                                    -->
+  <!-- ================================================================ -->
+  <rect x="270" y="60" width="530" height="365" fill="#fdedec" stroke="#c0392b" stroke-width="2.5" rx="8" stroke-dasharray="8,4"/>
+  <text x="535" y="82" text-anchor="middle" font-size="14" font-weight="bold" fill="#c0392b">kernel_vfy — Security Gate</text>
+
+  <!-- FSM box (y=95, h=130, bottom=225) -->
+  <rect x="290" y="95" width="490" height="130" fill="white" stroke="#e74c3c" stroke-width="1.2" rx="6"/>
+  <text x="535" y="115" text-anchor="middle" font-size="11" font-weight="bold" fill="#c0392b">Verification FSM</text>
+
+  <!-- State chips — CENTERED in FSM box (chain starts x=320) -->
+  <rect x="320" y="128" width="52" height="26" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2" rx="11"/>
+  <text x="346" y="145" text-anchor="middle" font-size="8" font-weight="bold" fill="#1e8449">IDLE</text>
+
+  <path d="M 372 141 L 387 141" fill="none" stroke="#555" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="387" y="128" width="52" height="26" fill="#ebf5fb" stroke="#2980b9" stroke-width="1.2" rx="11"/>
+  <text x="413" y="145" text-anchor="middle" font-size="8" font-weight="bold" fill="#2471a3">LOAD</text>
+
+  <path d="M 439 141 L 454 141" fill="none" stroke="#555" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="454" y="128" width="68" height="26" fill="#fef9e7" stroke="#f4d03f" stroke-width="1.2" rx="11"/>
+  <text x="488" y="145" text-anchor="middle" font-size="8" font-weight="bold" fill="#b7950b">FINALIZE</text>
+
+  <path d="M 522 141 L 537 141" fill="none" stroke="#555" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="537" y="128" width="58" height="26" fill="#fef9e7" stroke="#f4d03f" stroke-width="1.2" rx="11"/>
+  <text x="566" y="145" text-anchor="middle" font-size="8" font-weight="bold" fill="#b7950b">VERIFY</text>
+
+  <path d="M 595 141 L 610 141" fill="none" stroke="#27ae60" stroke-width="1.2" marker-end="url(#arr-green)"/>
+
+  <rect x="610" y="128" width="52" height="26" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2" rx="11"/>
+  <text x="636" y="145" text-anchor="middle" font-size="8" font-weight="bold" fill="#1e8449">LOCK</text>
+
+  <path d="M 662 141 L 677 141" fill="none" stroke="#27ae60" stroke-width="1.2" marker-end="url(#arr-green)"/>
+
+  <rect x="677" y="128" width="70" height="26" fill="#d5f5e3" stroke="#27ae60" stroke-width="2" rx="11"/>
+  <text x="712" y="145" text-anchor="middle" font-size="8" font-weight="bold" fill="#1e8449">EXECUTE</text>
+
+  <!-- ERROR branch from VERIFY (20px gap below state chips) -->
+  <path d="M 566 154 L 566 180" fill="none" stroke="#e74c3c" stroke-width="1.2" marker-end="url(#arr-red)"/>
+  <text x="575" y="170" font-size="7" fill="#c0392b">mismatch</text>
+  <rect x="537" y="180" width="58" height="22" fill="#fadbd8" stroke="#e74c3c" stroke-width="1.5" rx="9"/>
+  <text x="566" y="195" text-anchor="middle" font-size="8" font-weight="bold" fill="#c0392b">ERROR</text>
+
+  <!-- RESET off to the side (20px gap below IDLE) -->
+  <rect x="320" y="180" width="52" height="22" fill="#f5eef8" stroke="#8e24aa" stroke-width="1.2" rx="9"/>
+  <text x="346" y="195" text-anchor="middle" font-size="8" font-weight="bold" fill="#6c3483">RESET</text>
+  <path d="M 346 180 L 346 154" fill="none" stroke="#6c3483" stroke-width="1" marker-end="url(#arr-purple)"/>
+
+  <!-- Transition labels (centered above each arrow) -->
+  <text x="380" y="125" font-size="7" fill="#2471a3">prog_we</text>
+  <text x="453" y="125" font-size="7" fill="#e67e22">validate</text>
+  <text x="530" y="125" font-size="7" fill="#555">digest</text>
+  <text x="605" y="125" font-size="7" fill="#27ae60">match</text>
+
+  <!-- EXECUTE → LOAD re-entry (routed below ERROR/RESET, inside FSM box) -->
+  <path d="M 712 154 L 712 215 L 413 215 L 413 154" fill="none" stroke="#2471a3" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arr)"/>
+  <text x="563" y="212" font-size="7" fill="#2471a3">new prog_we (clears verified)</text>
+
+  <!-- Program Write Gate (20px gap below FSM box at y=225) -->
+  <rect x="290" y="245" width="230" height="60" fill="white" stroke="#c0392b" stroke-width="1.2" rx="5"/>
+  <text x="405" y="265" text-anchor="middle" font-size="11" font-weight="bold" fill="#c0392b">Program Write Gate</text>
+  <text x="300" y="283" font-size="9" fill="#555">Blocks writes after LOCK,</text>
+  <text x="300" y="297" font-size="9" fill="#555">during ERROR, or GPU busy</text>
+
+  <!-- Launch Gate -->
+  <rect x="540" y="245" width="240" height="60" fill="white" stroke="#c0392b" stroke-width="1.2" rx="5"/>
+  <text x="660" y="265" text-anchor="middle" font-size="11" font-weight="bold" fill="#c0392b">Launch Gate</text>
+  <text x="550" y="283" font-size="9" fill="#555">Only allows launch when</text>
+  <text x="550" y="297" font-size="9" fill="#555">state = EXECUTE &amp;&amp; verified = 1</text>
+
+  <!-- ACK / NAK / Error -->
+  <rect x="290" y="320" width="490" height="45" fill="white" stroke="#e74c3c" stroke-width="1.2" rx="5"/>
+  <text x="535" y="340" text-anchor="middle" font-size="11" font-weight="bold" fill="#c0392b">ACK / NAK / Error Path</text>
+  <text x="535" y="358" text-anchor="middle" font-size="9" fill="#555">validate_done → ACK | validate_fail → NAK (sets fault_reg) | security_error → blocks all ops</text>
+
+  <!-- Zeroization note inside kernel_vfy -->
+  <rect x="290" y="380" width="490" height="35" fill="#f5eef8" stroke="#8e24aa" stroke-width="1" rx="5"/>
+  <text x="535" y="402" text-anchor="middle" font-size="9" fill="#6c3483">RESET: zeroizes all program memory (2^12 addresses) before returning to IDLE</text>
+
+  <!-- ================================================================ -->
+  <!-- MINI_GPU                                                         -->
+  <!-- ================================================================ -->
+  <rect x="870" y="60" width="200" height="150" fill="#e8f8f5" stroke="#27ae60" stroke-width="2" rx="8"/>
+  <text x="970" y="82" text-anchor="middle" font-size="12" font-weight="bold" fill="#27ae60">mini_gpu</text>
+  <text x="970" y="100" text-anchor="middle" font-size="9" fill="#666">GPU Execution Engine</text>
+
+  <text x="885" y="125" font-size="9" fill="#555">Receives gated:</text>
+  <text x="895" y="143" font-size="9" fill="#27ae60" font-weight="bold">gpu_prog_we/addr/data</text>
+  <text x="895" y="161" font-size="9" fill="#27ae60" font-weight="bold">gpu_launch_valid</text>
+  <text x="895" y="183" font-size="9" fill="#7f8c8d">Returns: core_busy</text>
+
+  <!-- ================================================================ -->
+  <!-- SHA-256 ENGINE                                                   -->
+  <!-- ================================================================ -->
+  <rect x="30" y="455" width="370" height="110" fill="#eaf2f8" stroke="#2471a3" stroke-width="2" rx="8"/>
+  <text x="215" y="478" text-anchor="middle" font-size="12" font-weight="bold" fill="#2471a3">SHA-256 Engine</text>
+  <text x="215" y="496" text-anchor="middle" font-size="9" fill="#666">sha256_wrapper + sha256_core</text>
+
+  <text x="50" y="520" font-size="9" fill="#555">Streams program words into 512-bit blocks</text>
+  <text x="50" y="538" font-size="9" fill="#555">64 compression rounds per block (FIPS 180-4)</text>
+  <text x="50" y="556" font-size="9" fill="#555">Produces 256-bit digest of loaded kernel</text>
+
+  <!-- ================================================================ -->
+  <!-- GOLDEN HASH BRAM                                                 -->
+  <!-- ================================================================ -->
+  <rect x="470" y="455" width="290" height="110" fill="#f4ecf7" stroke="#8e24aa" stroke-width="2" rx="8"/>
+  <text x="615" y="478" text-anchor="middle" font-size="12" font-weight="bold" fill="#8e24aa">kernel_hash_bram</text>
+  <text x="615" y="496" text-anchor="middle" font-size="9" fill="#666">Golden Hash Storage</text>
+
+  <text x="490" y="520" font-size="9" fill="#555">128 trusted SHA-256 hashes</text>
+  <text x="490" y="538" font-size="9" fill="#555">Pre-loaded from .mem file</text>
+  <text x="490" y="556" font-size="9" fill="#555">Lookup by kernel_id (7-bit)</text>
+
+  <!-- ================================================================ -->
+  <!-- COMPARISON RESULT                                                -->
+  <!-- ================================================================ -->
+  <rect x="830" y="455" width="240" height="110" fill="white" stroke="#b7950b" stroke-width="2" rx="8"/>
+  <text x="950" y="478" text-anchor="middle" font-size="12" font-weight="bold" fill="#b7950b">Hash Comparison</text>
+
+  <text x="950" y="503" text-anchor="middle" font-size="9" fill="#555">sha_digest == golden_hash ?</text>
+
+  <rect x="875" y="515" width="100" height="20" fill="#d5f5e3" stroke="#27ae60" stroke-width="1" rx="4"/>
+  <text x="925" y="529" text-anchor="middle" font-size="9" font-weight="bold" fill="#27ae60">Match</text>
+  <text x="980" y="529" font-size="8" fill="#555">→ LOCK / EXECUTE</text>
+
+  <rect x="875" y="541" width="100" height="20" fill="#fadbd8" stroke="#e74c3c" stroke-width="1" rx="4"/>
+  <text x="925" y="555" text-anchor="middle" font-size="9" font-weight="bold" fill="#c0392b">Mismatch</text>
+  <text x="980" y="555" font-size="8" fill="#555">→ ERROR</text>
+
+  <!-- ================================================================ -->
+  <!-- ARROWS (all 90-degree routing)                                   -->
+  <!-- ================================================================ -->
+
+  <!-- Host → kernel_vfy -->
+  <path d="M 200 95 L 270 95" fill="none" stroke="#c0392b" stroke-width="2" marker-end="url(#arr-red)"/>
+  <rect x="205" y="62" width="60" height="24" fill="white" fill-opacity="0.85" rx="3"/>
+  <text x="235" y="75" text-anchor="middle" font-size="9" font-weight="bold" fill="#c0392b">prog, val,</text>
+  <text x="235" y="86" text-anchor="middle" font-size="9" font-weight="bold" fill="#c0392b">launch, rst</text>
+
+  <!-- kernel_vfy → Host (ACK/NAK) -->
+  <path d="M 270 130 L 200 130" fill="none" stroke="#7f8c8d" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="220" y="127" font-size="8" fill="#7f8c8d">ACK / NAK</text>
+
+  <!-- kernel_vfy → GPU (gated outputs) -->
+  <path d="M 800 130 L 870 130" fill="none" stroke="#27ae60" stroke-width="2" marker-end="url(#arr-green)"/>
+  <text x="810" y="120" font-size="8" fill="#27ae60">gated prog_we</text>
+  <text x="810" y="144" font-size="8" fill="#27ae60">gated launch</text>
+
+  <!-- GPU → kernel_vfy (core_busy) -->
+  <path d="M 870 185 L 800 185" fill="none" stroke="#7f8c8d" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="815" y="197" font-size="8" fill="#7f8c8d">core_busy</text>
+
+  <!-- kernel_vfy → SHA-256: program words (vertical down) -->
+  <path d="M 310 425 L 310 455" fill="none" stroke="#2471a3" stroke-width="1.8" marker-end="url(#arr-blue)"/>
+  <text x="245" y="443" font-size="8" fill="#2471a3">program words</text>
+
+  <!-- SHA-256 → kernel_vfy: digest (vertical up) -->
+  <!-- <path d="M 370 455 L 370 425" fill="none" stroke="#2471a3" stroke-width="1.5" marker-end="url(#arr-blue)"/> -->
+  <!-- <text x="378" y="443" font-size="8" fill="#2471a3">digest [256]</text> -->
+
+  <!-- kernel_vfy → hash bram: kernel_id (vertical down) -->
+  <path d="M 615 425 L 615 455" fill="none" stroke="#8e24aa" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <text x="623" y="445" font-size="8" fill="#8e24aa">kernel_id</text>
+
+  <!-- hash bram → comparison: golden_hash (horizontal right) -->
+  <path d="M 760 520 L 830 520" fill="none" stroke="#8e24aa" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <text x="770" y="510" font-size="8" fill="#8e24aa">golden_hash</text>
+
+  <!-- SHA-256 → comparison: computed digest (route BELOW hash bram) -->
+  <path d="M 215 565 L 215 585 L 950 585 L 950 565" fill="none" stroke="#2471a3" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+  <text x="580" y="580" font-size="8" fill="#2471a3">computed digest</text>
+
+  <!-- comparison result → kernel_vfy FSM (L-shaped route into kernel_vfy) -->
+  <path d="M 830 485 L 780 485 L 780 425" fill="none" stroke="#b7950b" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="785" y="460" font-size="8" fill="#b7950b">result</text>
+
+  <!-- ================================================================ -->
+  <!-- FLOW SUMMARY (compact bottom bar, centered)                      -->
+  <!-- ================================================================ -->
+  <rect x="30" y="600" width="1040" height="100" fill="white" stroke="#922B21" stroke-width="1.5" rx="8"/>
+  <text x="550" y="622" text-anchor="middle" font-size="12" font-weight="bold" fill="#922B21">Verification Sequence</text>
+
+  <!-- Centered flow pipeline -->
+  <rect x="95" y="635" width="110" height="28" fill="#fff3e0" stroke="#e67e22" stroke-width="1.2" rx="5"/>
+  <text x="150" y="653" text-anchor="middle" font-size="9" font-weight="bold" fill="#e67e22">Load Program</text>
+
+  <path d="M 205 649 L 225 649" fill="none" stroke="#555" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="225" y="635" width="110" height="28" fill="#eaf2f8" stroke="#2980b9" stroke-width="1.2" rx="5"/>
+  <text x="280" y="653" text-anchor="middle" font-size="9" font-weight="bold" fill="#2980b9">Stream into SHA-256</text>
+
+  <path d="M 335 649 L 355 649" fill="none" stroke="#555" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="355" y="635" width="90" height="28" fill="#fef9e7" stroke="#f4d03f" stroke-width="1.2" rx="5"/>
+  <text x="400" y="653" text-anchor="middle" font-size="9" font-weight="bold" fill="#b7950b">Validate</text>
+
+  <path d="M 445 649 L 465 649" fill="none" stroke="#555" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="465" y="635" width="110" height="28" fill="#f4ecf7" stroke="#8e24aa" stroke-width="1.2" rx="5"/>
+  <text x="520" y="653" text-anchor="middle" font-size="9" font-weight="bold" fill="#8e24aa">Compare Hash</text>
+
+  <!-- Branch arrows -->
+  <path d="M 575 642 L 610 642" fill="none" stroke="#27ae60" stroke-width="1.2" marker-end="url(#arr-green)"/>
+  <path d="M 575 657 L 610 657" fill="none" stroke="#e74c3c" stroke-width="1.2" marker-end="url(#arr-red)"/>
+
+  <rect x="610" y="631" width="130" height="18" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.2" rx="4"/>
+  <text x="675" y="644" text-anchor="middle" font-size="8" font-weight="bold" fill="#27ae60">Match → LOCK</text>
+
+  <rect x="610" y="652" width="130" height="18" fill="#fadbd8" stroke="#e74c3c" stroke-width="1.2" rx="4"/>
+  <text x="675" y="664" text-anchor="middle" font-size="8" font-weight="bold" fill="#c0392b">Mismatch → ERROR</text>
+
+  <path d="M 740 640 L 775 640" fill="none" stroke="#27ae60" stroke-width="1.2" marker-end="url(#arr-green)"/>
+  <path d="M 740 661 L 775 661" fill="none" stroke="#e74c3c" stroke-width="1.2" marker-end="url(#arr-red)"/>
+
+  <rect x="775" y="631" width="130" height="18" fill="#d5f5e3" stroke="#27ae60" stroke-width="2" rx="4"/>
+  <text x="840" y="644" text-anchor="middle" font-size="9" font-weight="bold" fill="#27ae60">Launch Allowed</text>
+
+  <rect x="775" y="652" width="130" height="18" fill="#fadbd8" stroke="#e74c3c" stroke-width="2" rx="4"/>
+  <text x="840" y="664" text-anchor="middle" font-size="9" font-weight="bold" fill="#c0392b">All Ops Blocked</text>
+
+  <!-- Reset / Re-entry notes -->
+  <text x="200" y="688" font-size="9" fill="#6c3483" font-weight="bold">Security Reset:</text>
+  <text x="298" y="688" font-size="9" fill="#555">wipes all program memory → returns to IDLE</text>
+  <text x="620" y="688" font-size="9" fill="#2471a3" font-weight="bold">Re-entry:</text>
+  <text x="682" y="688" font-size="9" fill="#555">new WRITE_PROG clears verified → must re-validate</text>
+
+</svg>
