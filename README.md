@@ -25,7 +25,21 @@ This is an active project. A full technical report with detailed architecture, v
 - Verified secure-launch behavior with Icarus Verilog testbenches and VCD waveform debugging
 - Used Yosys and Vivado to analyze resource usage and FPGA implementation tradeoffs
 
+## FPGA Implementation Results
 
+Final Vivado implementation was performed on Basys 3 / Artix-7 using Vivado 2018.2.
+
+| Metric | Baseline Mini-GPU | Secure Mini-GPU | Delta |
+|---|---:|---:|---:|
+| Clock | 75 MHz | 75 MHz | — |
+| LUTs | 17,905 | 20,275 | +13.2% |
+| FFs | 16,136 | 17,965 | +11.3% |
+| BRAM | 36 | 40 | +4 |
+| DSP | 19 | 19 | +0 |
+| WNS | 0.045 ns | 0.020 ns | timing met |
+| Total Power | 0.200 W | 0.244 W | +0.044 W |
+
+The secure design reached 97.5% LUT utilization on the Basys 3 FPGA while closing timing at 75 MHz. The critical path in both baseline and secure configurations was located in the memory subsystem.
 
 ## Security Architecture
 
