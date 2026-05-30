@@ -133,6 +133,14 @@ uart_gpu_comm/_uart_gpu_comm*.dylib
 *.os/
 *.data/
 
+# save these Vivado-generated reports for future reference
+!docs/luke-logs/vivado_reports/test6/*.rpt
+!docs/luke-logs/vivado_reports/test6/impl/*.rpt
+!docs/luke-logs/vivado_reports/test9/*.rpt
+!docs/luke-logs/vivado_reports/test9/impl/*.rpt
+!docs/luke-logs/vivado_reports/baseline/*.rpt
+!docs/luke-logs/vivado_reports/baseline/impl/*.rpt
+
 # Runtime precompiled kernel artifacts are source inputs for non-CUDA builds.
 !runtime/kernels/*.bin
 !runtime/kernels/*.map

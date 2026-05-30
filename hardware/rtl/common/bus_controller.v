@@ -59,11 +59,6 @@ module bus_controller #(
     output wire [1:0]  memory_request_id
 );
 
-    localparam REQ_HOST  = 2'd0;
-    localparam REQ_CORE  = 2'd1;
-    localparam REQ_SEC   = 2'd2;
-    localparam REQ_DEBUG = 2'd3;
-
     // =========================================================================
     // Arbitration: host priority
     // =========================================================================
@@ -91,8 +86,7 @@ module bus_controller #(
     assign merged_mem_req_wmask = select_host ? host_mem_req_wmask :
                                   select_core ? core_mem_req_wmask : {(4*4){1'b0}};
 
-    assign memory_request_id = select_host ? REQ_HOST :
-                               select_core ? REQ_CORE : REQ_HOST;
+    assign memory_request_id = {1'b0, select_core};
 
     // =========================================================================
     // Ready routing
@@ -103,21 +97,21 @@ module bus_controller #(
     // =========================================================================
     // Response routing: latch who made the request
     // =========================================================================
-    reg [1:0] resp_owner_q;
+    reg resp_owner_core_q;
     wire request_accepted = |(merged_mem_req_valid & merged_mem_req_ready);
     wire request_is_read = |(merged_mem_req_valid & ~merged_mem_req_write);
     wire request_is_write = |(merged_mem_req_valid & merged_mem_req_write);
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            resp_owner_q <= REQ_HOST;
+            resp_owner_core_q <= 1'b0;
         end else if (request_accepted && request_is_read) begin
-            resp_owner_q <= select_host ? REQ_HOST : REQ_CORE;
+            resp_owner_core_q <= select_core;
         end
     end
 
-    assign host_mem_resp_valid = (resp_owner_q == REQ_HOST) ? merged_mem_resp_valid : 4'b0;
-    assign core_mem_resp_valid = (resp_owner_q == REQ_CORE) ? merged_mem_resp_valid : 4'b0;
+    assign host_mem_resp_valid = resp_owner_core_q ? 4'b0 : merged_mem_resp_valid;
+    assign core_mem_resp_valid = resp_owner_core_q ? merged_mem_resp_valid : 4'b0;
 
     assign host_mem_resp_rdata = merged_mem_resp_rdata;
     assign core_mem_resp_rdata = merged_mem_resp_rdata;
@@ -125,26 +119,25 @@ module bus_controller #(
     // =========================================================================
     // Status flag demux
     // =========================================================================
-    reg [1:0] write_owner_q;
+    reg write_owner_core_q;
     reg host_mem_write_done_q;
     reg host_mem_write_fail_q;
     reg core_mem_write_done_q;
     reg core_mem_write_fail_q;
 
-    wire [1:0] write_status_owner =
-        (request_accepted && request_is_write) ? (select_host ? REQ_HOST : REQ_CORE)
-                                               : write_owner_q;
+    wire write_status_owner_core =
+        (request_accepted && request_is_write) ? select_core : write_owner_core_q;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            write_owner_q <= REQ_HOST;
+            write_owner_core_q <= 1'b0;
             host_mem_write_done_q <= 1'b0;
             host_mem_write_fail_q <= 1'b0;
             core_mem_write_done_q <= 1'b0;
             core_mem_write_fail_q <= 1'b0;
         end else begin
             if (request_accepted && request_is_write) begin
-                write_owner_q <= select_host ? REQ_HOST : REQ_CORE;
+                write_owner_core_q <= select_core;
             end
 
             if (host_memory_status_consumed) begin
@@ -157,18 +150,18 @@ module bus_controller #(
             end
 
             if (merged_mem_write_done) begin
-                if (write_status_owner == REQ_HOST) begin
-                    host_mem_write_done_q <= 1'b1;
-                end else if (write_status_owner == REQ_CORE) begin
+                if (write_status_owner_core) begin
                     core_mem_write_done_q <= 1'b1;
+                end else begin
+                    host_mem_write_done_q <= 1'b1;
                 end
             end
 
             if (merged_mem_write_fail) begin
-                if (write_status_owner == REQ_HOST) begin
-                    host_mem_write_fail_q <= 1'b1;
-                end else if (write_status_owner == REQ_CORE) begin
+                if (write_status_owner_core) begin
                     core_mem_write_fail_q <= 1'b1;
+                end else begin
+                    host_mem_write_fail_q <= 1'b1;
                 end
             end
         end

@@ -1,0 +1,121 @@
+- 5/27
+    - conducted synthesis / implementation testing on Vivado instead of Yosys
+    - Version: Vivado v.2018.2 (win64)
+    - implemented the basys3_comm_top
+        - LUT Count: 18537
+        - WNS: -3.211 ns at 100 MHz
+            - source was in the memory modules
+        - Total on chip power: 0.253 W
+    - implement with basys3_security_top
+        - LUT: 20854
+        - fail
+    - optimized bus_controller, communication_controller, and kernel_vft modules
+        - LUT: 20851
+        - fail
+    - note from the future: these implementations did not include the .mem file so the actual LUT count would've been higher
+
+- 5/29
+    - test1: removed 7-seg display
+        - LUT: 20803 
+        - fail
+    - !!! noticed a synthsis error that said that it couldn't find the .mem file, and realized that I didn't generate it, so I generated the file
+    - test2
+        - commented segment wires and a couple LEDs added led connection to kv_kernel_fault
+        - LUT count increased by about 50
+    - test3
+        - removed led connection to kv_kernel_fault	
+        - not much change
+    - opt_design -directive Explore
+        - reduced LUT by 5
+    - test4
+        - Synthsis optimization: Flow_AreaOptimized_high
+        - Implementation optimization: Area_Explore
+        - results (timing fail):
+            - LUT: 20010
+            - FF: 17965
+            - BRAM: 40.00
+            - URAM: 0
+            - DSP: 19
+            - WNS: -3.144
+            - TNS: -2021.960
+            - WHS: 0.033
+            - THS: 0.000
+            - Total Power: 0.296
+    - test5
+        - Synthsis optimization: Flow_AreaOptimized_medium
+        - Implementation optimization: Area_Explore
+        - results (timing fail):
+            - LUT: 20384
+            - FF: 17968
+            - BRAM: 40.00
+            - URAM: 0
+            - DSP: 19
+            - WNS: -3.714
+            - TNS: -2521.504
+            - WHS: 0.022
+            - THS: 0.000
+            - Total Power: 0.290
+    - test6
+        - Synthsis optimization: Flow_AreaOptimized_high
+        - Implementation optimization: Performance_Explore
+        - results (timing fail):
+            - LUT: 20269
+            - FF: 17965
+            - BRAM: 40.00
+            - URAM: 0
+            - DSP: 19
+            - WNS: -3.006
+            - TNS: -1645.872
+            - WHS: 0.041
+            - THS: 0.000
+            - Total Power: 0.301
+    - test7
+        - synthesis: Flow_PerfOptimized_high
+        - implementation: Area_Explore
+        - LUT: 22893
+        - fail
+    - test8
+        - synthesis: Flow_PerfThreasholdCarry 
+        - implementation: Area_Explore
+        - LUT: 22918
+        - fail
+    - test9:
+        - going back to test6 configurations
+        - WNS is -3.006, therefore critical path is 13.006 ns
+            - so we have a max clock frequency of 1/13.006 = 76.9 MHz
+        - Clock Frequency: 75 MHz
+        - Synthsis optimization: Flow_AreaOptimized_high
+        - Implementation optimization: Performance_Explore
+        - results (pass):
+            - LUT: 20275
+            - FF: 17965
+            - BRAM: 40.00
+            - URAM: 0
+            - DSP: 19
+            - WNS: 0.020
+            - TNS: 0.000
+            - WHS: 0.044
+            - THS: 0.000
+            - Total Power: 0.244
+    - basline 
+        - same configuration as test9:
+        - clock frequency: 75 MHz
+        - Synthsis optimization: Flow_AreaOptimized_high
+        - Implementation optimization: Performance_Explore
+        - results (pass):
+            - LUT: 17905
+            - FF: 16136
+            - BRAM: 36.00
+            - URAM: 0
+            - DSP: 19
+            - WNS: 0.045
+            - TNS: 0.000
+            - WHS: 0.010
+            - THS: 0.000
+            - Total Power: 0.200
+
+    - optimal optimizations to synthesize and implement:
+        - Synthsis optimization: Flow_AreaOptimized_high
+        - Implementation optimization: Performance_Explore
+    - the critical path in both the baseline and the secure version is with the memory modules
+    - for future work, we may have to optimize the memory rtl to make it more clock efficient so that we can hit the max 100 MHz clock frequency

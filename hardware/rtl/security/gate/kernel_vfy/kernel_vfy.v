@@ -65,17 +65,17 @@ module kernel_vfy #(
     reg [KERNEL_ID_WIDTH-1:0]  kernel_id_reg;
     reg                        verified_reg;
     reg                        fault_reg;
-    reg                        program_locked_reg;
     reg                        sha_needs_start;
+    reg [2:0]                  verify_idx;
+    reg                        verify_mismatch;
 
     // First-word buffering for EXECUTE→LOAD transition
     reg                        first_word_pending;
     reg [31:0]                 first_word_buf;
 
     // reset zeroization address tracking register
-    reg [ADDR_WIDTH-1:0]       reset_zeroization_addr;
+    reg [PROG_ADDR_WIDTH-1:0]  reset_zeroization_addr;
     reg                        reset_addr_hold;
-    localparam RESET_ZEROIZATION_ADDR_MAX = (1 << ADDR_WIDTH) - 1;
 
     // =========================================================================
     // SHA-256 Engine
@@ -109,6 +109,9 @@ module kernel_vfy #(
     // Golden Hash Lookup
     // =========================================================================
     wire [255:0] golden_hash;
+    reg  [31:0]  verify_digest_word;
+    reg  [31:0]  verify_golden_word;
+    wire         verify_word_mismatch;
 
     kernel_hash_bram #(
         .NUM_HASHES(NUM_GOLDEN_HASHES),
@@ -119,6 +122,45 @@ module kernel_vfy #(
         .hash_out(golden_hash)
     );
 
+    always @* begin
+        case (verify_idx)
+            3'd0: begin
+                verify_digest_word = sha_digest[31:0];
+                verify_golden_word = golden_hash[31:0];
+            end
+            3'd1: begin
+                verify_digest_word = sha_digest[63:32];
+                verify_golden_word = golden_hash[63:32];
+            end
+            3'd2: begin
+                verify_digest_word = sha_digest[95:64];
+                verify_golden_word = golden_hash[95:64];
+            end
+            3'd3: begin
+                verify_digest_word = sha_digest[127:96];
+                verify_golden_word = golden_hash[127:96];
+            end
+            3'd4: begin
+                verify_digest_word = sha_digest[159:128];
+                verify_golden_word = golden_hash[159:128];
+            end
+            3'd5: begin
+                verify_digest_word = sha_digest[191:160];
+                verify_golden_word = golden_hash[191:160];
+            end
+            3'd6: begin
+                verify_digest_word = sha_digest[223:192];
+                verify_golden_word = golden_hash[223:192];
+            end
+            default: begin
+                verify_digest_word = sha_digest[255:224];
+                verify_golden_word = golden_hash[255:224];
+            end
+        endcase
+    end
+
+    assign verify_word_mismatch = (verify_digest_word != verify_golden_word);
+
     // =========================================================================
     // Combinational Data Path
     // =========================================================================
@@ -126,8 +168,7 @@ module kernel_vfy #(
     // Program writes pass through in IDLE or LOAD (not locked)
     // Also passes through for the EXECUTE→LOAD first-word transition
     wire execute_accept = (state_reg == S_EXECUTE) && !core_busy && cc_prog_we;
-    wire allow_prog_write = ((state_reg == S_IDLE || state_reg == S_LOAD) && !program_locked_reg)
-                            || execute_accept;
+    wire allow_prog_write = (state_reg == S_IDLE) || (state_reg == S_LOAD) || execute_accept;
 
     assign gpu_prog_we    = allow_prog_write && cc_prog_we || (state_reg == S_RESET);
     assign gpu_prog_addr  = (state_reg == S_RESET) ? reset_zeroization_addr : cc_prog_addr[PROG_ADDR_WIDTH-1:0];
@@ -140,7 +181,7 @@ module kernel_vfy #(
     // Write blocked when in EXECUTE with core_busy, or in ERROR, or locked
     assign prog_write_blocked = (state_reg == S_EXECUTE && core_busy)
                               || (state_reg == S_ERROR)
-                              || (program_locked_reg && state_reg != S_EXECUTE);
+                              || (state_reg == S_LOCK);
 
     // =========================================================================
     // Output Assignments
@@ -155,13 +196,14 @@ module kernel_vfy #(
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state_reg          <= S_RESET;
-            reset_zeroization_addr <= {ADDR_WIDTH{1'b0}};
+            reset_zeroization_addr <= {PROG_ADDR_WIDTH{1'b0}};
             reset_addr_hold    <= 1'b0;
             kernel_id_reg      <= {KERNEL_ID_WIDTH{1'b0}};
             verified_reg       <= 1'b0;
             fault_reg          <= 1'b0;
-            program_locked_reg <= 1'b0;
             sha_needs_start    <= 1'b1;
+            verify_idx         <= 3'b0;
+            verify_mismatch    <= 1'b0;
             sha_start          <= 1'b0;
             sha_word_valid     <= 1'b0;
             sha_word_data      <= 32'b0;
@@ -173,13 +215,14 @@ module kernel_vfy #(
             first_word_buf     <= 32'b0;
         end else if (security_reset) begin
             state_reg          <= S_RESET;
-            reset_zeroization_addr <= {ADDR_WIDTH{1'b0}};
+            reset_zeroization_addr <= {PROG_ADDR_WIDTH{1'b0}};
             reset_addr_hold    <= 1'b0;
             kernel_id_reg      <= {KERNEL_ID_WIDTH{1'b0}};
             verified_reg       <= 1'b0;
             fault_reg          <= 1'b0;
-            program_locked_reg <= 1'b0;
             sha_needs_start    <= 1'b1;
+            verify_idx         <= 3'b0;
+            verify_mismatch    <= 1'b0;
             sha_start          <= 1'b0;
             sha_word_valid     <= 1'b0;
             sha_word_data      <= 32'b0;
@@ -209,6 +252,10 @@ module kernel_vfy #(
                 fault_reg <= 1'b1;
                 state_reg <= S_ERROR;
             end else begin
+                if (validate_triggered && (state_reg != S_LOAD)) begin
+                    validate_fail <= 1'b1;
+                end
+
                 case (state_reg)
 
                 S_IDLE: begin
@@ -216,12 +263,6 @@ module kernel_vfy #(
                         sha_word_valid <= 1'b1;
                         sha_word_data  <= cc_prog_wdata;
                         state_reg      <= S_LOAD;
-                    end
-                    if(validate_triggered) begin
-                        // Validation is invalid in this state
-                        // fault_reg <= 1'b1;
-                        // state_reg <= S_ERROR;
-                        validate_fail <= 1'b1;
                     end
                 end
 
@@ -258,6 +299,8 @@ module kernel_vfy #(
 
                 S_FINALIZE: begin
                     if (sha_digest_valid) begin
+                        verify_idx      <= 3'b0;
+                        verify_mismatch <= 1'b0;
                         state_reg <= S_VERIFY;
                     end
 
@@ -270,29 +313,30 @@ module kernel_vfy #(
 
                 S_VERIFY: begin
                     //future design note: because the hash address get's checked at least 2 cycles after kernel_id_reg, it should be enough time to get the correct golden_hash, but there is a possibility that the memory read takes too long and we get an invalid golden_hash. In that case, the verification will fail, but it will be a false negative. To mitigate this, we could add a state to wait for the golden_hash to be valid, or we could add a timeout mechanism.
-                    if (sha_digest == golden_hash) begin
-                        validate_done <= 1'b1;
-                        state_reg     <= S_LOCK;
+                    if (verify_word_mismatch) begin
+                        verify_mismatch <= 1'b1;
+                    end
+
+                    if (&verify_idx) begin
+                        if (verify_mismatch || verify_word_mismatch) begin
+                            fault_reg     <= 1'b1;
+                            validate_fail <= 1'b1;
+                            state_reg     <= S_ERROR;
+                        end else begin
+                            validate_done <= 1'b1;
+                            state_reg     <= S_LOCK;
+                        end
                     end else begin
-                        fault_reg     <= 1'b1;
-                        validate_fail <= 1'b1;
-                        state_reg     <= S_ERROR;
+                        verify_idx <= verify_idx + 1'b1;
                     end
                 end
 
                 S_LOCK: begin
-                    program_locked_reg <= 1'b1;
                     verified_reg       <= 1'b1;
                     state_reg          <= S_EXECUTE;
                 end
 
                 S_EXECUTE: begin
-                    if(validate_triggered) begin
-                        // Validation is invalid in this state
-                        // fault_reg <= 1'b1;
-                        // state_reg <= S_ERROR;
-                        validate_fail <= 1'b1;
-                    end
 
                     if (cc_prog_we) begin
                         if (!core_busy) begin
@@ -300,7 +344,6 @@ module kernel_vfy #(
                             sha_reset_pulse    <= 1'b1;
                             sha_needs_start    <= 1'b1;
                             verified_reg       <= 1'b0;
-                            program_locked_reg <= 1'b0;
                             first_word_pending <= 1'b1;
                             first_word_buf     <= cc_prog_wdata;
                             state_reg          <= S_LOAD;
@@ -309,34 +352,22 @@ module kernel_vfy #(
                     end
                 end
 
-                S_ERROR: begin
-                    if (validate_triggered) begin
-                        validate_fail <= 1'b1;
-                    end
-                end
+                // S_ERROR: begin
+                //     if (validate_triggered) begin
+                //         validate_fail <= 1'b1;
+                //     end
+                // end
 
                 S_RESET: begin
-                    if(reset_zeroization_addr < RESET_ZEROIZATION_ADDR_MAX) begin
-                        if(!reset_addr_hold) begin
-                            // Hold the first address for one cycle to ensure it gets written
-                            reset_addr_hold <= 1'b1;
+                    reset_addr_hold <= !reset_addr_hold;
+
+                    if (reset_addr_hold) begin
+                        if (&reset_zeroization_addr) begin
+                            reset_zeroization_addr <= {PROG_ADDR_WIDTH{1'b0}};
+                            state_reg <= S_IDLE;
                         end else begin
-                            reset_addr_hold <= 1'b0;
                             reset_zeroization_addr <= reset_zeroization_addr + 1'b1;
                         end
-                    end else begin
-                        if(!reset_addr_hold) begin
-                            // After the last address, hold to ensure the final write completes
-                            reset_addr_hold <= 1'b1;
-                        end else begin
-                            reset_addr_hold <= 1'b0;
-                            reset_zeroization_addr <= {ADDR_WIDTH{1'b0}};
-                            state_reg <= S_IDLE;
-                        end
-                    end
-
-                    if (validate_triggered) begin
-                        validate_fail <= 1'b1;
                     end
                 end
 

@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 module basys3_comm_top #(
-    parameter CLK_FREQ = 100_000_000,
+    parameter CLK_FREQ = 75_000_000,
     parameter BAUD_RATE = 115200,
     parameter ADDR_WIDTH = 16,
     parameter DATA_WIDTH = 32,

@@ -2,7 +2,8 @@
 
 set_property PACKAGE_PIN W5 [get_ports CLK100MHZ]
 set_property IOSTANDARD LVCMOS33 [get_ports CLK100MHZ]
-create_clock -period 10.000 -name sys_clk_pin -waveform {0.000 5.000} [get_ports CLK100MHZ]
+create_clock -period 13.333 -name sys_clk_pin -waveform {0.000 6.667} [get_ports CLK100MHZ]
+#  clock period is 13.333ns, which corresponds to 75MHz to meet timing constraints
 
 set_property PACKAGE_PIN U18 [get_ports btnC]
 set_property IOSTANDARD LVCMOS33 [get_ports btnC]

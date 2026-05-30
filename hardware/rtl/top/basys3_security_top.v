@@ -384,16 +384,17 @@ module basys3_security_top #(
         end
     end
 
-    wire [15:0] display_word =
-        (kv_kernel_fault) ? {8'b0, 8'he0} :    // display "E" for kernel error/fault
-        (sw[1:0] == 2'd0) ? {8'b0, dbg_rx_cmd} :
-        (sw[1:0] == 2'd1) ? dbg_rx_addr :
-        (sw[1:0] == 2'd2) ? dbg_rx_len :
-                             last_mem_addr;
+    // wire [15:0] display_word =
+    //     (kv_kernel_fault) ? {8'b0, 8'he0} :    // display "E" for kernel error/fault
+    //     (sw[1:0] == 2'd0) ? {8'b0, dbg_rx_cmd} :
+    //     (sw[1:0] == 2'd1) ? dbg_rx_addr :
+    //     (sw[1:0] == 2'd2) ? dbg_rx_len :
+    //                          last_mem_addr;
 
     assign led[0] = !rst;
-    assign led[1] = RsRx;
-    assign led[2] = RsTx;
+    assign led[1] = kv_kernel_fault;
+    // assign led[1] = RsRx;
+    // assign led[2] = RsTx;
     assign led[3] = launch_valid;
     assign led[4] = mem_write0;
     assign led[5] = mem_read0;
@@ -401,13 +402,13 @@ module basys3_security_top #(
     assign led[7] = gpu_busy;
     assign led[15:8] = dbg_rx_cmd;
 
-    basys3_comm_sevenseg display (
-        .clk(CLK100MHZ),
-        .value(display_word),
-        .seg(seg),
-        .dp(dp),
-        .an(an)
-    );
+    // basys3_comm_sevenseg display (
+    //     .clk(CLK100MHZ),
+    //     .value(display_word),
+    //     .seg(seg),
+    //     .dp(dp),
+    //     .an(an)
+    // );
 endmodule
 
 module basys3_comm_sevenseg (

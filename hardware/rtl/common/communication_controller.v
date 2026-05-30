@@ -202,9 +202,8 @@ module communication_controller #(
 
     reg [3:0] state;
 
-    reg [7:0] pending_cmd;
+    reg       pending_is_nack;
     reg [15:0] pending_addr;
-    reg [15:0] pending_len;
     reg       req_valid;
 
     // RSP storage
@@ -248,9 +247,8 @@ module communication_controller #(
             tx_payload_valid <= 0;
 
             req_valid <= 0;
-            pending_cmd <= 0;
+            pending_is_nack <= 0;
             pending_addr <= 0;
-            pending_len <= 0;
 
             rsp_ready <= 0;
             write_done <= 0;
@@ -418,18 +416,16 @@ module communication_controller #(
             // ====================================================
             if (!req_valid) begin
                 if (nack_edge) begin
-                    pending_cmd <= COM_CMD_NAK;
+                    pending_is_nack <= 1'b1;
                     pending_addr <= rx_addr;
-                    pending_len <= 0;
                     req_valid   <= 1;
 
                     security_error <= 1'b1;
                 end
                 else if (ack_edge && (rx_cmd != COM_CMD_READ_DATA) &&
                          (rx_cmd != COM_CMD_READ_STATUS)) begin
-                    pending_cmd <= COM_CMD_ACK;
+                    pending_is_nack <= 1'b0;
                     pending_addr <= rx_addr;
-                    pending_len <= 0;
                     req_valid   <= 1;
                 end
             end
@@ -459,9 +455,9 @@ module communication_controller #(
 
             // ----------------------------------------------------
             ISSUE_CMD: begin
-                tx_cmd  <= pending_cmd;
+                tx_cmd  <= pending_is_nack ? COM_CMD_NAK : COM_CMD_ACK;
                 tx_addr <= pending_addr;
-                tx_len  <= pending_len;
+                tx_len  <= 16'd0;
 
                 tx_start <= 1;
 
