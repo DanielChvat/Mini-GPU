@@ -48,10 +48,7 @@ def rtl_program_stream_bytes(raw_bytes):
     if len(raw_bytes) % 4 != 0:
         raise ValueError("Kernel binary size must be a multiple of 4 bytes")
 
-    stream = bytearray()
-    for offset in range(0, len(raw_bytes), 4):
-        stream.extend(raw_bytes[offset:offset + 4][::-1])
-    return bytes(stream)
+    return raw_bytes
 
 
 def generate_kernel_metadata(kernels_yaml_path, output_dir, hardware_mem_path):

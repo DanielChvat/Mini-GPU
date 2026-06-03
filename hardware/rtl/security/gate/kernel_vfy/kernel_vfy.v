@@ -66,8 +66,7 @@ module kernel_vfy #(
     reg                        verified_reg;
     reg                        fault_reg;
     reg                        sha_needs_start;
-    reg [2:0]                  verify_idx;
-    reg                        verify_mismatch;
+    reg                        verify_wait;
 
     // First-word buffering for EXECUTE→LOAD transition
     reg                        first_word_pending;
@@ -109,9 +108,6 @@ module kernel_vfy #(
     // Golden Hash Lookup
     // =========================================================================
     wire [255:0] golden_hash;
-    reg  [31:0]  verify_digest_word;
-    reg  [31:0]  verify_golden_word;
-    wire         verify_word_mismatch;
 
     kernel_hash_bram #(
         .NUM_HASHES(NUM_GOLDEN_HASHES),
@@ -121,45 +117,6 @@ module kernel_vfy #(
         .addr(kernel_id_reg),
         .hash_out(golden_hash)
     );
-
-    always @* begin
-        case (verify_idx)
-            3'd0: begin
-                verify_digest_word = sha_digest[31:0];
-                verify_golden_word = golden_hash[31:0];
-            end
-            3'd1: begin
-                verify_digest_word = sha_digest[63:32];
-                verify_golden_word = golden_hash[63:32];
-            end
-            3'd2: begin
-                verify_digest_word = sha_digest[95:64];
-                verify_golden_word = golden_hash[95:64];
-            end
-            3'd3: begin
-                verify_digest_word = sha_digest[127:96];
-                verify_golden_word = golden_hash[127:96];
-            end
-            3'd4: begin
-                verify_digest_word = sha_digest[159:128];
-                verify_golden_word = golden_hash[159:128];
-            end
-            3'd5: begin
-                verify_digest_word = sha_digest[191:160];
-                verify_golden_word = golden_hash[191:160];
-            end
-            3'd6: begin
-                verify_digest_word = sha_digest[223:192];
-                verify_golden_word = golden_hash[223:192];
-            end
-            default: begin
-                verify_digest_word = sha_digest[255:224];
-                verify_golden_word = golden_hash[255:224];
-            end
-        endcase
-    end
-
-    assign verify_word_mismatch = (verify_digest_word != verify_golden_word);
 
     // =========================================================================
     // Combinational Data Path
@@ -202,8 +159,7 @@ module kernel_vfy #(
             verified_reg       <= 1'b0;
             fault_reg          <= 1'b0;
             sha_needs_start    <= 1'b1;
-            verify_idx         <= 3'b0;
-            verify_mismatch    <= 1'b0;
+            verify_wait        <= 1'b0;
             sha_start          <= 1'b0;
             sha_word_valid     <= 1'b0;
             sha_word_data      <= 32'b0;
@@ -221,8 +177,7 @@ module kernel_vfy #(
             verified_reg       <= 1'b0;
             fault_reg          <= 1'b0;
             sha_needs_start    <= 1'b1;
-            verify_idx         <= 3'b0;
-            verify_mismatch    <= 1'b0;
+            verify_wait        <= 1'b0;
             sha_start          <= 1'b0;
             sha_word_valid     <= 1'b0;
             sha_word_data      <= 32'b0;
@@ -260,9 +215,14 @@ module kernel_vfy #(
 
                 S_IDLE: begin
                     if (cc_prog_we) begin
-                        sha_word_valid <= 1'b1;
-                        sha_word_data  <= cc_prog_wdata;
-                        state_reg      <= S_LOAD;
+                        if (sha_ready) begin
+                            sha_word_valid <= 1'b1;
+                            sha_word_data  <= cc_prog_wdata;
+                        end else begin
+                            first_word_pending <= 1'b1;
+                            first_word_buf     <= cc_prog_wdata;
+                        end
+                        state_reg <= S_LOAD;
                     end
                 end
 
@@ -279,8 +239,14 @@ module kernel_vfy #(
                         sha_word_valid <= 1'b1;
                         sha_word_data  <= cc_prog_wdata;
                     end
-                    // go to error state if sha is not ready to accept data but we have a new word (and no buffered word)
+                    // Buffer one incoming word while the SHA engine submits a block
+                    // or finishes starting after reset.
                     else if (cc_prog_we && !first_word_pending && !sha_ready) begin
+                        first_word_pending <= 1'b1;
+                        first_word_buf     <= cc_prog_wdata;
+                    end
+                    // A second word before SHA is ready would be dropped, so fault.
+                    else if (cc_prog_we && first_word_pending) begin
                         fault_reg <= 1'b1;
                         state_reg <= S_ERROR;
                     end
@@ -299,9 +265,8 @@ module kernel_vfy #(
 
                 S_FINALIZE: begin
                     if (sha_digest_valid) begin
-                        verify_idx      <= 3'b0;
-                        verify_mismatch <= 1'b0;
-                        state_reg <= S_VERIFY;
+                        verify_wait <= 1'b1;
+                        state_reg   <= S_VERIFY;
                     end
 
                     if (sha_error) begin
@@ -312,22 +277,17 @@ module kernel_vfy #(
                 end
 
                 S_VERIFY: begin
-                    //future design note: because the hash address get's checked at least 2 cycles after kernel_id_reg, it should be enough time to get the correct golden_hash, but there is a possibility that the memory read takes too long and we get an invalid golden_hash. In that case, the verification will fail, but it will be a false negative. To mitigate this, we could add a state to wait for the golden_hash to be valid, or we could add a timeout mechanism.
-                    if (verify_word_mismatch) begin
-                        verify_mismatch <= 1'b1;
-                    end
-
-                    if (&verify_idx) begin
-                        if (verify_mismatch || verify_word_mismatch) begin
+                    if (verify_wait) begin
+                        verify_wait <= 1'b0;
+                    end else begin
+                        if (sha_digest == golden_hash) begin
+                            validate_done <= 1'b1;
+                            state_reg     <= S_LOCK;
+                        end else begin
                             fault_reg     <= 1'b1;
                             validate_fail <= 1'b1;
                             state_reg     <= S_ERROR;
-                        end else begin
-                            validate_done <= 1'b1;
-                            state_reg     <= S_LOCK;
                         end
-                    end else begin
-                        verify_idx <= verify_idx + 1'b1;
                     end
                 end
 
